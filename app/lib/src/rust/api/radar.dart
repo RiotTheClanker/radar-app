@@ -187,6 +187,22 @@ Future<RadarFrame> renderMrmsView({
   height: height,
 );
 
+/// Drape a basemap image (RGBA8, north-up, covering the volume extent) on
+/// the 3D ground plane.
+Future<void> volume3DSetGround({
+  required List<int> rgba,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarVolume3DSetGround(
+  rgba: rgba,
+  width: width,
+  height: height,
+);
+
+/// Ground-plane bounds of the open 3D session: [north, south, east, west].
+Future<Float64List> volume3DGroundBounds() =>
+    RustLib.instance.api.crateApiRadarVolume3DGroundBounds();
+
 /// Lightning flashes parsed from one GOES GLM L2 LCFA file.
 class GlmResult {
   final PlatformInt64 timestamp;

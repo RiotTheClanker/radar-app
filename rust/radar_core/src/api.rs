@@ -380,6 +380,8 @@ struct Vol3DSession {
     grid: Grid3D,
     moment: String,
     gpu: Option<crate::render::gpu3d::GpuVolume>,
+    site_lat: f64,
+    site_lon: f64,
 }
 
 static VOL3D: Mutex<Option<Vol3DSession>> = Mutex::new(None);
@@ -414,7 +416,27 @@ fn palette_3d(moment: &str, threshold: f32) -> [[u8; 4]; 256] {
                 let thr = threshold * 0.6; // slider 0-50 -> 0-30 m/s
                 ((v.abs() - thr) / 20.0).clamp(0.0, 0.85)
             }
-            "ZDR" | "RHO" => 0.30,
+            // ZDR is interesting when it departs from zero in either
+            // direction, so filter on magnitude (slider 0-50 -> 0-8 dB).
+            "ZDR" => {
+                let thr = threshold * 0.16;
+                if v.abs() < thr {
+                    0.0
+                } else {
+                    ((v.abs() - thr) / 3.0).clamp(0.04, 0.75)
+                }
+            }
+            // For CC the signal is *low* values (debris, melting layer,
+            // non-meteorological), so the slider raises a ceiling instead:
+            // 0 shows everything, 50 isolates CC below ~0.5.
+            "RHO" => {
+                let ceiling = 1.05 - threshold * 0.011;
+                if v > ceiling {
+                    0.0
+                } else {
+                    ((ceiling - v) / 0.25).clamp(0.04, 0.8)
+                }
+            }
             _ => {
                 if v < threshold {
                     0.0
@@ -460,7 +482,13 @@ pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Vo
         half_extent_m: grid.half_extent_m,
         top_m: grid.top_m * Z_EXAG,
     };
-    *VOL3D.lock().unwrap() = Some(Vol3DSession { grid, moment, gpu });
+    *VOL3D.lock().unwrap() = Some(Vol3DSession {
+        grid,
+        moment,
+        gpu,
+        site_lat: vol.site_lat,
+        site_lon: vol.site_lon,
+    });
     Ok(info)
 }
 
@@ -549,4 +577,27 @@ pub fn render_mrms_view(
         east: img.east,
         west: img.west,
     })
+}
+
+/// Drape a basemap image on the 3D ground plane. The image must cover the
+/// volume's horizontal extent exactly, north-up, as RGBA8.
+pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(), String> {
+    let mut guard = VOL3D.lock().unwrap();
+    let s = guard.as_mut().ok_or("no 3D session")?;
+    if let Some(gpu) = s.gpu.as_mut() {
+        gpu.set_ground(&rgba, width, height);
+    }
+    Ok(())
+}
+
+/// Geographic bounds of the open 3D session's ground plane, so the app can
+/// fetch matching map tiles: [north, south, east, west].
+pub fn volume3d_ground_bounds() -> Result<Vec<f64>, String> {
+    let guard = VOL3D.lock().unwrap();
+    let s = guard.as_ref().ok_or("no 3D session")?;
+    let ex = s.grid.half_extent_m as f64;
+    let lat = s.site_lat;
+    let dlat = ex / 111_320.0;
+    let dlon = ex / (111_320.0 * lat.to_radians().cos().abs().max(0.01));
+    Ok(vec![lat + dlat, lat - dlat, s.site_lon + dlon, s.site_lon - dlon])
 }

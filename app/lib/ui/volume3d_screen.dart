@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../data/basemap_tiles.dart';
 import '../src/rust/api/radar.dart';
 
 /// Fields available as 3D volumes.
@@ -32,10 +33,14 @@ const _volFields = [
 class Volume3DScreen extends StatefulWidget {
   final Uint8List volumeBytes;
   final String siteId;
+
+  /// Tile URL of the basemap the user had on the map, draped on the ground.
+  final String basemapUrl;
   const Volume3DScreen({
     super.key,
     required this.volumeBytes,
     required this.siteId,
+    required this.basemapUrl,
   });
 
   @override
@@ -73,6 +78,10 @@ class _Volume3DScreenState extends State<Volume3DScreen>
 
   // Gesture state
   double _lastScale = 1;
+
+  // Ground basemap (stitched once, re-applied when the session is rebuilt)
+  StitchedMap? _ground;
+  bool _groundLoading = false;
 
   // Frame plumbing
   ui.Image? _frame;
@@ -117,6 +126,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
       if (_gpu) {
         _ticker ??= createTicker(_onTick)..start();
         _dirty = true;
+        unawaited(_applyGround());
       } else {
         await _legacyRender();
       }
@@ -136,6 +146,37 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     _yaw = 0;
     _pitch = -6;
     _dirty = true;
+  }
+
+  /// Fetch (once) and upload the basemap that goes under the storm.
+  Future<void> _applyGround() async {
+    if (_groundLoading) return;
+    _groundLoading = true;
+    try {
+      if (_ground == null) {
+        final b = await volume3DGroundBounds();
+        if (b.length < 4) return;
+        _ground = await stitchBasemap(
+          urlTemplate: widget.basemapUrl,
+          north: b[0],
+          south: b[1],
+          east: b[2],
+          west: b[3],
+        );
+      }
+      final g = _ground;
+      if (g == null || !mounted) return;
+      await volume3DSetGround(
+        rgba: g.rgba,
+        width: g.width,
+        height: g.height,
+      );
+      _dirty = true;
+    } catch (_) {
+      // The storm renders fine without a basemap.
+    } finally {
+      _groundLoading = false;
+    }
   }
 
   // ------------------------------------------------------------- fly loop --
@@ -307,6 +348,41 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     }
   }
 
+  /// Project a world point into widget coordinates, or null when it is
+  /// behind the camera or outside the rendered frame.
+  Offset? _project(List<double> p, Size size) {
+    const imgW = 1100.0, imgH = 740.0;
+    final yaw = _yaw * math.pi / 180.0;
+    final pitch = _pitch * math.pi / 180.0;
+    final f = [
+      math.cos(pitch) * math.sin(yaw),
+      math.cos(pitch) * math.cos(yaw),
+      math.sin(pitch),
+    ];
+    final r = [math.cos(yaw), -math.sin(yaw), 0.0];
+    final u = [
+      -math.sin(yaw) * math.sin(pitch),
+      -math.cos(yaw) * math.sin(pitch),
+      math.cos(pitch),
+    ];
+    final d = [p[0] - _px, p[1] - _py, p[2] - _pz];
+    final c = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+    if (c <= 1) return null;
+    final a = d[0] * r[0] + d[1] * r[1] + d[2] * r[2];
+    final b = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+    const fov = 55.0 * math.pi / 180.0;
+    final planeH = 2 * math.tan(fov / 2);
+    final planeW = planeH * imgW / imgH;
+    final ix = ((a / c) / planeW + 0.5) * imgW;
+    final iy = (0.5 - (b / c) / planeH) * imgH;
+    if (ix < 0 || ix > imgW || iy < 0 || iy > imgH) return null;
+    final scale = math.min(size.width / imgW, size.height / imgH);
+    return Offset(
+      (size.width - imgW * scale) / 2 + ix * scale,
+      (size.height - imgH * scale) / 2 + iy * scale,
+    );
+  }
+
   // ------------------------------------------------------------------ ui --
 
   @override
@@ -397,7 +473,10 @@ class _Volume3DScreenState extends State<Volume3DScreen>
       },
       child: Listener(
         onPointerSignal: _onScroll,
-        child: Stack(
+        child: LayoutBuilder(builder: (context, constraints) {
+          final size = Size(constraints.maxWidth, constraints.maxHeight);
+          final radarPin = _project(const [0.0, 0.0, 0.0], size);
+          return Stack(
           fit: StackFit.expand,
           children: [
             GestureDetector(
@@ -409,6 +488,41 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                     ? const Center(child: CircularProgressIndicator())
                     : RawImage(image: _frame, fit: BoxFit.contain),
               ),
+            ),
+            // Radar site marker, projected with the render camera.
+            if (radarPin != null)
+              Positioned(
+                left: radarPin.dx - 11,
+                top: radarPin.dy - 30,
+                child: IgnorePointer(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        size: 22,
+                        color: Colors.cyanAccent.withValues(alpha: 0.95),
+                        shadows: const [
+                          Shadow(blurRadius: 4, color: Colors.black),
+                        ],
+                      ),
+                      Text(
+                        widget.siteId,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.cyanAccent,
+                          shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            // Heading compass.
+            Positioned(
+              right: 14,
+              top: 12,
+              child: IgnorePointer(child: _Compass(yaw: _yaw, pitch: _pitch)),
             ),
             // Movement stick (bottom-left) and altitude pad (bottom-right).
             Positioned(
@@ -443,7 +557,8 @@ class _Volume3DScreenState extends State<Volume3DScreen>
               ),
             ),
           ],
-        ),
+          );
+        }),
       ),
     );
   }
@@ -651,4 +766,80 @@ class _HoldButtonState extends State<_HoldButton> {
       ),
     );
   }
+}
+
+
+/// Heading rose: the needle points north, and the readout shows the
+/// camera's compass bearing and pitch.
+class _Compass extends StatelessWidget {
+  final double yaw;
+  final double pitch;
+  const _Compass({required this.yaw, required this.pitch});
+
+  @override
+  Widget build(BuildContext context) {
+    final heading = ((yaw % 360) + 360) % 360;
+    const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    final label = dirs[(((heading + 22.5) % 360) ~/ 45)];
+    return Column(
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.black.withValues(alpha: 0.45),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Transform.rotate(
+            angle: -heading * math.pi / 180.0,
+            child: CustomPaint(painter: _CompassPainter()),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          '$label ${heading.round()}°  ${pitch >= 0 ? '+' : ''}${pitch.round()}°',
+          style: const TextStyle(fontSize: 10, color: Colors.white70),
+        ),
+      ],
+    );
+  }
+}
+
+class _CompassPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2 - 6;
+    final north = Paint()..color = const Color(0xFFFF5252);
+    final south = Paint()..color = Colors.white70;
+    // North half of the needle
+    canvas.drawPath(
+      Path()
+        ..moveTo(c.dx, c.dy - r)
+        ..lineTo(c.dx - 5, c.dy + 3)
+        ..lineTo(c.dx + 5, c.dy + 3)
+        ..close(),
+      north,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(c.dx, c.dy + r)
+        ..lineTo(c.dx - 4, c.dy + 2)
+        ..lineTo(c.dx + 4, c.dy + 2)
+        ..close(),
+      south,
+    );
+    final tp = TextPainter(
+      text: const TextSpan(
+        text: 'N',
+        style: TextStyle(fontSize: 9, color: Color(0xFFFF8A80)),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(c.dx - tp.width / 2, 0));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

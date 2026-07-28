@@ -271,3 +271,14 @@ pub fn render_mrms_view(
 ) -> Result<RadarFrame, String> {
     convert(core::render_mrms_view(data, north, south, east, west, width, height)?)
 }
+
+/// Drape a basemap image (RGBA8, north-up, covering the volume extent) on
+/// the 3D ground plane.
+pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(), String> {
+    core::volume3d_set_ground(rgba, width, height)
+}
+
+/// Ground-plane bounds of the open 3D session: [north, south, east, west].
+pub fn volume3d_ground_bounds() -> Result<Vec<f64>, String> {
+    core::volume3d_ground_bounds()
+}

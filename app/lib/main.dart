@@ -625,6 +625,7 @@ class _RadarScreenState extends State<RadarScreen> {
           builder: (_) => Volume3DScreen(
             volumeBytes: bytes,
             siteId: _site.icao,
+            basemapUrl: _basemap.url,
           ),
         ),
       );

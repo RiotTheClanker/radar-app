@@ -19,6 +19,8 @@ struct U {
     p1: vec4f,
     cmin: vec4f,
     cmax: vec4f,
+    // g0.x: 1 when a basemap ground texture is bound
+    g0: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: U;
@@ -26,6 +28,7 @@ struct U {
 @group(0) @binding(2) var vol_samp: sampler;
 @group(0) @binding(3) var pal: texture_2d<f32>;
 @group(0) @binding(4) var pal_samp: sampler;
+@group(0) @binding(5) var ground: texture_2d<f32>;
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -55,6 +58,21 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 
     let ex = u.p0.z;
     let top = u.p0.w;
+
+    // Basemap on the z=0 plane, so you can tell where you are. Sampled
+    // independently of the clip box; the volume composites over it.
+    var ground_col = vec4f(0.0);
+    if (u.g0.x > 0.5 && dir.z < -0.00001) {
+        let tg = -u.eye.z / dir.z;
+        if (tg > 0.0) {
+            let gp = u.eye.xyz + dir * tg;
+            if (abs(gp.x) <= ex && abs(gp.y) <= ex) {
+                let guv = vec2f((gp.x + ex) / (2.0 * ex),
+                                1.0 - (gp.y + ex) / (2.0 * ex));
+                ground_col = textureSampleLevel(ground, pal_samp, guv, 0.0);
+            }
+        }
+    }
     // Clip planes are normalized [0,1] fractions of the volume box.
     let bmin = vec3f(-ex, -ex, 0.0) + u.cmin.xyz * vec3f(2.0 * ex, 2.0 * ex, top);
     let bmax = vec3f(-ex, -ex, 0.0) + u.cmax.xyz * vec3f(2.0 * ex, 2.0 * ex, top);
@@ -62,9 +80,6 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let hit = ray_box(u.eye.xyz, dir, bmin, bmax);
     var t = max(hit.x, 0.0);
     let t1 = hit.y;
-    if (t1 <= t) {
-        return vec4f(0.0);
-    }
 
     var acc = vec3f(0.0);
     var alpha = 0.0;
@@ -72,6 +87,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let alpha_scale = u.p1.y;
 
     for (var i = 0; i < 1200; i++) {
+        if (t1 <= t) { break; }
         if (t >= t1 || alpha >= 0.97) { break; }
         let p = u.eye.xyz + dir * t;
         let tc = vec3f((p.x + ex) / (2.0 * ex), (p.y + ex) / (2.0 * ex), p.z / top);
@@ -85,7 +101,9 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
         t += step;
     }
 
-    return vec4f(acc, alpha);
+    // Composite the basemap underneath whatever the volume left translucent.
+    let ga = ground_col.a * (1.0 - alpha);
+    return vec4f(acc + ground_col.rgb * ga, alpha + ga);
 }
 "#;
 
@@ -100,6 +118,8 @@ pub struct GpuVolume {
     pal_view: wgpu::TextureView,
     pal_samp: wgpu::Sampler,
     uniforms: wgpu::Buffer,
+    ground_view: wgpu::TextureView,
+    has_ground: bool,
     pub ex: f32,
     pub top: f32,
 }
@@ -192,7 +212,7 @@ impl GpuVolume {
 
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniforms"),
-            size: 128,
+            size: 160,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -247,6 +267,16 @@ impl GpuVolume {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -280,6 +310,8 @@ impl GpuVolume {
             cache: None,
         });
 
+        let ground_view = make_ground_texture(&device, &queue, &[0, 0, 0, 0], 1, 1);
+
         let s = Self {
             device,
             queue,
@@ -291,6 +323,8 @@ impl GpuVolume {
             pal_view,
             pal_samp,
             uniforms,
+            ground_view,
+            has_ground: false,
             ex: grid.half_extent_m,
             top: grid.top_m * z_exaggeration,
         };
@@ -321,6 +355,16 @@ impl GpuVolume {
         );
     }
 
+    /// Upload a basemap image to drape on the ground plane. The image must
+    /// cover exactly the volume's horizontal extent, north-up.
+    pub fn set_ground(&mut self, rgba: &[u8], width: u32, height: u32) {
+        if width == 0 || height == 0 || rgba.len() < (width * height * 4) as usize {
+            return;
+        }
+        self.ground_view = make_ground_texture(&self.device, &self.queue, rgba, width, height);
+        self.has_ground = true;
+    }
+
     pub fn render(&self, p: &FlyParams, width: u32, height: u32) -> Result<Vec<u8>, String> {
         let yaw = p.yaw_deg.to_radians();
         let pitch = p.pitch_deg.to_radians().clamp(-1.55, 1.55);
@@ -343,7 +387,7 @@ impl GpuVolume {
         let plane_w = plane_h * width as f32 / height as f32;
         let step = (2.0 * self.ex / 384.0).max(self.top / 40.0) * 0.55;
 
-        let mut u = [0f32; 32];
+        let mut u = [0f32; 40];
         u[0..3].copy_from_slice(&p.eye);
         u[4..7].copy_from_slice(&fwd);
         u[8..11].copy_from_slice(&right);
@@ -358,6 +402,7 @@ impl GpuVolume {
         u[23] = height as f32;
         u[24..27].copy_from_slice(&p.clip_min);
         u[28..31].copy_from_slice(&p.clip_max);
+        u[32] = if self.has_ground { 1.0 } else { 0.0 };
         self.queue
             .write_buffer(&self.uniforms, 0, bytemuck::cast_slice(&u));
 
@@ -384,6 +429,10 @@ impl GpuVolume {
                 wgpu::BindGroupEntry {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&self.pal_samp),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&self.ground_view),
                 },
             ],
         });
@@ -481,4 +530,44 @@ impl GpuVolume {
         readback.unmap();
         Ok(out)
     }
+}
+
+fn make_ground_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+) -> wgpu::TextureView {
+    let size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("ground"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        size,
+    );
+    tex.create_view(&wgpu::TextureViewDescriptor::default())
 }
