@@ -225,6 +225,7 @@ class _RadarScreenState extends State<RadarScreen> {
   LatLng? _cursorPos;
   LatLng? _cursorSite;
   SampleResult? _cursorSample;
+  bool _cursorPinned = false;
   bool _cursorBusy = false;
   DateTime _cursorLast = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -455,15 +456,39 @@ class _RadarScreenState extends State<RadarScreen> {
       setState(() {
         _cursorSite = site.length >= 2 ? LatLng(site[0], site[1]) : null;
       });
+      // Keep a pinned readout current as frames advance.
+      final at = _cursorPos;
+      if (at != null) {
+        final s = await inspectSample(lat: at.latitude, lon: at.longitude);
+        if (mounted) setState(() => _cursorSample = s);
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
   }
 
   /// Aim at a point and read the value there. Throttled so a moving pointer
-  /// doesn't queue up work.
-  Future<void> _aimCursor(LatLng p) async {
+  /// doesn't queue up work. A tap pins the cursor so it stays put (tapping
+  /// it again releases it); while pinned, hovering does not move it.
+  Future<void> _aimCursor(LatLng p, {bool fromTap = false}) async {
     if (!_cursor) return;
+    if (fromTap) {
+      final existing = _cursorPos;
+      if (_cursorPinned && existing != null) {
+        final cam = _mapController.camera;
+        final d =
+            (cam.latLngToScreenOffset(existing) - cam.latLngToScreenOffset(p))
+                .distance;
+        if (d < 24) {
+          // Tapped the pin itself: release it.
+          setState(() => _cursorPinned = false);
+          return;
+        }
+      }
+      setState(() => _cursorPinned = true);
+    } else if (_cursorPinned) {
+      return; // pinned: ignore pointer movement
+    }
     setState(() => _cursorPos = p);
     final now = DateTime.now();
     if (_cursorBusy || now.difference(_cursorLast).inMilliseconds < 60) return;
@@ -980,7 +1005,7 @@ class _RadarScreenState extends State<RadarScreen> {
               maxZoom: 15,
               onTap: (tapPos, latlng) {
                 if (_measuring) _onMeasureTap(latlng);
-                if (_cursor) _aimCursor(latlng);
+                if (_cursor) _aimCursor(latlng, fromTap: true);
               },
               onPointerHover: (event, latlng) {
                 if (_cursor) _aimCursor(latlng);
@@ -1118,12 +1143,12 @@ class _RadarScreenState extends State<RadarScreen> {
                       point: _cursorPos!,
                       width: 26,
                       height: 26,
-                      child: const IgnorePointer(
+                      child: IgnorePointer(
                         child: Icon(
-                          Icons.add,
-                          size: 26,
+                          _cursorPinned ? Icons.gps_fixed : Icons.add,
+                          size: _cursorPinned ? 22 : 26,
                           color: Colors.amberAccent,
-                          shadows: [
+                          shadows: const [
                             Shadow(blurRadius: 3, color: Colors.black),
                           ],
                         ),
@@ -1288,6 +1313,14 @@ class _RadarScreenState extends State<RadarScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          if (_cursorPinned) ...[
+                            const Icon(
+                              Icons.push_pin,
+                              size: 13,
+                              color: Colors.amberAccent,
+                            ),
+                            const SizedBox(width: 5),
+                          ],
                           Text(
                             value,
                             style: const TextStyle(
@@ -1551,20 +1584,21 @@ class _RadarScreenState extends State<RadarScreen> {
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
-            tooltip: 'Aiming cursor (range, azimuth, beam height, value)',
+            tooltip: 'Aiming cursor — hover to read, tap to pin',
             onPressed: () {
               setState(() {
                 _cursor = !_cursor;
                 if (!_cursor) {
                   _cursorPos = null;
                   _cursorSample = null;
+                  _cursorPinned = false;
                 }
               });
               if (_cursor) _openCursorSession();
             },
             icon: Icon(
-              Icons.gps_fixed,
-              size: 19,
+              Icons.ads_click,
+              size: 20,
               color: _cursor ? Colors.amberAccent : Colors.white38,
             ),
           ),
