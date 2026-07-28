@@ -333,3 +333,38 @@ fn build_frame(
         west: img.west,
     })
 }
+
+/// Render a 3D volume view of a Level 2 volume's reflectivity as a PNG.
+/// Camera orbits the radar: yaw/pitch in degrees, zoom 1.0 = whole volume.
+#[allow(clippy::too_many_arguments)]
+pub fn render_volume3d(
+    data: Vec<u8>,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    zoom: f32,
+    dbz_min: f32,
+    width: u32,
+    height: u32,
+) -> Result<Volume3DFrame, String> {
+    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let cuts = vol.all_sweeps("REF");
+    let grid = crate::process::grid3d::build_grid(&cuts, 384, 24, 120_000.0, 16_000.0)
+        .ok_or_else(|| "no reflectivity cuts in volume".to_string())?;
+    let img = crate::render::volume3d::render_volume(
+        &grid, yaw_deg, pitch_deg, zoom, dbz_min, width, height, 4.0,
+    );
+    Ok(Volume3DFrame {
+        width: img.width,
+        height: img.height,
+        png: encode_png(img.width, img.height, &img.rgba)?,
+        timestamp: cuts.first().map(|c| c.timestamp).unwrap_or(0),
+    })
+}
+
+/// A rendered 3D volume frame.
+pub struct Volume3DFrame {
+    pub width: u32,
+    pub height: u32,
+    pub png: Vec<u8>,
+    pub timestamp: i64,
+}

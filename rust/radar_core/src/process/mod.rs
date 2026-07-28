@@ -1,6 +1,8 @@
 //! On-device derived products: dealiasing, storm-relative motion, and
 //! volume-integrated products (composite reflectivity, VIL, echo tops).
 
+pub mod grid3d;
+
 use crate::level3::ValueDecoder;
 use crate::sweep::{GateData, Sweep, SweepRadial};
 

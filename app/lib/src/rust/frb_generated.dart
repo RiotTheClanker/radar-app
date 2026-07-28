@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 666138318;
+  int get rustContentHash => 725905193;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -120,6 +120,16 @@ abstract class RustLibApi extends BaseApi {
     required double south,
     required double east,
     required double west,
+    required int width,
+    required int height,
+  });
+
+  Future<Volume3DFrame> crateApiRadarRenderVolume3D({
+    required List<int> data,
+    required double yawDeg,
+    required double pitchDeg,
+    required double zoom,
+    required double dbzMin,
     required int width,
     required int height,
   });
@@ -448,6 +458,59 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<Volume3DFrame> crateApiRadarRenderVolume3D({
+    required List<int> data,
+    required double yawDeg,
+    required double pitchDeg,
+    required double zoom,
+    required double dbzMin,
+    required int width,
+    required int height,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_f_32(yawDeg, serializer);
+          sse_encode_f_32(pitchDeg, serializer);
+          sse_encode_f_32(zoom, serializer);
+          sse_encode_f_32(dbzMin, serializer);
+          sse_encode_u_32(width, serializer);
+          sse_encode_u_32(height, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_volume_3_d_frame,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarRenderVolume3DConstMeta,
+        argValues: [data, yawDeg, pitchDeg, zoom, dbzMin, width, height],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarRenderVolume3DConstMeta =>
+      const TaskConstMeta(
+        debugName: "render_volume3d",
+        argNames: [
+          "data",
+          "yawDeg",
+          "pitchDeg",
+          "zoom",
+          "dbzMin",
+          "width",
+          "height",
+        ],
+      );
+
+  @override
   Future<SampleResult> crateApiRadarSampleLevel2({
     required List<int> data,
     required String moment,
@@ -467,7 +530,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -503,7 +566,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -658,6 +721,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void dco_decode_unit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return;
+  }
+
+  @protected
+  Volume3DFrame dco_decode_volume_3_d_frame(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return Volume3DFrame(
+      width: dco_decode_u_32(arr[0]),
+      height: dco_decode_u_32(arr[1]),
+      png: dco_decode_list_prim_u_8_strict(arr[2]),
+      timestamp: dco_decode_i_64(arr[3]),
+    );
   }
 
   @protected
@@ -816,6 +893,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Volume3DFrame sse_decode_volume_3_d_frame(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_width = sse_decode_u_32(deserializer);
+    var var_height = sse_decode_u_32(deserializer);
+    var var_png = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_timestamp = sse_decode_i_64(deserializer);
+    return Volume3DFrame(
+      width: var_width,
+      height: var_height,
+      png: var_png,
+      timestamp: var_timestamp,
+    );
+  }
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
@@ -952,5 +1044,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  void sse_encode_volume_3_d_frame(
+    Volume3DFrame self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.width, serializer);
+    sse_encode_u_32(self.height, serializer);
+    sse_encode_list_prim_u_8_strict(self.png, serializer);
+    sse_encode_i_64(self.timestamp, serializer);
   }
 }

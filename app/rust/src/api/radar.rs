@@ -175,3 +175,31 @@ pub fn render_level3_frame(data: Vec<u8>, image_size: u32) -> Result<RadarFrame,
         west: f.west,
     })
 }
+
+/// A rendered 3D volume frame.
+pub struct Volume3DFrame {
+    pub width: u32,
+    pub height: u32,
+    pub png: Vec<u8>,
+    pub timestamp: i64,
+}
+
+/// Render a 3D volume view of a Level 2 volume's reflectivity as a PNG.
+#[allow(clippy::too_many_arguments)]
+pub fn render_volume3d(
+    data: Vec<u8>,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    zoom: f32,
+    dbz_min: f32,
+    width: u32,
+    height: u32,
+) -> Result<Volume3DFrame, String> {
+    let f = core::render_volume3d(data, yaw_deg, pitch_deg, zoom, dbz_min, width, height)?;
+    Ok(Volume3DFrame {
+        width: f.width,
+        height: f.height,
+        png: f.png,
+        timestamp: f.timestamp,
+    })
+}

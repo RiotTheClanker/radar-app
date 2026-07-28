@@ -110,6 +110,25 @@ Future<RadarFrame> renderLevel3Frame({
   imageSize: imageSize,
 );
 
+/// Render a 3D volume view of a Level 2 volume's reflectivity as a PNG.
+Future<Volume3DFrame> renderVolume3D({
+  required List<int> data,
+  required double yawDeg,
+  required double pitchDeg,
+  required double zoom,
+  required double dbzMin,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarRenderVolume3D(
+  data: data,
+  yawDeg: yawDeg,
+  pitchDeg: pitchDeg,
+  zoom: zoom,
+  dbzMin: dbzMin,
+  width: width,
+  height: height,
+);
+
 /// Lightning flashes parsed from one GOES GLM L2 LCFA file.
 class GlmResult {
   final PlatformInt64 timestamp;
@@ -248,4 +267,33 @@ class SampleResult {
           unit == other.unit &&
           distanceKm == other.distanceKm &&
           beamHeightM == other.beamHeightM;
+}
+
+/// A rendered 3D volume frame.
+class Volume3DFrame {
+  final int width;
+  final int height;
+  final Uint8List png;
+  final PlatformInt64 timestamp;
+
+  const Volume3DFrame({
+    required this.width,
+    required this.height,
+    required this.png,
+    required this.timestamp,
+  });
+
+  @override
+  int get hashCode =>
+      width.hashCode ^ height.hashCode ^ png.hashCode ^ timestamp.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Volume3DFrame &&
+          runtimeType == other.runtimeType &&
+          width == other.width &&
+          height == other.height &&
+          png == other.png &&
+          timestamp == other.timestamp;
 }

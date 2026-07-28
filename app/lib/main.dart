@@ -16,6 +16,7 @@ import 'data/locate.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
 import 'src/rust/frb_generated.dart';
+import 'ui/volume3d_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -544,6 +545,33 @@ class _RadarScreenState extends State<RadarScreen> {
     );
   }
 
+  /// Open the 3D volume view on the latest Level 2 volume for this site.
+  Future<void> _open3D() async {
+    setState(() => _loading = true);
+    try {
+      final keys = await listRecentVolumes(_site.icao, count: 1);
+      if (keys.isEmpty) throw Exception('no volume for ${_site.icao}');
+      final bytes = _l2Cache[keys.last] ?? await fetchVolume(keys.last);
+      _l2Cache[keys.last] = bytes;
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => Volume3DScreen(
+            volumeBytes: bytes,
+            siteId: _site.icao,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
   // ---------------------------------------------------------- inspector ----
 
   Future<void> _inspect(LatLng p) async {
@@ -839,6 +867,16 @@ class _RadarScreenState extends State<RadarScreen> {
                   child: Text(label),
                 ),
             ],
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: '3D volume view',
+            onPressed: _open3D,
+            icon: const Icon(
+              Icons.view_in_ar,
+              size: 19,
+              color: Colors.white70,
+            ),
           ),
           PopupMenuButton<_Basemap>(
             tooltip: 'Basemap',
