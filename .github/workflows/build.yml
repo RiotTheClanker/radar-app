@@ -47,6 +47,8 @@ jobs:
         working-directory: app
       - run: flutter analyze
         working-directory: app
+      - run: flutter test
+        working-directory: app
       - run: flutter build linux --release
         working-directory: app
       - name: package
