@@ -384,6 +384,28 @@ class _RadarScreenState extends State<RadarScreen> {
     return frames;
   }
 
+  /// Zoomed out past a single radar's useful range, hand over to the
+  /// national mosaic; zoom back in and the site radar returns. Only the
+  /// default reflectivity view participates — an explicitly chosen product
+  /// is never swapped out from under the user.
+  void _maybeSwitchMosaic() {
+    if (_loading) return;
+    final z = _mapController.camera.zoom;
+    if (z < 6.0 && _product == _l3Products[0]) {
+      setState(() {
+        _product = _mrmsProduct;
+        _frames = [];
+      });
+      _loadFrames();
+    } else if (z >= 6.5 && _product.isMrms) {
+      setState(() {
+        _product = _l3Products[0];
+        _frames = [];
+      });
+      _loadFrames();
+    }
+  }
+
   /// Re-render all loaded frames for the current viewport at (roughly)
   /// screen resolution, so 250 m gates stay sharp when zoomed in.
   Future<void> _renderViewport() async {
@@ -683,6 +705,7 @@ class _RadarScreenState extends State<RadarScreen> {
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
               onMapEvent: (_) {
+                _maybeSwitchMosaic();
                 _viewDebounce?.cancel();
                 _viewDebounce = Timer(
                   const Duration(milliseconds: 350),
