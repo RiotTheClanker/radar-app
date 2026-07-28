@@ -31,6 +31,74 @@ fn inv_merc_y(y: f64) -> f64 {
     2.0 * y.exp().atan() - std::f64::consts::FRAC_PI_2
 }
 
+/// Render a regular lat/lon grid (MRMS mosaic) into a Web Mercator view box.
+#[allow(clippy::too_many_arguments)]
+pub fn rasterize_latlon_view(
+    grid: &crate::mrms::LatLonGrid,
+    table: &ColorTable,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Option<GeoImage> {
+    if north <= south || east <= west || grid.data.is_empty() {
+        return None;
+    }
+    // Grid values use the shared dBZ encoding (raw = dBZ*2 + 66).
+    let lut = table.build_lut(
+        &crate::level3::ValueDecoder::ScaleOffset {
+            scale: 2.0,
+            offset: 66.0,
+        },
+        256,
+    );
+
+    let w = width as usize;
+    let h = height as usize;
+    let mut pixels = vec![0u8; w * h * 4];
+    let y_n = merc_y(north.to_radians());
+    let y_s = merc_y(south.to_radians());
+    let dx = (grid.east - grid.west) / grid.nx as f64;
+    let dy = (grid.north - grid.south) / grid.ny as f64;
+
+    for py in 0..h {
+        let ty = (py as f64 + 0.5) / h as f64;
+        let lat = inv_merc_y(y_n + (y_s - y_n) * ty).to_degrees();
+        let gy = ((grid.north - lat) / dy) as i64;
+        if gy < 0 || gy >= grid.ny as i64 {
+            continue;
+        }
+        let grow = &grid.data[gy as usize * grid.nx..(gy as usize + 1) * grid.nx];
+        let row = &mut pixels[py * w * 4..(py + 1) * w * 4];
+        for px in 0..w {
+            let tx = (px as f64 + 0.5) / w as f64;
+            let lon = west + (east - west) * tx;
+            let gx = ((lon - grid.west) / dx) as i64;
+            if gx < 0 || gx >= grid.nx as i64 {
+                continue;
+            }
+            let color = lut[grow[gx as usize] as usize];
+            if color[3] == 0 {
+                continue;
+            }
+            let o = px * 4;
+            row[o..o + 4].copy_from_slice(&color);
+        }
+    }
+
+    Some(GeoImage {
+        width,
+        height,
+        pixels,
+        north,
+        south,
+        east,
+        west,
+    })
+}
+
 /// Build a 0.1°-resolution azimuth -> radial-index lookup table.
 fn azimuth_lut(sweep: &Sweep) -> Vec<i32> {
     let mut lut = vec![-1i32; 3600];

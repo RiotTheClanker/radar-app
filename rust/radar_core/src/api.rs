@@ -515,3 +515,38 @@ pub fn volume3d_render_fly(
         rgba,
     })
 }
+
+/// Decode an MRMS national mosaic (gzipped GRIB2) and render the given
+/// Web Mercator view box. One decode covers the whole CONUS.
+#[allow(clippy::too_many_arguments)]
+pub fn render_mrms_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    let grid = crate::mrms::parse(&data, 3).map_err(|e| e.to_string())?;
+    let table = ColorTable::reflectivity_default();
+    let img = render::rasterize_latlon_view(&grid, &table, north, south, east, west, width, height)
+        .ok_or_else(|| "empty view".to_string())?;
+    Ok(RadarFrame {
+        product_code: 0,
+        product_name: "National Mosaic (MRMS)".into(),
+        unit: "dBZ".into(),
+        site_lat: (grid.north + grid.south) * 0.5,
+        site_lon: (grid.east + grid.west) * 0.5,
+        timestamp: grid.timestamp,
+        elevation_deg: 0.0,
+        vcp: 0,
+        width: img.width,
+        height: img.height,
+        png: encode_png(img.width, img.height, &img.pixels)?,
+        north: img.north,
+        south: img.south,
+        east: img.east,
+        west: img.west,
+    })
+}

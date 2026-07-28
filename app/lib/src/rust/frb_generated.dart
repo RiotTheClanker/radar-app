@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1058273031;
+  int get rustContentHash => -639647176;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -115,6 +115,16 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<RadarFrame> crateApiRadarRenderLevel3View({
+    required List<int> data,
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+    required int width,
+    required int height,
+  });
+
+  Future<RadarFrame> crateApiRadarRenderMrmsView({
     required List<int> data,
     required double north,
     required double south,
@@ -477,6 +487,51 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<RadarFrame> crateApiRadarRenderMrmsView({
+    required List<int> data,
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+    required int width,
+    required int height,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_f_64(north, serializer);
+          sse_encode_f_64(south, serializer);
+          sse_encode_f_64(east, serializer);
+          sse_encode_f_64(west, serializer);
+          sse_encode_u_32(width, serializer);
+          sse_encode_u_32(height, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_radar_frame,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarRenderMrmsViewConstMeta,
+        argValues: [data, north, south, east, west, width, height],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarRenderMrmsViewConstMeta =>
+      const TaskConstMeta(
+        debugName: "render_mrms_view",
+        argNames: ["data", "north", "south", "east", "west", "width", "height"],
+      );
+
+  @override
   Future<Volume3DFrame> crateApiRadarRenderVolume3D({
     required List<int> data,
     required double yawDeg,
@@ -500,7 +555,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -549,7 +604,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -585,7 +640,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -621,7 +676,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },
@@ -667,7 +722,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -707,7 +762,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },

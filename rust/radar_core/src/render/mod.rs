@@ -6,4 +6,6 @@ pub mod gpu3d;
 pub mod volume3d;
 
 pub use color_table::ColorTable;
-pub use raster::{rasterize_sweep, rasterize_sweep_view, sweep_bounds, GeoImage};
+pub use raster::{
+    rasterize_latlon_view, rasterize_sweep, rasterize_sweep_view, sweep_bounds, GeoImage,
+};

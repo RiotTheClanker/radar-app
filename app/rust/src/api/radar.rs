@@ -257,3 +257,17 @@ pub fn volume3d_render_fly(
         rgba: f.rgba,
     })
 }
+
+/// Decode an MRMS national mosaic (gzipped GRIB2) and render a view box.
+#[allow(clippy::too_many_arguments)]
+pub fn render_mrms_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    convert(core::render_mrms_view(data, north, south, east, west, width, height)?)
+}

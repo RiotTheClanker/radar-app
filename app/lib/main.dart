@@ -12,6 +12,7 @@ import 'data/glm_fetcher.dart';
 import 'data/level2_fetcher.dart';
 import 'data/level3_fetcher.dart';
 import 'data/lightning.dart';
+import 'data/mrms_fetcher.dart';
 import 'data/locate.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
@@ -57,6 +58,9 @@ class _Product {
 
   /// Volume-integrated Level 2 products have no tilt dimension.
   final bool l2Volume;
+
+  /// National MRMS mosaic: one grid for the whole country, no radar site.
+  final bool isMrms;
   const _Product(
     this.label,
     this.short, {
@@ -64,12 +68,16 @@ class _Product {
     this.fixedCode,
     this.l2Moment,
     this.l2Volume = false,
+    this.isMrms = false,
   });
 
   bool get isLevel2 => l2Moment != null;
   bool get hasTilts => tiltSuffix != null || (isLevel2 && !l2Volume);
   String code(int tilt) => fixedCode ?? 'N$tilt$tiltSuffix';
 }
+
+const _mrmsProduct =
+    _Product('National Mosaic', 'MRMS', isMrms: true);
 
 const _l3Products = [
   _Product('Reflectivity', 'REF', tiltSuffix: 'B'),
@@ -280,9 +288,11 @@ class _RadarScreenState extends State<RadarScreen> {
       _error = null;
     });
     try {
-      final frames = _product.isLevel2
-          ? await _loadLevel2Frames()
-          : await _loadLevel3Frames();
+      final frames = _product.isMrms
+          ? await _loadMrmsFrames()
+          : _product.isLevel2
+              ? await _loadLevel2Frames()
+              : await _loadLevel3Frames();
       if (generation != _loadGeneration || !mounted) return;
       for (final f in frames) {
         // Warm the image cache so animation doesn't flicker.
@@ -322,6 +332,29 @@ class _RadarScreenState extends State<RadarScreen> {
       final frame = await renderLevel3Frame(data: bytes, imageSize: 1024);
       return _Frame(frame, MemoryImage(Uint8List.fromList(frame.png)), bytes);
     }));
+  }
+
+  /// The national mosaic is one CONUS grid per file; decode covers the whole
+  /// country, so the initial render just uses the grid's own bounds.
+  Future<List<_Frame>> _loadMrmsFrames() async {
+    final keys = await listRecentMosaics(count: math.min(_frameCount, 6));
+    if (keys.isEmpty) throw Exception('no recent MRMS mosaics');
+    final frames = <_Frame>[];
+    for (final key in keys) {
+      final bytes = await fetchMosaic(key);
+      final frame = await renderMrmsView(
+        data: bytes,
+        north: 55,
+        south: 20,
+        east: -60,
+        west: -130,
+        width: 1400,
+        height: 900,
+      );
+      frames
+          .add(_Frame(frame, MemoryImage(Uint8List.fromList(frame.png)), bytes));
+    }
+    return frames;
   }
 
   /// Level 2 volumes are big (5-15 MB), so cap the loop length and cache the
@@ -392,7 +425,17 @@ class _RadarScreenState extends State<RadarScreen> {
 
     try {
       final results = await Future.wait(_frames.map((f) async {
-        final r = _product.isLevel2
+        final r = _product.isMrms
+            ? await renderMrmsView(
+                data: f.raw,
+                north: north,
+                south: south,
+                east: east,
+                west: west,
+                width: width,
+                height: height,
+              )
+            : _product.isLevel2
             ? await renderLevel2View(
                 data: f.raw,
                 moment: _product.l2Moment!,
@@ -575,7 +618,7 @@ class _RadarScreenState extends State<RadarScreen> {
   // ---------------------------------------------------------- inspector ----
 
   Future<void> _inspect(LatLng p) async {
-    if (_frames.isEmpty) return;
+    if (_frames.isEmpty || _product.isMrms) return;
     final frame = _frames[_shownFrame];
     try {
       final s = _product.isLevel2
@@ -815,7 +858,7 @@ class _RadarScreenState extends State<RadarScreen> {
       child: Row(
         children: [
           Text(
-            _site.icao,
+            _product.isMrms ? 'CONUS' : _site.icao,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
           const SizedBox(width: 8),
@@ -1012,6 +1055,28 @@ class _RadarScreenState extends State<RadarScreen> {
               _loadFrames();
             },
             itemBuilder: (context) => [
+              PopupMenuItem(
+                value: _mrmsProduct,
+                height: 36,
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 44,
+                      child: Text(
+                        'MRMS',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ),
+                    Text(_mrmsProduct.label,
+                        style: const TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(
                 enabled: false,
                 height: 28,

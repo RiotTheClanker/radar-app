@@ -168,6 +168,25 @@ Future<RawFrame> volume3DRenderFly({
   height: height,
 );
 
+/// Decode an MRMS national mosaic (gzipped GRIB2) and render a view box.
+Future<RadarFrame> renderMrmsView({
+  required List<int> data,
+  required double north,
+  required double south,
+  required double east,
+  required double west,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarRenderMrmsView(
+  data: data,
+  north: north,
+  south: south,
+  east: east,
+  west: west,
+  width: width,
+  height: height,
+);
+
 /// Lightning flashes parsed from one GOES GLM L2 LCFA file.
 class GlmResult {
   final PlatformInt64 timestamp;
