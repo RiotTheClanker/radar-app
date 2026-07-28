@@ -7,6 +7,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'data/alerts_fetcher.dart';
 import 'data/level3_fetcher.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
@@ -39,16 +40,26 @@ class RadarApp extends StatelessWidget {
   }
 }
 
-/// One product on offer in the MVP UI.
+/// One product on offer in the UI. Tilted products map to mnemonics like
+/// N0B/N1B/N2B/N3B (tilt digit in the middle); others have a fixed code.
 class _Product {
-  final String code;
   final String label;
-  const _Product(this.code, this.label);
+  final String? tiltSuffix;
+  final String? fixedCode;
+  const _Product(this.label, {this.tiltSuffix, this.fixedCode});
+
+  bool get hasTilts => tiltSuffix != null;
+  String code(int tilt) => fixedCode ?? 'N$tilt$tiltSuffix';
 }
 
 const _products = [
-  _Product('N0B', 'Reflectivity'),
-  _Product('N0G', 'Velocity'),
+  _Product('Reflectivity', tiltSuffix: 'B'),
+  _Product('Velocity', tiltSuffix: 'G'),
+  _Product('Differential Refl (ZDR)', tiltSuffix: 'X'),
+  _Product('Correlation Coeff', tiltSuffix: 'C'),
+  _Product('Specific Diff Phase', tiltSuffix: 'K'),
+  _Product('Hydrometeor Class', tiltSuffix: 'H'),
+  _Product('Storm Total Precip', fixedCode: 'DTA'),
 ];
 
 class _Frame {
@@ -69,6 +80,7 @@ class _RadarScreenState extends State<RadarScreen> {
 
   NexradSite _site = nexradSites.firstWhere((s) => s.icao == 'KTLX');
   _Product _product = _products[0];
+  int _tilt = 0;
   final bool _autoSite = true;
 
   List<_Frame> _frames = [];
@@ -79,17 +91,37 @@ class _RadarScreenState extends State<RadarScreen> {
   String? _error;
   int _loadGeneration = 0;
 
+  List<WeatherAlert> _alerts = [];
+  Timer? _alertTimer;
+  final LayerHitNotifier<WeatherAlert> _alertHit = ValueNotifier(null);
+
   @override
   void initState() {
     super.initState();
     _loadFrames();
     _startAnimation();
+    _loadAlerts();
+    _alertTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _loadAlerts(),
+    );
   }
 
   @override
   void dispose() {
     _animTimer?.cancel();
+    _alertTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadAlerts() async {
+    try {
+      final alerts = await fetchActiveAlerts();
+      if (!mounted) return;
+      setState(() => _alerts = alerts);
+    } catch (_) {
+      // Alerts are supplementary; keep the last good set on failure.
+    }
   }
 
   void _startAnimation() {
@@ -116,13 +148,14 @@ class _RadarScreenState extends State<RadarScreen> {
       _error = null;
     });
     try {
+      final productCode = _product.code(_tilt);
       final keys = await listRecentKeys(
         _site.shortId,
-        _product.code,
+        productCode,
         count: 8,
       );
       if (keys.isEmpty) {
-        throw Exception('no recent ${_product.code} data for ${_site.icao}');
+        throw Exception('no recent $productCode data for ${_site.icao}');
       }
       final frames = await Future.wait(keys.map((key) async {
         final bytes = await fetchObject(key);
@@ -189,6 +222,56 @@ class _RadarScreenState extends State<RadarScreen> {
     return dy * dy + dx * dx;
   }
 
+  void _showAlertSheet(WeatherAlert alert) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.5,
+        builder: (context, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: alert.color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    alert.event,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (alert.headline.isNotEmpty)
+              Text(
+                alert.headline,
+                style: const TextStyle(fontSize: 14, color: Colors.white70),
+              ),
+            const SizedBox(height: 12),
+            Text(
+              alert.description,
+              style: const TextStyle(fontSize: 13, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _ageLabel(Duration age) {
     if (age.inHours >= 1) return '${age.inHours}h';
     return '${age.inMinutes}m';
@@ -197,7 +280,14 @@ class _RadarScreenState extends State<RadarScreen> {
   void _onPositionChanged(MapCamera camera, bool hasGesture) {
     if (!hasGesture || !_autoSite) return;
     final nearest = _nearestSite(camera.center);
-    if (nearest.icao != _site.icao) {
+    if (nearest.icao == _site.icao) return;
+    // Hysteresis: only switch once the new site is clearly closer, so panning
+    // along the midline between two radars doesn't thrash back and forth.
+    final dCurrent =
+        _dist2(camera.center.latitude, camera.center.longitude, _site.lat, _site.lon);
+    final dNearest =
+        _dist2(camera.center.latitude, camera.center.longitude, nearest.lat, nearest.lon);
+    if (dCurrent > dNearest * 1.3) {
       _selectSite(nearest);
     }
   }
@@ -237,6 +327,28 @@ class _RadarScreenState extends State<RadarScreen> {
                     ),
                   ],
                 ),
+              GestureDetector(
+                onTap: () {
+                  final hit = _alertHit.value;
+                  if (hit != null && hit.hitValues.isNotEmpty) {
+                    _showAlertSheet(hit.hitValues.first);
+                  }
+                },
+                child: PolygonLayer(
+                  hitNotifier: _alertHit,
+                  polygons: [
+                    for (final a in _alerts)
+                      for (final ring in a.polygons)
+                        Polygon(
+                          points: ring,
+                          hitValue: a,
+                          color: a.color.withValues(alpha: 0.12),
+                          borderColor: a.color,
+                          borderStrokeWidth: 2,
+                        ),
+                  ],
+                ),
+              ),
               MarkerLayer(
                 markers: [
                   for (final s in nexradSites)
@@ -312,7 +424,8 @@ class _RadarScreenState extends State<RadarScreen> {
           Expanded(
             child: Text(
               '${_site.name}, ${_site.state}'
-              '${frame != null ? '  ·  ${frame.meta.productName}' : ''}',
+              '${frame != null ? '  ·  ${frame.meta.productName}' : ''}'
+              '${frame != null && _product.hasTilts ? '  ${frame.meta.elevationDeg.toStringAsFixed(1)}°' : ''}',
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13, color: Colors.white70),
             ),
@@ -392,21 +505,57 @@ class _RadarScreenState extends State<RadarScreen> {
             ),
           ],
           const Spacer(),
-          SegmentedButton<String>(
-            showSelectedIcon: false,
-            style: const ButtonStyle(visualDensity: VisualDensity.compact),
-            segments: [
-              for (final p in _products)
-                ButtonSegment(value: p.code, label: Text(p.label)),
-            ],
-            selected: {_product.code},
-            onSelectionChanged: (sel) {
+          if (_product.hasTilts) ...[
+            SegmentedButton<int>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              segments: [
+                for (var t = 0; t < 4; t++)
+                  ButtonSegment(value: t, label: Text('${t + 1}')),
+              ],
+              selected: {_tilt},
+              onSelectionChanged: (sel) {
+                setState(() {
+                  _tilt = sel.first;
+                  _frames = [];
+                });
+                _loadFrames();
+              },
+            ),
+            const SizedBox(width: 8),
+          ],
+          PopupMenuButton<_Product>(
+            tooltip: 'Product',
+            initialValue: _product,
+            onSelected: (p) {
               setState(() {
-                _product = _products.firstWhere((p) => p.code == sel.first);
+                _product = p;
                 _frames = [];
               });
               _loadFrames();
             },
+            itemBuilder: (context) => [
+              for (final p in _products)
+                PopupMenuItem(value: p, child: Text(p.label)),
+            ],
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _product.label,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  const Icon(Icons.arrow_drop_up, size: 18),
+                ],
+              ),
+            ),
           ),
         ],
       ),

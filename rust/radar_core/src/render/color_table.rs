@@ -66,6 +66,9 @@ impl ColorTable {
             ProductKind::Velocity => ColorTable::velocity_default(),
             ProductKind::CorrelationCoefficient => ColorTable::cc_default(),
             ProductKind::Zdr => ColorTable::zdr_default(),
+            ProductKind::Kdp => ColorTable::kdp_default(),
+            ProductKind::HydroClass => ColorTable::hydro_class_default(),
+            ProductKind::Precipitation => ColorTable::precip_default(),
             _ => ColorTable::reflectivity_default(),
         }
     }
@@ -148,6 +151,67 @@ impl ColorTable {
             (3.0, [255, 140, 0]),
             (4.0, [255, 0, 0]),
             (6.0, [255, 0, 255]),
+            (8.0, [255, 255, 255]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Specific differential phase (deg/km).
+    pub fn kdp_default() -> ColorTable {
+        let stops = vec![
+            (-2.0, [80, 80, 80]),
+            (0.0, [170, 170, 170]),
+            (0.5, [0, 180, 0]),
+            (1.0, [255, 255, 0]),
+            (2.0, [255, 150, 0]),
+            (3.0, [255, 0, 0]),
+            (5.0, [255, 0, 255]),
+            (7.0, [255, 255, 255]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Hydrometeor classification — categorical (class codes in steps of 10).
+    pub fn hydro_class_default() -> ColorTable {
+        let stops = vec![
+            (10.0, [156, 128, 100]),  // biological
+            (20.0, [95, 95, 95]),     // ground clutter / AP
+            (30.0, [255, 200, 255]),  // ice crystals
+            (40.0, [150, 180, 255]),  // dry snow
+            (50.0, [70, 110, 255]),   // wet snow
+            (60.0, [0, 190, 0]),      // light/moderate rain
+            (70.0, [0, 120, 0]),      // heavy rain
+            (80.0, [230, 200, 0]),    // big drops
+            (90.0, [255, 140, 0]),    // graupel
+            (100.0, [230, 0, 0]),     // hail (possibly with rain)
+            (140.0, [150, 0, 200]),   // unknown
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: false,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Storm-total / accumulation precipitation (inches).
+    pub fn precip_default() -> ColorTable {
+        let stops = vec![
+            (0.01, [60, 60, 60]),
+            (0.1, [0, 120, 200]),
+            (0.25, [0, 200, 255]),
+            (0.5, [0, 190, 0]),
+            (1.0, [255, 255, 0]),
+            (2.0, [255, 150, 0]),
+            (3.0, [255, 0, 0]),
+            (5.0, [200, 0, 120]),
             (8.0, [255, 255, 255]),
         ];
         ColorTable {
