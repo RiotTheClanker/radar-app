@@ -31,6 +31,141 @@ fn inv_merc_y(y: f64) -> f64 {
     2.0 * y.exp().atan() - std::f64::consts::FRAC_PI_2
 }
 
+/// Sample a sweep into a view box as *raw encoded values* (not colors).
+/// Used by the nowcaster, which needs to track and warp the field itself.
+#[allow(clippy::too_many_arguments)]
+pub fn sweep_raw_view(
+    sweep: &Sweep,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Vec<u8> {
+    let w = width as usize;
+    let h = height as usize;
+    let mut out = vec![0u8; w * h];
+    if north <= south || east <= west || sweep.radials.is_empty() {
+        return out;
+    }
+    let site_lat = sweep.site_lat.to_radians();
+    let site_lon = sweep.site_lon.to_radians();
+    let az_lut = azimuth_lut(sweep);
+    let y_n = merc_y(north.to_radians());
+    let y_s = merc_y(south.to_radians());
+    let sin_site = site_lat.sin();
+    let cos_site = site_lat.cos();
+    let inv_gate = 1.0 / sweep.gate_size_m as f64;
+    let gate_origin = sweep.first_gate_m as f64 - sweep.gate_size_m as f64 * 0.5;
+    let nbins = sweep.nbins as i64;
+
+    for py in 0..h {
+        let ty = (py as f64 + 0.5) / h as f64;
+        let lat = inv_merc_y(y_n + (y_s - y_n) * ty);
+        let sin_lat = lat.sin();
+        let cos_lat = lat.cos();
+        for px in 0..w {
+            let tx = (px as f64 + 0.5) / w as f64;
+            let lon = (west + (east - west) * tx).to_radians();
+            let dlon_r = lon - site_lon;
+            let cos_c = (sin_site * sin_lat + cos_site * cos_lat * dlon_r.cos()).clamp(-1.0, 1.0);
+            let dist = cos_c.acos() * EARTH_R;
+            let bin = ((dist - gate_origin) * inv_gate) as i64;
+            if bin < 0 || bin >= nbins {
+                continue;
+            }
+            let az = dlon_r
+                .sin()
+                .mul_add(cos_lat, 0.0)
+                .atan2(cos_site * sin_lat - sin_site * cos_lat * dlon_r.cos())
+                .to_degrees();
+            let az10 = (((az * 10.0).round() as i32) % 3600 + 3600) % 3600;
+            let ridx = az_lut[az10 as usize];
+            if ridx < 0 {
+                continue;
+            }
+            if let Some(raw) = sweep.radials[ridx as usize].data.get(bin as usize) {
+                out[py * w + px] = raw.min(255) as u8;
+            }
+        }
+    }
+    out
+}
+
+/// Sample a lat/lon grid into a view box as raw encoded values.
+#[allow(clippy::too_many_arguments)]
+pub fn latlon_raw_view(
+    grid: &crate::mrms::LatLonGrid,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Vec<u8> {
+    let w = width as usize;
+    let h = height as usize;
+    let mut out = vec![0u8; w * h];
+    if north <= south || east <= west {
+        return out;
+    }
+    let y_n = merc_y(north.to_radians());
+    let y_s = merc_y(south.to_radians());
+    let dx = (grid.east - grid.west) / grid.nx as f64;
+    let dy = (grid.north - grid.south) / grid.ny as f64;
+    for py in 0..h {
+        let ty = (py as f64 + 0.5) / h as f64;
+        let lat = inv_merc_y(y_n + (y_s - y_n) * ty).to_degrees();
+        let gy = ((grid.north - lat) / dy) as i64;
+        if gy < 0 || gy >= grid.ny as i64 {
+            continue;
+        }
+        for px in 0..w {
+            let tx = (px as f64 + 0.5) / w as f64;
+            let lon = west + (east - west) * tx;
+            let gx = ((lon - grid.west) / dx) as i64;
+            if gx < 0 || gx >= grid.nx as i64 {
+                continue;
+            }
+            out[py * w + px] = grid.data[gy as usize * grid.nx + gx as usize];
+        }
+    }
+    out
+}
+
+/// Colorize a raw-value grid with a product's decoder and palette.
+pub fn colorize(
+    raw: &[u8],
+    width: u32,
+    height: u32,
+    decoder: &crate::level3::ValueDecoder,
+    table: &ColorTable,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+) -> GeoImage {
+    let lut = table.build_lut(decoder, 256);
+    let mut pixels = vec![0u8; raw.len() * 4];
+    for (i, &v) in raw.iter().enumerate() {
+        let c = lut[v as usize];
+        if c[3] == 0 {
+            continue;
+        }
+        pixels[i * 4..i * 4 + 4].copy_from_slice(&c);
+    }
+    GeoImage {
+        width,
+        height,
+        pixels,
+        north,
+        south,
+        east,
+        west,
+    }
+}
+
 /// Render a regular lat/lon grid (MRMS mosaic) into a Web Mercator view box.
 #[allow(clippy::too_many_arguments)]
 pub fn rasterize_latlon_view(

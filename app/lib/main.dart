@@ -13,6 +13,7 @@ import 'data/level2_fetcher.dart';
 import 'data/level3_fetcher.dart';
 import 'data/lightning.dart';
 import 'data/mrms_fetcher.dart';
+import 'data/spc_fetcher.dart';
 import 'data/locate.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
@@ -191,6 +192,10 @@ class _RadarScreenState extends State<RadarScreen> {
   int _loadGeneration = 0;
 
   List<WeatherAlert> _alerts = [];
+  List<OutlookArea> _outlook = [];
+  List<StormReport> _reports = [];
+  bool _showOutlook = false;
+  bool _showReports = false;
   Timer? _alertTimer;
   final LayerHitNotifier<WeatherAlert> _alertHit = ValueNotifier(null);
   final Map<String, Uint8List> _l2Cache = {};
@@ -212,6 +217,12 @@ class _RadarScreenState extends State<RadarScreen> {
 
   Timer? _viewDebounce;
   int _viewGeneration = 0;
+
+  // Future radar (on-device nowcast)
+  bool _future = false;
+  double _futureMinutes = 30;
+  _Frame? _futureFrame;
+  bool _futureBusy = false;
 
   @override
   void initState() {
@@ -261,6 +272,22 @@ class _RadarScreenState extends State<RadarScreen> {
     } catch (_) {
       // Alerts are supplementary; keep the last good set on failure.
     }
+  }
+
+  Future<void> _loadOutlook() async {
+    if (_outlook.isNotEmpty) return;
+    try {
+      final o = await fetchOutlook();
+      if (mounted) setState(() => _outlook = o);
+    } catch (_) {}
+  }
+
+  Future<void> _loadReports() async {
+    if (_reports.isNotEmpty) return;
+    try {
+      final r = await fetchStormReports();
+      if (mounted) setState(() => _reports = r);
+    } catch (_) {}
   }
 
   void _startAnimation() {
@@ -384,6 +411,81 @@ class _RadarScreenState extends State<RadarScreen> {
     return frames;
   }
 
+  /// Visible box expanded slightly, clipped to the data extent, plus the
+  /// pixel size to render it at.
+  ({double n, double s, double e, double w, int width, int height})? _viewBox() {
+    if (_frames.isEmpty || !mounted) return null;
+    final cam = _mapController.camera;
+    final vis = cam.visibleBounds;
+    final dLat = (vis.north - vis.south) * 0.25;
+    final dLon = (vis.east - vis.west) * 0.25;
+    var north = vis.north + dLat;
+    var south = vis.south - dLat;
+    var east = vis.east + dLon;
+    var west = vis.west - dLon;
+    final d = _frames.first.dataBounds;
+    north = math.min(north, d.north);
+    south = math.max(south, d.south);
+    east = math.min(east, d.east);
+    west = math.max(west, d.west);
+    if (north <= south || east <= west) return null;
+
+    final media = MediaQuery.of(context);
+    final pxPerLon = media.size.width * media.devicePixelRatio /
+        (vis.east - vis.west);
+    final width = ((east - west) * pxPerLon).round().clamp(256, 2200);
+    double mercY(double latDeg) {
+      final lat = latDeg * math.pi / 180.0;
+      return math.log(math.tan(math.pi / 4 + lat / 2));
+    }
+
+    final aspect =
+        (mercY(north) - mercY(south)) / ((east - west) * math.pi / 180.0);
+    final height = (width * aspect).round().clamp(256, 2200);
+    return (n: north, s: south, e: east, w: west, width: width, height: height);
+  }
+
+  /// Extrapolate the two most recent frames forward on-device.
+  Future<void> _renderFuture() async {
+    if (!_future || _futureBusy) return;
+    if (_product.isLevel2) {
+      setState(() => _error = 'Future radar needs a Level 3 or mosaic product');
+      return;
+    }
+    if (_frames.length < 2) {
+      // Need a previous scan to measure motion against.
+      setState(() => _frameCount = math.max(_frameCount, 4));
+      await _loadFrames();
+      if (_frames.length < 2 || !_future) return;
+    }
+    final box = _viewBox();
+    if (box == null) return;
+    _futureBusy = true;
+    try {
+      final r = await nowcastView(
+        prev: _frames[_frames.length - 2].raw,
+        latest: _frames.last.raw,
+        source: _product.isMrms ? 'MRMS' : 'L3',
+        minutes: _futureMinutes,
+        north: box.n,
+        south: box.s,
+        east: box.e,
+        west: box.w,
+        width: box.width,
+        height: box.height,
+      );
+      if (!mounted || !_future) return;
+      final img = MemoryImage(Uint8List.fromList(r.png));
+      await precacheImage(img, context);
+      if (!mounted || !_future) return;
+      setState(() => _futureFrame = _Frame(r, img, Uint8List(0)));
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      _futureBusy = false;
+    }
+  }
+
   /// Zoomed out past a single radar's useful range, hand over to the
   /// national mosaic; zoom back in and the site radar returns. Only the
   /// default reflectivity view participates — an explicitly chosen product
@@ -490,6 +592,7 @@ class _RadarScreenState extends State<RadarScreen> {
       }
       if (generation != _viewGeneration || !mounted) return;
       setState(() {});
+      if (_future) unawaited(_renderFuture());
     } catch (_) {
       // Viewport sharpening is best-effort; the full-disk render stays up.
     }
@@ -688,7 +791,9 @@ class _RadarScreenState extends State<RadarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final frame = _frames.isEmpty ? null : _frames[_shownFrame];
+    final frame = _future && _futureFrame != null
+        ? _futureFrame
+        : (_frames.isEmpty ? null : _frames[_shownFrame]);
     return Scaffold(
       body: Stack(
         children: [
@@ -730,6 +835,19 @@ class _RadarScreenState extends State<RadarScreen> {
                     ),
                   ],
                 ),
+              if (_showOutlook)
+                PolygonLayer(
+                  polygons: [
+                    for (final a in _outlook)
+                      for (final ring in a.polygons)
+                        Polygon(
+                          points: ring,
+                          color: a.color.withValues(alpha: 0.16),
+                          borderColor: a.color.withValues(alpha: 0.9),
+                          borderStrokeWidth: 1.5,
+                        ),
+                  ],
+                ),
               GestureDetector(
                 onTap: () {
                   final hit = _alertHit.value;
@@ -755,6 +873,41 @@ class _RadarScreenState extends State<RadarScreen> {
               if (_showLightning)
                 CircleLayer(
                   circles: [for (final s in _strikes) _strikeCircle(s)],
+                ),
+              if (_showReports)
+                MarkerLayer(
+                  markers: [
+                    for (final r in _reports)
+                      Marker(
+                        point: r.pos,
+                        width: 16,
+                        height: 16,
+                        child: GestureDetector(
+                          onTap: () => ScaffoldMessenger.of(context)
+                            ..clearSnackBars()
+                            ..showSnackBar(
+                              SnackBar(
+                                duration: const Duration(seconds: 5),
+                                content: Text(
+                                  '${r.time}Z  ${r.detail} — ${r.location}',
+                                ),
+                              ),
+                            ),
+                          child: Icon(
+                            r.kind == 'tornado'
+                                ? Icons.cyclone
+                                : r.kind == 'hail'
+                                    ? Icons.ac_unit
+                                    : Icons.air,
+                            size: 15,
+                            color: r.color,
+                            shadows: const [
+                              Shadow(blurRadius: 3, color: Colors.black),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               if (_samplePos != null)
                 MarkerLayer(
@@ -823,6 +976,46 @@ class _RadarScreenState extends State<RadarScreen> {
               children: [
                 _topBar(frame),
                 const Spacer(),
+                if (_future)
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xCC10141A),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.fast_forward,
+                            size: 16, color: Colors.lightGreenAccent),
+                        const SizedBox(width: 6),
+                        Text(
+                          _futureMinutes == 0
+                              ? 'now'
+                              : '+${_futureMinutes.round()} min',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Expanded(
+                          child: Slider(
+                            value: _futureMinutes,
+                            max: 60,
+                            divisions: 12,
+                            onChanged: (v) =>
+                                setState(() => _futureMinutes = v),
+                            onChangeEnd: (_) => _renderFuture(),
+                          ),
+                        ),
+                        const Text(
+                          'forecast',
+                          style:
+                              TextStyle(fontSize: 10, color: Colors.white38),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (_sampleText != null)
                   Container(
                     margin: const EdgeInsets.only(bottom: 6),
@@ -949,6 +1142,53 @@ class _RadarScreenState extends State<RadarScreen> {
               size: 19,
               color: Colors.white70,
             ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Future radar (on-device forecast)',
+            onPressed: () {
+              setState(() {
+                _future = !_future;
+                if (!_future) _futureFrame = null;
+              });
+              if (_future) _renderFuture();
+            },
+            icon: Icon(
+              Icons.fast_forward,
+              size: 20,
+              color: _future ? Colors.lightGreenAccent : Colors.white38,
+            ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Severe weather layers',
+            icon: Icon(
+              Icons.warning_amber,
+              size: 20,
+              color: (_showOutlook || _showReports)
+                  ? Colors.amberAccent
+                  : Colors.white70,
+            ),
+            onSelected: (v) {
+              if (v == 'outlook') {
+                setState(() => _showOutlook = !_showOutlook);
+                if (_showOutlook) _loadOutlook();
+              } else {
+                setState(() => _showReports = !_showReports);
+                if (_showReports) _loadReports();
+              }
+            },
+            itemBuilder: (context) => [
+              CheckedPopupMenuItem(
+                value: 'outlook',
+                checked: _showOutlook,
+                child: const Text('SPC convective outlook'),
+              ),
+              CheckedPopupMenuItem(
+                value: 'reports',
+                checked: _showReports,
+                child: const Text("Today's storm reports"),
+              ),
+            ],
           ),
           PopupMenuButton<_Basemap>(
             tooltip: 'Basemap',
@@ -1215,9 +1455,13 @@ class _RadarScreenState extends State<RadarScreen> {
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (context) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.5,
+        initialChildSize: 0.45,
+        minChildSize: 0.2,
+        maxChildSize: 0.95,
         builder: (context, controller) => ListView(
           controller: controller,
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),

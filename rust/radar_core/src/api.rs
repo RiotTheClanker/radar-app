@@ -601,3 +601,99 @@ pub fn volume3d_ground_bounds() -> Result<Vec<f64>, String> {
     let dlon = ex / (111_320.0 * lat.to_radians().cos().abs().max(0.01));
     Ok(vec![lat + dlat, lat - dlat, s.site_lon + dlon, s.site_lon - dlon])
 }
+
+/// Extrapolate radar echoes forward in time, entirely on-device.
+///
+/// `prev` and `latest` are two consecutive source files (Level 3 product
+/// files when `source` is "L3", gzipped MRMS GRIB2 when "MRMS"). Motion is
+/// estimated between them and the latest field is advected `minutes` ahead.
+#[allow(clippy::too_many_arguments)]
+pub fn nowcast_view(
+    prev: Vec<u8>,
+    latest: Vec<u8>,
+    source: String,
+    minutes: f32,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    let (a_raw, b_raw, decoder, kind, name, unit, t_prev, t_latest, site) =
+        if source == "MRMS" {
+            let ga = crate::mrms::parse(&prev, 3).map_err(|e| e.to_string())?;
+            let gb = crate::mrms::parse(&latest, 3).map_err(|e| e.to_string())?;
+            let a = render::latlon_raw_view(&ga, north, south, east, west, width, height);
+            let b = render::latlon_raw_view(&gb, north, south, east, west, width, height);
+            (
+                a,
+                b,
+                crate::level3::ValueDecoder::ScaleOffset {
+                    scale: 2.0,
+                    offset: 66.0,
+                },
+                ProductKind::Reflectivity,
+                "National Mosaic — Forecast".to_string(),
+                "dBZ".to_string(),
+                ga.timestamp,
+                gb.timestamp,
+                ((gb.north + gb.south) * 0.5, (gb.east + gb.west) * 0.5),
+            )
+        } else {
+            let fa = level3::parse(&prev).map_err(|e| e.to_string())?;
+            let fb = level3::parse(&latest).map_err(|e| e.to_string())?;
+            let sa = fa.to_sweep().ok_or("previous frame has no radial data")?;
+            let sb = fb.to_sweep().ok_or("latest frame has no radial data")?;
+            let a = render::sweep_raw_view(&sa, north, south, east, west, width, height);
+            let b = render::sweep_raw_view(&sb, north, south, east, west, width, height);
+            let kind = fb.info.map(|i| i.kind).unwrap_or(ProductKind::Reflectivity);
+            let name = format!(
+                "{} — Forecast",
+                fb.info.map(|i| i.name).unwrap_or("Radar")
+            );
+            (
+                a,
+                b,
+                sb.decoder,
+                kind,
+                name,
+                fb.info.map(|i| i.unit.to_string()).unwrap_or_default(),
+                fa.volume_scan_time,
+                fb.volume_scan_time,
+                (fb.site_lat, fb.site_lon),
+            )
+        };
+
+    let w = width as usize;
+    let h = height as usize;
+    let (dx, dy) = crate::process::nowcast::estimate_motion(&a_raw, &b_raw, w, h);
+
+    // Scale the observed displacement to the requested lead time.
+    let gap = (t_latest - t_prev).max(60) as f32;
+    let scale = minutes * 60.0 / gap;
+    let out = crate::process::nowcast::advect(&b_raw, w, h, dx * scale, dy * scale);
+
+    let table = ColorTable::default_for(kind);
+    let img = render::colorize(
+        &out, width, height, &decoder, &table, north, south, east, west,
+    );
+
+    Ok(RadarFrame {
+        product_code: 0,
+        product_name: name,
+        unit,
+        site_lat: site.0,
+        site_lon: site.1,
+        timestamp: t_latest + (minutes * 60.0) as i64,
+        elevation_deg: 0.0,
+        vcp: 0,
+        width: img.width,
+        height: img.height,
+        png: encode_png(img.width, img.height, &img.pixels)?,
+        north: img.north,
+        south: img.south,
+        east: img.east,
+        west: img.west,
+    })
+}

@@ -282,3 +282,23 @@ pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(),
 pub fn volume3d_ground_bounds() -> Result<Vec<f64>, String> {
     core::volume3d_ground_bounds()
 }
+
+/// On-device future radar: estimate motion between two consecutive frames
+/// and extrapolate. `source` is "L3" or "MRMS".
+#[allow(clippy::too_many_arguments)]
+pub fn nowcast_view(
+    prev: Vec<u8>,
+    latest: Vec<u8>,
+    source: String,
+    minutes: f32,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    convert(core::nowcast_view(
+        prev, latest, source, minutes, north, south, east, west, width, height,
+    )?)
+}
