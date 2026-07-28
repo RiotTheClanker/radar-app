@@ -70,6 +70,10 @@ Future<RadarFrame> renderLevel2View({
   height: height,
 );
 
+/// Parse a GOES GLM L2 LCFA netCDF file (pure-Rust HDF5 subset reader).
+Future<GlmResult> parseGlm({required List<int> data}) =>
+    RustLib.instance.api.crateApiRadarParseGlm(data: data);
+
 /// Sample a Level 3 product file at a geographic point.
 Future<SampleResult> sampleLevel3({
   required List<int> data,
@@ -105,6 +109,31 @@ Future<RadarFrame> renderLevel3Frame({
   data: data,
   imageSize: imageSize,
 );
+
+/// Lightning flashes parsed from one GOES GLM L2 LCFA file.
+class GlmResult {
+  final PlatformInt64 timestamp;
+  final Float32List lats;
+  final Float32List lons;
+
+  const GlmResult({
+    required this.timestamp,
+    required this.lats,
+    required this.lons,
+  });
+
+  @override
+  int get hashCode => timestamp.hashCode ^ lats.hashCode ^ lons.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GlmResult &&
+          runtimeType == other.runtimeType &&
+          timestamp == other.timestamp &&
+          lats == other.lats &&
+          lons == other.lons;
+}
 
 /// A ready-to-display radar frame: RGBA pixels plus the geographic bounds the
 /// map should stretch them across, and metadata for the UI.

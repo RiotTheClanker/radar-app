@@ -143,6 +143,23 @@ pub fn render_level2_view(
     build_frame(&sweep, img, 0, name, unit, vol.vcp as i32)
 }
 
+/// Lightning flashes parsed from one GOES GLM L2 LCFA file.
+pub struct GlmResult {
+    pub timestamp: i64,
+    pub lats: Vec<f32>,
+    pub lons: Vec<f32>,
+}
+
+/// Parse a GOES GLM L2 LCFA netCDF file (pure-Rust HDF5 subset reader).
+pub fn parse_glm(data: Vec<u8>) -> Result<GlmResult, String> {
+    let f = crate::glm::parse(&data).map_err(|e| e.to_string())?;
+    Ok(GlmResult {
+        timestamp: f.timestamp,
+        lats: f.lats,
+        lons: f.lons,
+    })
+}
+
 /// Result of sampling a product at a point (the "inspector" tool).
 pub struct SampleResult {
     /// Physical value at the gate, if there is data there.

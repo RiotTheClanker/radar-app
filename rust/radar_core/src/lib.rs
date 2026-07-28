@@ -7,6 +7,7 @@
 
 pub mod api;
 pub mod error;
+pub mod glm;
 pub mod level2;
 pub mod level3;
 pub mod render;

@@ -79,6 +79,23 @@ pub fn render_level2_view(
     )?)
 }
 
+/// Lightning flashes parsed from one GOES GLM L2 LCFA file.
+pub struct GlmResult {
+    pub timestamp: i64,
+    pub lats: Vec<f32>,
+    pub lons: Vec<f32>,
+}
+
+/// Parse a GOES GLM L2 LCFA netCDF file (pure-Rust HDF5 subset reader).
+pub fn parse_glm(data: Vec<u8>) -> Result<GlmResult, String> {
+    let g = core::parse_glm(data)?;
+    Ok(GlmResult {
+        timestamp: g.timestamp,
+        lats: g.lats,
+        lons: g.lons,
+    })
+}
+
 /// Result of sampling a product at a point (the "inspector" tool).
 pub struct SampleResult {
     pub value: Option<f32>,

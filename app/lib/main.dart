@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'data/alerts_fetcher.dart';
+import 'data/glm_fetcher.dart';
 import 'data/level2_fetcher.dart';
 import 'data/level3_fetcher.dart';
 import 'data/lightning.dart';
@@ -113,6 +114,8 @@ const _basemaps = [
   ),
 ];
 
+enum _LightningSource { off, blitzortung, glm, both }
+
 class _Frame {
   final RadarFrame meta;
 
@@ -171,11 +174,15 @@ class _RadarScreenState extends State<RadarScreen> {
   final Map<String, Uint8List> _l2Cache = {};
 
   final _blitz = BlitzortungClient();
+  final _glm = GlmClient();
   final List<Strike> _strikes = [];
-  bool _showLightning = false;
+  _LightningSource _lightning = _LightningSource.off;
   StreamSubscription<Strike>? _strikeSub;
+  StreamSubscription<Strike>? _glmSub;
   Timer? _strikeTimer;
   bool _strikesDirty = false;
+
+  bool get _showLightning => _lightning != _LightningSource.off;
 
   String? _sampleText;
   LatLng? _samplePos;
@@ -215,8 +222,10 @@ class _RadarScreenState extends State<RadarScreen> {
     _alertTimer?.cancel();
     _strikeTimer?.cancel();
     _strikeSub?.cancel();
+    _glmSub?.cancel();
     _sampleClear?.cancel();
     _blitz.stop();
+    _glm.stop();
     super.dispose();
   }
 
@@ -458,16 +467,34 @@ class _RadarScreenState extends State<RadarScreen> {
 
   // ---------------------------------------------------------- lightning ----
 
-  void _toggleLightning() {
-    setState(() => _showLightning = !_showLightning);
-    if (_showLightning) {
+  void _setLightning(_LightningSource src) {
+    setState(() => _lightning = src);
+    final useBlitz =
+        src == _LightningSource.blitzortung || src == _LightningSource.both;
+    final useGlm = src == _LightningSource.glm || src == _LightningSource.both;
+
+    if (useBlitz) {
       _blitz.start();
       _strikeSub ??= _blitz.strikes.listen((s) {
         _strikes.add(s);
         _strikesDirty = true;
       });
+    } else {
+      _blitz.stop();
+    }
+    if (useGlm) {
+      _glm.start();
+      _glmSub ??= _glm.strikes.listen((s) {
+        _strikes.add(s);
+        _strikesDirty = true;
+      });
+    } else {
+      _glm.stop();
+    }
+
+    if (src != _LightningSource.off) {
       // Repaint on a slow tick instead of per strike (tens per second).
-      _strikeTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _strikeTimer ??= Timer.periodic(const Duration(seconds: 2), (_) {
         final cutoff = DateTime.now().toUtc().subtract(
               const Duration(minutes: 20),
             );
@@ -484,7 +511,7 @@ class _RadarScreenState extends State<RadarScreen> {
     } else {
       _strikeTimer?.cancel();
       _strikeTimer = null;
-      _blitz.stop();
+      _strikes.clear();
     }
   }
 
@@ -671,7 +698,7 @@ class _RadarScreenState extends State<RadarScreen> {
                   padding: const EdgeInsets.all(4),
                   child: Text(
                     '${_basemap.attribution} · NOAA/NWS'
-                    '${_showLightning ? ' · lightning © Blitzortung.org' : ''}',
+                    '${_lightning == _LightningSource.blitzortung || _lightning == _LightningSource.both ? ' · lightning © Blitzortung.org' : ''}',
                     style: const TextStyle(fontSize: 10, color: Colors.white54),
                   ),
                 ),
@@ -778,17 +805,27 @@ class _RadarScreenState extends State<RadarScreen> {
                 color: Colors.orangeAccent,
               ),
             ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            tooltip: _showLightning
-                ? 'Lightning on (Blitzortung.org)'
-                : 'Lightning off',
-            onPressed: _toggleLightning,
+          PopupMenuButton<_LightningSource>(
+            tooltip: 'Lightning source',
             icon: Icon(
               Icons.bolt,
               size: 20,
               color: _showLightning ? Colors.yellowAccent : Colors.white38,
             ),
+            onSelected: _setLightning,
+            itemBuilder: (context) => [
+              for (final (src, label) in const [
+                (_LightningSource.off, 'Off'),
+                (_LightningSource.blitzortung, 'Blitzortung (ground network)'),
+                (_LightningSource.glm, 'GOES GLM (satellite)'),
+                (_LightningSource.both, 'Both'),
+              ])
+                CheckedPopupMenuItem(
+                  value: src,
+                  checked: _lightning == src,
+                  child: Text(label),
+                ),
+            ],
           ),
           PopupMenuButton<_Basemap>(
             tooltip: 'Basemap',
