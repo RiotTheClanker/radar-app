@@ -91,6 +91,58 @@ pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
     Ok(vol.cuts_for(&moment).iter().map(|c| c.elevation_deg).collect())
 }
 
+/// Viewport-matched render of a Level 3 product: rasterize only the given
+/// Web Mercator box at the given pixel size, so gates stay sharp at any zoom.
+#[allow(clippy::too_many_arguments)]
+pub fn render_level3_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    let file = level3::parse(&data).map_err(|e| e.to_string())?;
+    let kind = file.info.map(|i| i.kind).unwrap_or(ProductKind::Reflectivity);
+    let sweep = file
+        .to_sweep()
+        .ok_or_else(|| "product contains no radial data".to_string())?;
+    let name = file
+        .info
+        .map(|i| i.name.to_string())
+        .unwrap_or_else(|| format!("Product {}", file.product_code));
+    let unit = file.info.map(|i| i.unit.to_string()).unwrap_or_default();
+    let table = ColorTable::default_for(kind);
+    let img = render::rasterize_sweep_view(&sweep, &table, north, south, east, west, width, height)
+        .ok_or_else(|| "empty view".to_string())?;
+    build_frame(&sweep, img, file.product_code as i32, name, unit, file.vcp as i32)
+}
+
+/// Viewport-matched render of a Level 2 moment/cut.
+#[allow(clippy::too_many_arguments)]
+pub fn render_level2_view(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let sweep = vol
+        .sweep(&moment, elevation_index as usize)
+        .ok_or_else(|| format!("moment {moment} cut {elevation_index} not in volume"))?;
+    let (kind, name, unit) = moment_meta(&moment);
+    let table = ColorTable::default_for(kind);
+    let img = render::rasterize_sweep_view(&sweep, &table, north, south, east, west, width, height)
+        .ok_or_else(|| "empty view".to_string())?;
+    build_frame(&sweep, img, 0, name, unit, vol.vcp as i32)
+}
+
 /// Result of sampling a product at a point (the "inspector" tool).
 pub struct SampleResult {
     /// Physical value at the gate, if there is data there.
@@ -174,6 +226,17 @@ fn frame_from_sweep(
     let table = ColorTable::default_for(kind);
     let img = render::rasterize_sweep(sweep, &table, image_size)
         .ok_or_else(|| "no radial data".to_string())?;
+    build_frame(sweep, img, product_code, name, unit, vcp)
+}
+
+fn build_frame(
+    sweep: &Sweep,
+    img: render::GeoImage,
+    product_code: i32,
+    name: String,
+    unit: String,
+    vcp: i32,
+) -> Result<RadarFrame, String> {
     Ok(RadarFrame {
         product_code,
         product_name: name,

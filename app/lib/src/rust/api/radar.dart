@@ -28,6 +28,48 @@ Future<Float32List> level2Cuts({
   required String moment,
 }) => RustLib.instance.api.crateApiRadarLevel2Cuts(data: data, moment: moment);
 
+/// Viewport-matched render of a Level 3 product (sharp at any zoom).
+Future<RadarFrame> renderLevel3View({
+  required List<int> data,
+  required double north,
+  required double south,
+  required double east,
+  required double west,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarRenderLevel3View(
+  data: data,
+  north: north,
+  south: south,
+  east: east,
+  west: west,
+  width: width,
+  height: height,
+);
+
+/// Viewport-matched render of a Level 2 moment/cut (sharp at any zoom).
+Future<RadarFrame> renderLevel2View({
+  required List<int> data,
+  required String moment,
+  required int elevationIndex,
+  required double north,
+  required double south,
+  required double east,
+  required double west,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarRenderLevel2View(
+  data: data,
+  moment: moment,
+  elevationIndex: elevationIndex,
+  north: north,
+  south: south,
+  east: east,
+  west: west,
+  width: width,
+  height: height,
+);
+
 /// Sample a Level 3 product file at a geographic point.
 Future<SampleResult> sampleLevel3({
   required List<int> data,

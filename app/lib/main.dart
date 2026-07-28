@@ -115,11 +115,26 @@ const _basemaps = [
 
 class _Frame {
   final RadarFrame meta;
-  final MemoryImage image;
 
-  /// Source bytes the frame was decoded from, kept for the inspector.
+  /// Source bytes the frame was decoded from, kept for the inspector and
+  /// viewport re-renders.
   final Uint8List raw;
-  _Frame(this.meta, this.image, this.raw);
+
+  /// Currently displayed overlay (swapped on viewport re-render).
+  MemoryImage image;
+  LatLngBounds bounds;
+
+  _Frame(this.meta, this.image, this.raw)
+      : bounds = LatLngBounds(
+          LatLng(meta.north, meta.west),
+          LatLng(meta.south, meta.east),
+        );
+
+  /// Full extent of the radar data disk (from the initial whole-disk render).
+  LatLngBounds get dataBounds => LatLngBounds(
+        LatLng(meta.north, meta.west),
+        LatLng(meta.south, meta.east),
+      );
 }
 
 class RadarScreen extends StatefulWidget {
@@ -165,6 +180,9 @@ class _RadarScreenState extends State<RadarScreen> {
   String? _sampleText;
   LatLng? _samplePos;
   Timer? _sampleClear;
+
+  Timer? _viewDebounce;
+  int _viewGeneration = 0;
 
   @override
   void initState() {
@@ -255,6 +273,8 @@ class _RadarScreenState extends State<RadarScreen> {
         _playing = frames.length > 1;
         _loading = false;
       });
+      // Sharpen for the current viewport right away.
+      unawaited(_renderViewport());
     } catch (e) {
       if (generation != _loadGeneration || !mounted) return;
       setState(() {
@@ -306,6 +326,85 @@ class _RadarScreenState extends State<RadarScreen> {
       _l2Cache.remove(_l2Cache.keys.first);
     }
     return frames;
+  }
+
+  /// Re-render all loaded frames for the current viewport at (roughly)
+  /// screen resolution, so 250 m gates stay sharp when zoomed in.
+  Future<void> _renderViewport() async {
+    if (_frames.isEmpty || !mounted) return;
+    final generation = ++_viewGeneration;
+    final cam = _mapController.camera;
+    final vis = cam.visibleBounds;
+
+    // Expand by 25% so small pans don't immediately show missing edges.
+    final dLat = (vis.north - vis.south) * 0.25;
+    final dLon = (vis.east - vis.west) * 0.25;
+    var north = vis.north + dLat;
+    var south = vis.south - dLat;
+    var east = vis.east + dLon;
+    var west = vis.west - dLon;
+
+    // Clip to the radar's data disk.
+    final d = _frames.first.dataBounds;
+    north = math.min(north, d.north);
+    south = math.max(south, d.south);
+    east = math.min(east, d.east);
+    west = math.max(west, d.west);
+    if (north <= south || east <= west) return; // disk not in view
+
+    // Pixel size: match on-screen density, capped to keep renders fast.
+    final media = MediaQuery.of(context);
+    final dpr = media.devicePixelRatio;
+    final pxPerLon = media.size.width * dpr / (vis.east - vis.west);
+    final width = ((east - west) * pxPerLon).round().clamp(256, 2200);
+    // Height follows the Mercator aspect of the box.
+    double mercY(double latDeg) {
+      final lat = latDeg * math.pi / 180.0;
+      return math.log(math.tan(math.pi / 4 + lat / 2));
+    }
+
+    final aspect =
+        (mercY(north) - mercY(south)) / ((east - west) * math.pi / 180.0);
+    final height = (width * aspect).round().clamp(256, 2200);
+
+    try {
+      final results = await Future.wait(_frames.map((f) async {
+        final r = _product.isLevel2
+            ? await renderLevel2View(
+                data: f.raw,
+                moment: _product.l2Moment!,
+                elevationIndex: _tilt,
+                north: north,
+                south: south,
+                east: east,
+                west: west,
+                width: width,
+                height: height,
+              )
+            : await renderLevel3View(
+                data: f.raw,
+                north: north,
+                south: south,
+                east: east,
+                west: west,
+                width: width,
+                height: height,
+              );
+        return MemoryImage(Uint8List.fromList(r.png));
+      }));
+      if (generation != _viewGeneration || !mounted) return;
+      final newBounds = LatLngBounds(LatLng(north, west), LatLng(south, east));
+      for (var i = 0; i < _frames.length; i++) {
+        // ignore: use_build_context_synchronously
+        await precacheImage(results[i], context);
+        _frames[i].image = results[i];
+        _frames[i].bounds = newBounds;
+      }
+      if (generation != _viewGeneration || !mounted) return;
+      setState(() {});
+    } catch (_) {
+      // Viewport sharpening is best-effort; the full-disk render stays up.
+    }
   }
 
   // -------------------------------------------------------------- sites ----
@@ -467,6 +566,13 @@ class _RadarScreenState extends State<RadarScreen> {
               minZoom: 3,
               maxZoom: 15,
               onLongPress: (tapPos, latlng) => _inspect(latlng),
+              onMapEvent: (_) {
+                _viewDebounce?.cancel();
+                _viewDebounce = Timer(
+                  const Duration(milliseconds: 350),
+                  _renderViewport,
+                );
+              },
               backgroundColor: const Color(0xFF10141A),
             ),
             children: [
@@ -478,10 +584,7 @@ class _RadarScreenState extends State<RadarScreen> {
                 OverlayImageLayer(
                   overlayImages: [
                     OverlayImage(
-                      bounds: LatLngBounds(
-                        LatLng(frame.meta.north, frame.meta.west),
-                        LatLng(frame.meta.south, frame.meta.east),
-                      ),
+                      bounds: frame.bounds,
                       imageProvider: frame.image,
                       gaplessPlayback: true,
                     ),

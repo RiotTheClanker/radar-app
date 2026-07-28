@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -734747430;
+  int get rustContentHash => -210018107;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -95,9 +95,31 @@ abstract class RustLibApi extends BaseApi {
     required int imageSize,
   });
 
+  Future<RadarFrame> crateApiRadarRenderLevel2View({
+    required List<int> data,
+    required String moment,
+    required int elevationIndex,
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+    required int width,
+    required int height,
+  });
+
   Future<RadarFrame> crateApiRadarRenderLevel3Frame({
     required List<int> data,
     required int imageSize,
+  });
+
+  Future<RadarFrame> crateApiRadarRenderLevel3View({
+    required List<int> data,
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+    required int width,
+    required int height,
   });
 
   Future<SampleResult> crateApiRadarSampleLevel2({
@@ -247,6 +269,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<RadarFrame> crateApiRadarRenderLevel2View({
+    required List<int> data,
+    required String moment,
+    required int elevationIndex,
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+    required int width,
+    required int height,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_String(moment, serializer);
+          sse_encode_u_32(elevationIndex, serializer);
+          sse_encode_f_64(north, serializer);
+          sse_encode_f_64(south, serializer);
+          sse_encode_f_64(east, serializer);
+          sse_encode_f_64(west, serializer);
+          sse_encode_u_32(width, serializer);
+          sse_encode_u_32(height, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_radar_frame,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarRenderLevel2ViewConstMeta,
+        argValues: [
+          data,
+          moment,
+          elevationIndex,
+          north,
+          south,
+          east,
+          west,
+          width,
+          height,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarRenderLevel2ViewConstMeta =>
+      const TaskConstMeta(
+        debugName: "render_level2_view",
+        argNames: [
+          "data",
+          "moment",
+          "elevationIndex",
+          "north",
+          "south",
+          "east",
+          "west",
+          "width",
+          "height",
+        ],
+      );
+
+  @override
   Future<RadarFrame> crateApiRadarRenderLevel3Frame({
     required List<int> data,
     required int imageSize,
@@ -260,7 +351,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 6,
             port: port_,
           );
         },
@@ -279,6 +370,51 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(
         debugName: "render_level3_frame",
         argNames: ["data", "imageSize"],
+      );
+
+  @override
+  Future<RadarFrame> crateApiRadarRenderLevel3View({
+    required List<int> data,
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+    required int width,
+    required int height,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_f_64(north, serializer);
+          sse_encode_f_64(south, serializer);
+          sse_encode_f_64(east, serializer);
+          sse_encode_f_64(west, serializer);
+          sse_encode_u_32(width, serializer);
+          sse_encode_u_32(height, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_radar_frame,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarRenderLevel3ViewConstMeta,
+        argValues: [data, north, south, east, west, width, height],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarRenderLevel3ViewConstMeta =>
+      const TaskConstMeta(
+        debugName: "render_level3_view",
+        argNames: ["data", "north", "south", "east", "west", "width", "height"],
       );
 
   @override
@@ -301,7 +437,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 8,
             port: port_,
           );
         },
@@ -337,7 +473,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 9,
             port: port_,
           );
         },

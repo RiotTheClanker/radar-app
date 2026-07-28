@@ -39,6 +39,46 @@ pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
     core::level2_cuts(data, moment)
 }
 
+/// Viewport-matched render of a Level 3 product (sharp at any zoom).
+#[allow(clippy::too_many_arguments)]
+pub fn render_level3_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    convert(core::render_level3_view(data, north, south, east, west, width, height)?)
+}
+
+/// Viewport-matched render of a Level 2 moment/cut (sharp at any zoom).
+#[allow(clippy::too_many_arguments)]
+pub fn render_level2_view(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    convert(core::render_level2_view(
+        data,
+        moment,
+        elevation_index,
+        north,
+        south,
+        east,
+        west,
+        width,
+        height,
+    )?)
+}
+
 /// Result of sampling a product at a point (the "inspector" tool).
 pub struct SampleResult {
     pub value: Option<f32>,

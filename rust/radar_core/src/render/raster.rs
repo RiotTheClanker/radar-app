@@ -45,22 +45,47 @@ fn azimuth_lut(sweep: &Sweep) -> Vec<i32> {
     lut
 }
 
-/// Render a sweep to a georeferenced RGBA image.
-pub fn rasterize_sweep(sweep: &Sweep, table: &ColorTable, size: u32) -> Option<GeoImage> {
+/// Geographic bounding box of a sweep's full data disk.
+pub fn sweep_bounds(sweep: &Sweep) -> (f64, f64, f64, f64) {
     let range_m = sweep.max_range_m() as f64;
-    if range_m <= 0.0 || sweep.radials.is_empty() {
+    let site_lat = sweep.site_lat.to_radians();
+    let dlat = range_m / M_PER_DEG_LAT;
+    let dlon = range_m / (M_PER_DEG_LAT * site_lat.cos().abs().max(0.01));
+    (
+        sweep.site_lat + dlat,
+        sweep.site_lat - dlat,
+        sweep.site_lon + dlon,
+        sweep.site_lon - dlon,
+    )
+}
+
+/// Render a sweep's full data disk to a square georeferenced RGBA image.
+pub fn rasterize_sweep(sweep: &Sweep, table: &ColorTable, size: u32) -> Option<GeoImage> {
+    let (north, south, east, west) = sweep_bounds(sweep);
+    rasterize_sweep_view(sweep, table, north, south, east, west, size, size)
+}
+
+/// Render a sweep into an arbitrary Web Mercator view box. This is what
+/// keeps gates sharp: the app asks for exactly the visible region at screen
+/// resolution instead of stretching one fixed whole-disk image.
+#[allow(clippy::too_many_arguments)]
+pub fn rasterize_sweep_view(
+    sweep: &Sweep,
+    table: &ColorTable,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Option<GeoImage> {
+    let range_m = sweep.max_range_m() as f64;
+    if range_m <= 0.0 || sweep.radials.is_empty() || north <= south || east <= west {
         return None;
     }
 
     let site_lat = sweep.site_lat.to_radians();
     let site_lon = sweep.site_lon.to_radians();
-
-    let dlat = range_m / M_PER_DEG_LAT;
-    let dlon = range_m / (M_PER_DEG_LAT * site_lat.cos().abs().max(0.01));
-    let north = sweep.site_lat + dlat;
-    let south = sweep.site_lat - dlat;
-    let east = sweep.site_lon + dlon;
-    let west = sweep.site_lon - dlon;
 
     // Color LUT sized to the actual raw range (256 for 8-bit, larger for
     // 16-bit moments).
@@ -68,8 +93,8 @@ pub fn rasterize_sweep(sweep: &Sweep, table: &ColorTable, size: u32) -> Option<G
     let lut = table.build_lut(&sweep.decoder, lut_len);
     let az_lut = azimuth_lut(sweep);
 
-    let w = size as usize;
-    let h = size as usize;
+    let w = width as usize;
+    let h = height as usize;
     let mut pixels = vec![0u8; w * h * 4];
 
     let y_n = merc_y(north.to_radians());
@@ -134,8 +159,8 @@ pub fn rasterize_sweep(sweep: &Sweep, table: &ColorTable, size: u32) -> Option<G
     }
 
     Some(GeoImage {
-        width: size,
-        height: size,
+        width,
+        height,
         pixels,
         north,
         south,
