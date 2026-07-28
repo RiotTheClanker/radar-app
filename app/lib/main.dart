@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -14,6 +15,7 @@ import 'data/level3_fetcher.dart';
 import 'data/lightning.dart';
 import 'data/mrms_fetcher.dart';
 import 'data/spc_fetcher.dart';
+import 'data/user_files.dart';
 import 'data/locate.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
@@ -218,6 +220,11 @@ class _RadarScreenState extends State<RadarScreen> {
   Timer? _viewDebounce;
   int _viewGeneration = 0;
 
+  // Historical replay, measuring tool
+  DateTime? _historyTime;
+  bool _measuring = false;
+  final List<LatLng> _measurePts = [];
+
   // Future radar (on-device nowcast)
   bool _future = false;
   double _futureMinutes = 30;
@@ -350,6 +357,7 @@ class _RadarScreenState extends State<RadarScreen> {
       _site.shortId,
       productCode,
       count: _frameCount,
+      before: _historyTime,
     );
     if (keys.isEmpty) {
       throw Exception('no recent $productCode data for ${_site.icao}');
@@ -364,7 +372,10 @@ class _RadarScreenState extends State<RadarScreen> {
   /// The national mosaic is one CONUS grid per file; decode covers the whole
   /// country, so the initial render just uses the grid's own bounds.
   Future<List<_Frame>> _loadMrmsFrames() async {
-    final keys = await listRecentMosaics(count: math.min(_frameCount, 6));
+    final keys = await listRecentMosaics(
+      count: math.min(_frameCount, 6),
+      before: _historyTime,
+    );
     if (keys.isEmpty) throw Exception('no recent MRMS mosaics');
     final frames = <_Frame>[];
     for (final key in keys) {
@@ -388,7 +399,11 @@ class _RadarScreenState extends State<RadarScreen> {
   /// raw bytes so tilt/moment switches don't re-download.
   Future<List<_Frame>> _loadLevel2Frames() async {
     final count = math.min(_frameCount, 4);
-    final keys = await listRecentVolumes(_site.icao, count: count);
+    final keys = await listRecentVolumes(
+      _site.icao,
+      count: count,
+      before: _historyTime,
+    );
     if (keys.isEmpty) {
       throw Exception('no recent Level 2 volumes for ${_site.icao}');
     }
@@ -409,6 +424,112 @@ class _RadarScreenState extends State<RadarScreen> {
       _l2Cache.remove(_l2Cache.keys.first);
     }
     return frames;
+  }
+
+  /// Jump the whole app to a past moment (or back to live).
+  Future<void> _pickHistory() async {
+    if (_historyTime != null) {
+      setState(() {
+        _historyTime = null;
+        _frames = [];
+      });
+      _loadFrames();
+      return;
+    }
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(1991),
+      lastDate: now,
+      helpText: 'Replay a past storm',
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now),
+      helpText: 'Local time to replay',
+    );
+    if (time == null || !mounted) return;
+    setState(() {
+      _historyTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
+      _frames = [];
+      _l2Cache.clear();
+    });
+    _loadFrames();
+  }
+
+  /// Write the current radar image to ~/Pictures/radar-app.
+  Future<void> _saveSnapshot() async {
+    final frame = _future && _futureFrame != null
+        ? _futureFrame
+        : (_frames.isEmpty ? null : _frames[_shownFrame]);
+    if (frame == null) return;
+    try {
+      final f = saveSnapshot(
+        Uint8List.fromList(frame.meta.png),
+        '${_product.isMrms ? 'MRMS' : _site.icao}_${_product.short}'
+            .replaceAll(' ', ''),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text('Saved ${f.path}')));
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  /// Apply a GRLevelX .pal file (or clear back to the built-ins).
+  Future<void> _applyPalette(String path) async {
+    try {
+      if (path.isEmpty) {
+        await resetPalettes();
+      } else {
+        final kind = await installPalette(text: File(path).readAsStringSync());
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(
+              SnackBar(content: Text('Palette applied to $kind')),
+            );
+        }
+      }
+      _futureFrame = null;
+      await _loadFrames();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  void _onMeasureTap(LatLng p) {
+    setState(() {
+      if (_measurePts.length >= 2) _measurePts.clear();
+      _measurePts.add(p);
+    });
+  }
+
+  /// Great-circle distance (km) and initial bearing (deg) between two points.
+  (double, double) _distanceBearing(LatLng a, LatLng b) {
+    const r = 6371.0;
+    final la1 = a.latitude * math.pi / 180, la2 = b.latitude * math.pi / 180;
+    final dLat = la2 - la1;
+    final dLon = (b.longitude - a.longitude) * math.pi / 180;
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(la1) * math.cos(la2) * math.sin(dLon / 2) * math.sin(dLon / 2);
+    final d = 2 * r * math.asin(math.min(1.0, math.sqrt(h)));
+    final y = math.sin(dLon) * math.cos(la2);
+    final x = math.cos(la1) * math.sin(la2) -
+        math.sin(la1) * math.cos(la2) * math.cos(dLon);
+    var brg = math.atan2(y, x) * 180 / math.pi;
+    if (brg < 0) brg += 360;
+    return (d, brg);
   }
 
   /// Visible box expanded slightly, clipped to the data extent, plus the
@@ -804,6 +925,9 @@ class _RadarScreenState extends State<RadarScreen> {
               initialZoom: 7,
               minZoom: 3,
               maxZoom: 15,
+              onTap: (tapPos, latlng) {
+                if (_measuring) _onMeasureTap(latlng);
+              },
               onLongPress: (tapPos, latlng) => _inspect(latlng),
               // Pinch-zoom and drag, but no accidental two-finger rotation:
               // a twisted radar map is disorienting and hard to undo on touch.
@@ -905,6 +1029,32 @@ class _RadarScreenState extends State<RadarScreen> {
                               Shadow(blurRadius: 3, color: Colors.black),
                             ],
                           ),
+                        ),
+                      ),
+                  ],
+                ),
+              if (_measurePts.length == 2)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _measurePts,
+                      color: Colors.cyanAccent,
+                      strokeWidth: 2,
+                    ),
+                  ],
+                ),
+              if (_measuring)
+                MarkerLayer(
+                  markers: [
+                    for (final p in _measurePts)
+                      Marker(
+                        point: p,
+                        width: 12,
+                        height: 12,
+                        child: const Icon(
+                          Icons.circle,
+                          size: 10,
+                          color: Colors.cyanAccent,
                         ),
                       ),
                   ],
@@ -1016,6 +1166,32 @@ class _RadarScreenState extends State<RadarScreen> {
                       ],
                     ),
                   ),
+                if (_measurePts.length == 2)
+                  Builder(builder: (context) {
+                    final (d, b) =
+                        _distanceBearing(_measurePts[0], _measurePts[1]);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xE610141A),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.cyanAccent),
+                      ),
+                      child: Text(
+                        '${d.toStringAsFixed(1)} km  '
+                        '(${(d * 0.621371).toStringAsFixed(1)} mi)  ·  '
+                        '${b.round()}°',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    );
+                  }),
                 if (_sampleText != null)
                   Container(
                     margin: const EdgeInsets.only(bottom: 6),
@@ -1084,7 +1260,24 @@ class _RadarScreenState extends State<RadarScreen> {
             '${frame != null && _product.hasTilts ? ' ${frame.meta.elevationDeg.toStringAsFixed(1)}°' : ''}',
             style: const TextStyle(fontSize: 12, color: Colors.white70),
           ),
-          if (stale) ...[
+          if (_historyTime != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.indigo.shade700,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'REPLAY ${DateFormat('MMM d HH:mm').format(_historyTime!)}',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+          if (stale && _historyTime == null) ...[
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1212,6 +1405,81 @@ class _RadarScreenState extends State<RadarScreen> {
               size: 19,
               color: Colors.white70,
             ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert, size: 20),
+            onSelected: (v) {
+              switch (v) {
+                case 'history':
+                  _pickHistory();
+                case 'snapshot':
+                  _saveSnapshot();
+                case 'measure':
+                  setState(() {
+                    _measuring = !_measuring;
+                    _measurePts.clear();
+                  });
+                case 'palette_reset':
+                  _applyPalette('');
+                default:
+                  if (v.startsWith('pal:')) _applyPalette(v.substring(4));
+              }
+            },
+            itemBuilder: (context) {
+              final pals = () {
+                try {
+                  return listPalettes();
+                } catch (_) {
+                  return <File>[];
+                }
+              }();
+              return [
+                PopupMenuItem(
+                  value: 'history',
+                  child: Text(
+                    _historyTime == null
+                        ? 'Replay a past storm…'
+                        : 'Return to live',
+                  ),
+                ),
+                CheckedPopupMenuItem(
+                  value: 'measure',
+                  checked: _measuring,
+                  child: const Text('Measure distance'),
+                ),
+                const PopupMenuItem(
+                  value: 'snapshot',
+                  child: Text('Save snapshot'),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  enabled: false,
+                  height: 28,
+                  child: Text(
+                    'COLOR TABLES',
+                    style: TextStyle(fontSize: 11, color: Colors.white54),
+                  ),
+                ),
+                for (final f in pals)
+                  PopupMenuItem(
+                    value: 'pal:${f.path}',
+                    child: Text(f.uri.pathSegments.last),
+                  ),
+                if (pals.isEmpty)
+                  PopupMenuItem(
+                    enabled: false,
+                    child: Text(
+                      'drop .pal files in\n${paletteDir().path}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                const PopupMenuItem(
+                  value: 'palette_reset',
+                  child: Text('Built-in colors'),
+                ),
+              ];
+            },
           ),
           IconButton(
             visualDensity: VisualDensity.compact,

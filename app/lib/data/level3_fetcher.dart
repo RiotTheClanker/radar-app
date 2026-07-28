@@ -16,8 +16,9 @@ Future<List<String>> listRecentKeys(
   String siteShortId,
   String product, {
   int count = 10,
+  DateTime? before,
 }) async {
-  final now = DateTime.now().toUtc();
+  final now = (before ?? DateTime.now()).toUtc();
   final keys = <String>[];
   // Walk backwards a day at a time until we have enough frames (radars in
   // maintenance can be quiet for a while; two days is plenty for an MVP).
@@ -28,10 +29,14 @@ Future<List<String>> listRecentKeys(
     final uri = Uri.parse('$_bucket/?list-type=2&prefix=$prefix&max-keys=1000');
     final resp = await http.get(uri);
     if (resp.statusCode != 200) continue;
-    final dayKeys = _keyRe
-        .allMatches(resp.body)
-        .map((m) => m.group(1)!)
-        .toList();
+    var dayKeys =
+        _keyRe.allMatches(resp.body).map((m) => m.group(1)!).toList();
+    if (before != null) {
+      // Keys embed a fixed-width UTC stamp, so a string compare is enough.
+      final cut = '${siteShortId}_${product}_${now.year}_${_p(now.month)}_'
+          '${_p(now.day)}_${_p(now.hour)}_${_p(now.minute)}_${_p(now.second)}';
+      dayKeys = dayKeys.where((k) => k.compareTo(cut) <= 0).toList();
+    }
     keys.insertAll(0, dayKeys);
   }
   if (keys.length > count) {

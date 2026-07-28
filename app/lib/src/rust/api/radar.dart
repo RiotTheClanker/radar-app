@@ -229,6 +229,15 @@ Future<RadarFrame> nowcastView({
   height: height,
 );
 
+/// Import a GRLevelX `.pal` color table. Returns the product family it
+/// applies to.
+Future<String> installPalette({required String text}) =>
+    RustLib.instance.api.crateApiRadarInstallPalette(text: text);
+
+/// Drop imported palettes and return to the built-in ones.
+Future<void> resetPalettes() =>
+    RustLib.instance.api.crateApiRadarResetPalettes();
+
 /// Lightning flashes parsed from one GOES GLM L2 LCFA file.
 class GlmResult {
   final PlatformInt64 timestamp;

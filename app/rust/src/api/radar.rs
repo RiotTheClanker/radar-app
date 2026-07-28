@@ -302,3 +302,14 @@ pub fn nowcast_view(
         prev, latest, source, minutes, north, south, east, west, width, height,
     )?)
 }
+
+/// Import a GRLevelX `.pal` color table. Returns the product family it
+/// applies to.
+pub fn install_palette(text: String) -> Result<String, String> {
+    core::install_palette(text)
+}
+
+/// Drop imported palettes and return to the built-in ones.
+pub fn reset_palettes() {
+    core::reset_palettes()
+}

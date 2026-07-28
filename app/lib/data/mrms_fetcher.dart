@@ -13,8 +13,8 @@ const _product = 'CONUS/MergedReflectivityQCComposite_00.50';
 final _keyRe = RegExp(r'<Key>([^<]+)</Key>');
 
 /// Most recent mosaic keys, newest last.
-Future<List<String>> listRecentMosaics({int count = 1}) async {
-  final now = DateTime.now().toUtc();
+Future<List<String>> listRecentMosaics({int count = 1, DateTime? before}) async {
+  final now = (before ?? DateTime.now()).toUtc();
   final keys = <String>[];
   for (var back = 0; back < 2 && keys.length < count; back++) {
     final day = now.subtract(Duration(days: back));
@@ -24,8 +24,16 @@ Future<List<String>> listRecentMosaics({int count = 1}) async {
     );
     final resp = await http.get(uri);
     if (resp.statusCode != 200) continue;
-    final dayKeys =
+    var dayKeys =
         _keyRe.allMatches(resp.body).map((m) => m.group(1)!).toList();
+    if (before != null) {
+      final cut = '${now.year}${_p(now.month)}${_p(now.day)}-'
+          '${_p(now.hour)}${_p(now.minute)}${_p(now.second)}';
+      dayKeys = dayKeys.where((k) {
+        final i = k.lastIndexOf(RegExp(r'\d{8}-\d{6}'));
+        return i < 0 || k.substring(i, i + 15).compareTo(cut) <= 0;
+      }).toList();
+    }
     keys.insertAll(0, dayKeys);
   }
   if (keys.length > count) return keys.sublist(keys.length - count);

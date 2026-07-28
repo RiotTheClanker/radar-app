@@ -59,8 +59,12 @@ impl ColorTable {
             .collect()
     }
 
-    /// Pick a sensible default table for a product kind.
+    /// Pick a sensible default table for a product kind. A user-imported
+    /// GRLevelX `.pal` table for that kind wins over the built-in palette.
     pub fn default_for(kind: ProductKind) -> ColorTable {
+        if let Some(custom) = crate::palette::custom_for(kind) {
+            return custom;
+        }
         match kind {
             ProductKind::Velocity => ColorTable::velocity_default(),
             ProductKind::CorrelationCoefficient => ColorTable::cc_default(),

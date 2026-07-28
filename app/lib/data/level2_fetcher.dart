@@ -13,8 +13,12 @@ const _bucket = 'https://unidata-nexrad-level2.s3.amazonaws.com';
 final _keyRe = RegExp(r'<Key>([^<]+)</Key>');
 
 /// List the most recent [count] volume keys for a site, newest last.
-Future<List<String>> listRecentVolumes(String icao, {int count = 3}) async {
-  final now = DateTime.now().toUtc();
+Future<List<String>> listRecentVolumes(
+  String icao, {
+  int count = 3,
+  DateTime? before,
+}) async {
+  final now = (before ?? DateTime.now()).toUtc();
   final keys = <String>[];
   for (var back = 0; back < 2 && keys.length < count; back++) {
     final day = now.subtract(Duration(days: back));
@@ -23,11 +27,18 @@ Future<List<String>> listRecentVolumes(String icao, {int count = 3}) async {
     final uri = Uri.parse('$_bucket/?list-type=2&prefix=$prefix&max-keys=1000');
     final resp = await http.get(uri);
     if (resp.statusCode != 200) continue;
-    final dayKeys = _keyRe
+    var dayKeys = _keyRe
         .allMatches(resp.body)
         .map((m) => m.group(1)!)
         .where((k) => !k.endsWith('_MDM'))
         .toList();
+    if (before != null) {
+      final cut = '$icao${now.year}${_p(now.month)}${_p(now.day)}_'
+          '${_p(now.hour)}${_p(now.minute)}${_p(now.second)}';
+      dayKeys = dayKeys
+          .where((k) => k.split('/').last.compareTo(cut) <= 0)
+          .toList();
+    }
     keys.insertAll(0, dayKeys);
   }
   if (keys.length > count) {

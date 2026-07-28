@@ -697,3 +697,14 @@ pub fn nowcast_view(
         west: img.west,
     })
 }
+
+/// Import a GRLevelX `.pal` color table; it replaces the built-in palette
+/// for whichever product family the file declares. Returns that family.
+pub fn install_palette(text: String) -> Result<String, String> {
+    crate::palette::install_pal(&text)
+}
+
+/// Drop all imported palettes and go back to the built-in ones.
+pub fn reset_palettes() {
+    crate::palette::clear_custom();
+}
