@@ -125,6 +125,30 @@ pub fn build_grid(cuts: &[Sweep], nxy: usize, nz: usize, half_extent_m: f32, top
         }
     }
 
+    // Light separable box blur (horizontal only, radius 1) knocks down radial
+    // speckle so the trilinear render reads as cloud masses, not static.
+    let mut blurred = data.clone();
+    for z in 0..nz {
+        for y in 0..nxy {
+            for x in 1..nxy - 1 {
+                let i = (z * nxy + y) * nxy + x;
+                blurred[i] =
+                    ((data[i - 1] as u16 + 2 * data[i] as u16 + data[i + 1] as u16) / 4) as u8;
+            }
+        }
+    }
+    for z in 0..nz {
+        for x in 0..nxy {
+            for y in 1..nxy - 1 {
+                let i = (z * nxy + y) * nxy + x;
+                let up = (z * nxy + y - 1) * nxy + x;
+                let dn = (z * nxy + y + 1) * nxy + x;
+                data[i] =
+                    ((blurred[up] as u16 + 2 * blurred[i] as u16 + blurred[dn] as u16) / 4) as u8;
+            }
+        }
+    }
+
     Some(Grid3D {
         nxy,
         nz,

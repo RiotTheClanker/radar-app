@@ -66,7 +66,7 @@ pub fn render_volume(
         }
     }
 
-    let step = (2.0 * ex / grid.nxy as f32).max(top / grid.nz as f32) * 0.9;
+    let step = (2.0 * ex / grid.nxy as f32).max(top / grid.nz as f32) * 0.55;
     let inv_vox_xy = grid.nxy as f32 / (2.0 * ex);
     let inv_vox_z = grid.nz as f32 / top;
 
@@ -93,17 +93,12 @@ pub fn render_volume(
                 let x = eye[0] + dir[0] * t;
                 let y = eye[1] + dir[1] * t;
                 let z = eye[2] + dir[2] * t;
-                let gx = ((x + ex) * inv_vox_xy) as isize;
-                let gy = ((y + ex) * inv_vox_xy) as isize;
-                let gz = (z * inv_vox_z) as isize;
-                if gx >= 0
-                    && gy >= 0
-                    && gz >= 0
-                    && (gx as usize) < grid.nxy
-                    && (gy as usize) < grid.nxy
-                    && (gz as usize) < grid.nz
-                {
-                    let raw = grid.at(gx as usize, gy as usize, gz as usize);
+                // Trilinear sample: smooth, cloud-like instead of voxel grain.
+                let fx = (x + ex) * inv_vox_xy - 0.5;
+                let fy = (y + ex) * inv_vox_xy - 0.5;
+                let fz = z * inv_vox_z - 0.5;
+                let raw = trilinear(grid, fx, fy, fz);
+                if raw > 1.5 {
                     let (color, opacity) = lut[raw as usize];
                     if opacity > 0.0 {
                         let a = (opacity * step / 2000.0).min(0.9) * (1.0 - alpha);
@@ -131,6 +126,41 @@ pub fn render_volume(
         height,
         rgba,
     }
+}
+
+/// Trilinearly interpolated grid sample (0 outside).
+#[inline]
+fn trilinear(grid: &Grid3D, fx: f32, fy: f32, fz: f32) -> f32 {
+    let x0 = fx.floor();
+    let y0 = fy.floor();
+    let z0 = fz.floor();
+    let tx = fx - x0;
+    let ty = fy - y0;
+    let tz = fz - z0;
+    let mut acc = 0.0f32;
+    for (dz, wz) in [(0isize, 1.0 - tz), (1, tz)] {
+        for (dy, wy) in [(0isize, 1.0 - ty), (1, ty)] {
+            for (dx, wx) in [(0isize, 1.0 - tx), (1, tx)] {
+                let w = wx * wy * wz;
+                if w <= 0.0 {
+                    continue;
+                }
+                let gx = x0 as isize + dx;
+                let gy = y0 as isize + dy;
+                let gz = z0 as isize + dz;
+                if gx >= 0
+                    && gy >= 0
+                    && gz >= 0
+                    && (gx as usize) < grid.nxy
+                    && (gy as usize) < grid.nxy
+                    && (gz as usize) < grid.nz
+                {
+                    acc += w * grid.at(gx as usize, gy as usize, gz as usize) as f32;
+                }
+            }
+        }
+    }
+    acc
 }
 
 fn norm(v: [f32; 3]) -> [f32; 3] {

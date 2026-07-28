@@ -348,7 +348,7 @@ pub fn render_volume3d(
 ) -> Result<Volume3DFrame, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
     let cuts = vol.all_sweeps("REF");
-    let grid = crate::process::grid3d::build_grid(&cuts, 384, 24, 120_000.0, 16_000.0)
+    let grid = crate::process::grid3d::build_grid(&cuts, 384, 40, 120_000.0, 16_000.0)
         .ok_or_else(|| "no reflectivity cuts in volume".to_string())?;
     let img = crate::render::volume3d::render_volume(
         &grid, yaw_deg, pitch_deg, zoom, dbz_min, width, height, 4.0,
