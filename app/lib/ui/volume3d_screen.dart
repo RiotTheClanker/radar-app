@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -23,9 +24,11 @@ const _volFields = [
   _VolField('RHO', 'Corr Coeff'),
 ];
 
-/// Free-fly 3D storm view: WASD + Space/Shift to move, drag to look,
-/// sliders to slice the volume and set the opacity floor. GPU raymarched;
-/// falls back to the CPU orbit renderer when no GPU is available.
+/// Free-fly 3D storm view.
+///
+/// Touch: one finger looks, two fingers pan, pinch flies forward/back, and
+/// the on-screen stick drives movement. Desktop: WASD + Space/Shift, drag to
+/// look, scroll wheel to dolly. GPU raymarched, with a CPU orbit fallback.
 class Volume3DScreen extends StatefulWidget {
   final Uint8List volumeBytes;
   final String siteId;
@@ -55,16 +58,21 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   double _px = 0, _py = 0, _pz = 0;
   double _yaw = 0, _pitch = -6;
 
-  // Clip box (fractions)
+  // Clip box (fractions of the volume)
   RangeValues _clipX = const RangeValues(0, 1);
   RangeValues _clipY = const RangeValues(0, 1);
   RangeValues _clipZ = const RangeValues(0, 1);
   bool _showSlicers = false;
 
-  // Input
+  // Continuous inputs
   final Set<LogicalKeyboardKey> _keys = {};
+  Offset _stick = Offset.zero; // on-screen movement stick, -1..1
+  double _vertInput = 0; // on-screen up/down buttons
   Ticker? _ticker;
   Duration _lastTick = Duration.zero;
+
+  // Gesture state
+  double _lastScale = 1;
 
   // Frame plumbing
   ui.Image? _frame;
@@ -104,11 +112,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
       _gpu = info.gpu;
       _ex = info.halfExtentM;
       _top = info.topM;
-      if (_px == 0 && _py == 0 && _pz == 0) {
-        _px = 0;
-        _py = -1.6 * _ex;
-        _pz = 0.45 * _top;
-      }
+      if (_px == 0 && _py == 0 && _pz == 0) _resetCamera();
       setState(() => _opening = false);
       if (_gpu) {
         _ticker ??= createTicker(_onTick)..start();
@@ -125,12 +129,21 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     }
   }
 
+  void _resetCamera() {
+    _px = 0;
+    _py = -1.6 * _ex;
+    _pz = 0.45 * _top;
+    _yaw = 0;
+    _pitch = -6;
+    _dirty = true;
+  }
+
   // ------------------------------------------------------------- fly loop --
 
   void _onTick(Duration now) {
     final dt = _lastTick == Duration.zero
         ? 0.016
-        : (now - _lastTick).inMicroseconds / 1e6;
+        : ((now - _lastTick).inMicroseconds / 1e6).clamp(0.0, 0.1);
     _lastTick = now;
     if (_moveCamera(dt) || _dirty) {
       _dirty = false;
@@ -138,35 +151,54 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     }
   }
 
-  bool _moveCamera(double dt) {
-    if (_keys.isEmpty) return false;
-    final boost =
-        _keys.contains(LogicalKeyboardKey.controlLeft) ? 3.0 : 1.0;
-    final speed = _ex * 0.45 * dt * boost;
-    final yawR = _yaw * math.pi / 180.0;
-    final fx = math.sin(yawR), fy = math.cos(yawR);
-    final rx = fy, ry = -fx;
-    var moved = false;
-    void mv(double dx, double dy, double dz) {
-      _px = (_px + dx).clamp(-2.5 * _ex, 2.5 * _ex);
-      _py = (_py + dy).clamp(-2.5 * _ex, 2.5 * _ex);
-      _pz = (_pz + dz).clamp(200.0, 2.2 * _top);
-      moved = true;
-    }
+  /// Unit vector the camera is looking along.
+  List<double> get _forward {
+    final y = _yaw * math.pi / 180.0;
+    final p = _pitch * math.pi / 180.0;
+    return [math.cos(p) * math.sin(y), math.cos(p) * math.cos(y), math.sin(p)];
+  }
 
-    if (_keys.contains(LogicalKeyboardKey.keyW)) mv(fx * speed, fy * speed, 0);
-    if (_keys.contains(LogicalKeyboardKey.keyS)) mv(-fx * speed, -fy * speed, 0);
-    if (_keys.contains(LogicalKeyboardKey.keyD)) mv(rx * speed, ry * speed, 0);
-    if (_keys.contains(LogicalKeyboardKey.keyA)) mv(-rx * speed, -ry * speed, 0);
+  /// Horizontal unit vector to the camera's right.
+  List<double> get _right {
+    final y = _yaw * math.pi / 180.0;
+    return [math.cos(y), -math.sin(y)];
+  }
+
+  void _translate(double dx, double dy, double dz) {
+    _px = (_px + dx).clamp(-2.5 * _ex, 2.5 * _ex);
+    _py = (_py + dy).clamp(-2.5 * _ex, 2.5 * _ex);
+    _pz = (_pz + dz).clamp(200.0, 2.2 * _top);
+  }
+
+  bool _moveCamera(double dt) {
+    var fwdIn = -_stick.dy; // stick up = forward
+    var strafeIn = _stick.dx;
+    var vertIn = _vertInput;
+
+    if (_keys.contains(LogicalKeyboardKey.keyW)) fwdIn += 1;
+    if (_keys.contains(LogicalKeyboardKey.keyS)) fwdIn -= 1;
+    if (_keys.contains(LogicalKeyboardKey.keyD)) strafeIn += 1;
+    if (_keys.contains(LogicalKeyboardKey.keyA)) strafeIn -= 1;
     if (_keys.contains(LogicalKeyboardKey.space) ||
         _keys.contains(LogicalKeyboardKey.keyE)) {
-      mv(0, 0, speed * 0.6);
+      vertIn += 1;
     }
     if (_keys.contains(LogicalKeyboardKey.shiftLeft) ||
         _keys.contains(LogicalKeyboardKey.keyQ)) {
-      mv(0, 0, -speed * 0.6);
+      vertIn -= 1;
     }
-    return moved;
+    if (fwdIn == 0 && strafeIn == 0 && vertIn == 0) return false;
+
+    final boost = _keys.contains(LogicalKeyboardKey.controlLeft) ? 3.0 : 1.0;
+    final speed = _ex * 0.45 * dt * boost;
+    final f = _forward;
+    final r = _right;
+    _translate(
+      f[0] * fwdIn * speed + r[0] * strafeIn * speed,
+      f[1] * fwdIn * speed + r[1] * strafeIn * speed,
+      f[2] * fwdIn * speed + vertIn * speed * 0.6,
+    );
+    return true;
   }
 
   Future<void> _requestFrame() async {
@@ -218,6 +250,43 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     return c.future;
   }
 
+  // ------------------------------------------------------------- gestures --
+
+  void _onScaleStart(ScaleStartDetails d) => _lastScale = 1;
+
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    final delta = d.focalPointDelta;
+    if (d.pointerCount >= 2) {
+      // Two fingers: pinch flies along the view axis, drag pans the camera.
+      final ds = d.scale / (_lastScale == 0 ? 1 : _lastScale);
+      _lastScale = d.scale;
+      final f = _forward;
+      final dolly = (ds - 1.0) * _ex * 1.6;
+      _translate(f[0] * dolly, f[1] * dolly, f[2] * dolly);
+
+      final r = _right;
+      final pan = _ex * 0.0016;
+      _translate(
+        -r[0] * delta.dx * pan,
+        -r[1] * delta.dx * pan,
+        delta.dy * pan * 0.7,
+      );
+    } else {
+      // One finger / mouse drag: look around.
+      _yaw += delta.dx * 0.25;
+      _pitch = (_pitch - delta.dy * 0.22).clamp(-85.0, 85.0);
+    }
+    _dirty = true;
+  }
+
+  void _onScroll(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    final f = _forward;
+    final d = -e.scrollDelta.dy * _ex * 0.0012;
+    _translate(f[0] * d, f[1] * d, f[2] * d);
+    _dirty = true;
+  }
+
   // ------------------------------------------------------ legacy fallback --
 
   Future<void> _legacyRender() async {
@@ -246,12 +315,25 @@ class _Volume3DScreenState extends State<Volume3DScreen>
       backgroundColor: const Color(0xFF0A0D12),
       appBar: AppBar(
         backgroundColor: const Color(0xFF10141A),
+        titleSpacing: 8,
         title: Text(
-          '${widget.siteId} · 3D ${_field.label}'
-          '${_gpu ? '' : ' (CPU orbit mode)'}',
+          '${widget.siteId} · ${_field.label}'
+          '${_gpu ? '' : ' (CPU orbit)'}',
           style: const TextStyle(fontSize: 15),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Reset view',
+            onPressed: () {
+              _resetCamera();
+              if (_gpu) {
+                setState(() {});
+              } else {
+                _legacyRender();
+              }
+            },
+            icon: const Icon(Icons.center_focus_strong, size: 20),
+          ),
           IconButton(
             tooltip: 'Slice',
             onPressed: () => setState(() => _showSlicers = !_showSlicers),
@@ -263,6 +345,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
           ),
           PopupMenuButton<_VolField>(
             tooltip: 'Field',
+            icon: const Icon(Icons.layers, size: 20),
             onSelected: (f) {
               setState(() => _field = f);
               _open();
@@ -312,29 +395,54 @@ class _Volume3DScreenState extends State<Volume3DScreen>
         }
         return KeyEventResult.handled;
       },
-      child: GestureDetector(
-        onPanUpdate: (d) {
-          _yaw += d.delta.dx * 0.25;
-          _pitch = (_pitch - d.delta.dy * 0.22).clamp(-85.0, 85.0);
-          _dirty = true;
-        },
-        child: Container(
-          color: const Color(0xFF0A0D12),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (_frame != null)
-                RawImage(image: _frame, fit: BoxFit.contain),
-              const Positioned(
-                left: 10,
-                bottom: 8,
-                child: Text(
-                  'WASD move · Space/Shift up/down · Ctrl boost · drag look',
-                  style: TextStyle(fontSize: 11, color: Colors.white38),
-                ),
+      child: Listener(
+        onPointerSignal: _onScroll,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(
+              onScaleStart: _onScaleStart,
+              onScaleUpdate: _onScaleUpdate,
+              child: Container(
+                color: const Color(0xFF0A0D12),
+                child: _frame == null
+                    ? const Center(child: CircularProgressIndicator())
+                    : RawImage(image: _frame, fit: BoxFit.contain),
               ),
-            ],
-          ),
+            ),
+            // Movement stick (bottom-left) and altitude pad (bottom-right).
+            Positioned(
+              left: 16,
+              bottom: 16,
+              child: _Stick(onChanged: (v) => _stick = v),
+            ),
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _HoldButton(
+                    icon: Icons.keyboard_arrow_up,
+                    onChanged: (down) => _vertInput = down ? 1 : 0,
+                  ),
+                  const SizedBox(height: 10),
+                  _HoldButton(
+                    icon: Icons.keyboard_arrow_down,
+                    onChanged: (down) => _vertInput = down ? -1 : 0,
+                  ),
+                ],
+              ),
+            ),
+            const Positioned(
+              left: 12,
+              top: 8,
+              child: Text(
+                'drag look · 2-finger pan · pinch fly · stick move',
+                style: TextStyle(fontSize: 11, color: Colors.white38),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -362,11 +470,11 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   Widget _slicers() {
     Widget row(String label, RangeValues v, void Function(RangeValues) set) {
       return SizedBox(
-        height: 30,
+        height: 32,
         child: Row(
           children: [
             SizedBox(
-              width: 20,
+              width: 26,
               child: Text(
                 label,
                 style: const TextStyle(fontSize: 11, color: Colors.white54),
@@ -403,7 +511,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     return SafeArea(
       top: false,
       child: SizedBox(
-        height: 40,
+        height: 44,
         child: Row(
           children: [
             const SizedBox(width: 12),
@@ -431,6 +539,115 @@ class _Volume3DScreenState extends State<Volume3DScreen>
             const SizedBox(width: 8),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Analog movement stick: drag from the center, springs back on release.
+class _Stick extends StatefulWidget {
+  final ValueChanged<Offset> onChanged;
+  const _Stick({required this.onChanged});
+
+  @override
+  State<_Stick> createState() => _StickState();
+}
+
+class _StickState extends State<_Stick> {
+  static const double _size = 108;
+  static const double _knob = 40;
+  Offset _pos = Offset.zero; // pixels from center
+
+  void _update(Offset local) {
+    const c = Offset(_size / 2, _size / 2);
+    var d = local - c;
+    const maxR = (_size - _knob) / 2;
+    if (d.distance > maxR) d = d / d.distance * maxR;
+    setState(() => _pos = d);
+    widget.onChanged(Offset(d.dx / maxR, d.dy / maxR));
+  }
+
+  void _release() {
+    setState(() => _pos = Offset.zero);
+    widget.onChanged(Offset.zero);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onPanDown: (d) => _update(d.localPosition),
+      onPanUpdate: (d) => _update(d.localPosition),
+      onPanEnd: (_) => _release(),
+      onPanCancel: _release,
+      child: SizedBox(
+        width: _size,
+        height: _size,
+        child: Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.06),
+                border: Border.all(color: Colors.white24),
+              ),
+            ),
+            Positioned(
+              left: (_size - _knob) / 2 + _pos.dx,
+              top: (_size - _knob) / 2 + _pos.dy,
+              child: Container(
+                width: _knob,
+                height: _knob,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF29B6F6).withValues(alpha: 0.55),
+                  border: Border.all(color: Colors.white70),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Press-and-hold button that reports its down state continuously.
+class _HoldButton extends StatefulWidget {
+  final IconData icon;
+  final ValueChanged<bool> onChanged;
+  const _HoldButton({required this.icon, required this.onChanged});
+
+  @override
+  State<_HoldButton> createState() => _HoldButtonState();
+}
+
+class _HoldButtonState extends State<_HoldButton> {
+  bool _down = false;
+
+  void _set(bool v) {
+    if (_down == v) return;
+    setState(() => _down = v);
+    widget.onChanged(v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => _set(true),
+      onPointerUp: (_) => _set(false),
+      onPointerCancel: (_) => _set(false),
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _down
+              ? const Color(0xFF29B6F6).withValues(alpha: 0.5)
+              : Colors.white.withValues(alpha: 0.08),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Icon(widget.icon, size: 26, color: Colors.white70),
       ),
     );
   }

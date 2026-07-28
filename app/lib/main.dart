@@ -634,6 +634,11 @@ class _RadarScreenState extends State<RadarScreen> {
               minZoom: 3,
               maxZoom: 15,
               onLongPress: (tapPos, latlng) => _inspect(latlng),
+              // Pinch-zoom and drag, but no accidental two-finger rotation:
+              // a twisted radar map is disorienting and hard to undo on touch.
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
               onMapEvent: (_) {
                 _viewDebounce?.cancel();
                 _viewDebounce = Timer(
