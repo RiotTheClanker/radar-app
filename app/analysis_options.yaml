@@ -1,1 +1,11 @@
 include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # Vendored build tooling that ships with flutter_rust_bridge. It has its
+    # own pubspec, so analyzing it here reports unresolved imports unless
+    # someone happens to have run `pub get` inside it.
+    - rust_builder/**
+    - build/**
+    # Generated bridge bindings.
+    - lib/src/rust/**
