@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1663186909;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1740289867;
 
 // Section: executor
 
@@ -104,6 +104,144 @@ fn wire__crate__api__simple__init_app_impl(
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::simple::init_app();
                     })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__radar__inspect_open_level2_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "inspect_open_level2",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_data = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_moment = <String>::sse_decode(&mut deserializer);
+            let api_elevation_index = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::inspect_open_level2(
+                        api_data,
+                        api_moment,
+                        api_elevation_index,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__radar__inspect_open_level3_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "inspect_open_level3",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_data = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::inspect_open_level3(api_data)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__radar__inspect_sample_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "inspect_sample",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_lat = <f64>::sse_decode(&mut deserializer);
+            let api_lon = <f64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::inspect_sample(api_lat, api_lon)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__radar__inspect_site_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "inspect_site",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::inspect_site()?;
                     Ok(output_ok)
                 })())
             }
@@ -984,12 +1122,16 @@ impl SseDecode for crate::api::radar::SampleResult {
         let mut var_unit = <String>::sse_decode(deserializer);
         let mut var_distanceKm = <f64>::sse_decode(deserializer);
         let mut var_beamHeightM = <f64>::sse_decode(deserializer);
+        let mut var_azimuthDeg = <f64>::sse_decode(deserializer);
+        let mut var_elevationDeg = <f32>::sse_decode(deserializer);
         return crate::api::radar::SampleResult {
             value: var_value,
             range_folded: var_rangeFolded,
             unit: var_unit,
             distance_km: var_distanceKm,
             beam_height_m: var_beamHeightM,
+            azimuth_deg: var_azimuthDeg,
+            elevation_deg: var_elevationDeg,
         };
     }
 }
@@ -1053,26 +1195,30 @@ fn pde_ffi_dispatcher_primary_impl(
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
         2 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__radar__install_palette_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__radar__level2_cuts_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__radar__nowcast_view_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__radar__parse_glm_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__radar__render_level2_frame_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__radar__render_level2_view_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__radar__render_level3_frame_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__radar__render_level3_view_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__radar__render_mrms_view_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__radar__render_volume3d_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__radar__reset_palettes_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__radar__sample_level2_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__radar__sample_level3_impl(port, ptr, rust_vec_len, data_len),
-        16 => {
+        3 => wire__crate__api__radar__inspect_open_level2_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__radar__inspect_open_level3_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__radar__inspect_sample_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__radar__inspect_site_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__radar__install_palette_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__radar__level2_cuts_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__radar__nowcast_view_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__radar__parse_glm_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__radar__render_level2_frame_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__radar__render_level2_view_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__radar__render_level3_frame_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__radar__render_level3_view_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__radar__render_mrms_view_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__radar__render_volume3d_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__radar__reset_palettes_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__radar__sample_level2_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__radar__sample_level3_impl(port, ptr, rust_vec_len, data_len),
+        20 => {
             wire__crate__api__radar__volume3d_ground_bounds_impl(port, ptr, rust_vec_len, data_len)
         }
-        17 => wire__crate__api__radar__volume3d_open_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__radar__volume3d_render_fly_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__radar__volume3d_set_ground_impl(port, ptr, rust_vec_len, data_len),
-        20 => {
+        21 => wire__crate__api__radar__volume3d_open_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__radar__volume3d_render_fly_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__radar__volume3d_set_ground_impl(port, ptr, rust_vec_len, data_len),
+        24 => {
             wire__crate__api__radar__volume3d_set_threshold_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -1172,6 +1318,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::radar::SampleResult {
             self.unit.into_into_dart().into_dart(),
             self.distance_km.into_into_dart().into_dart(),
             self.beam_height_m.into_into_dart().into_dart(),
+            self.azimuth_deg.into_into_dart().into_dart(),
+            self.elevation_deg.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1362,6 +1510,8 @@ impl SseEncode for crate::api::radar::SampleResult {
         <String>::sse_encode(self.unit, serializer);
         <f64>::sse_encode(self.distance_km, serializer);
         <f64>::sse_encode(self.beam_height_m, serializer);
+        <f64>::sse_encode(self.azimuth_deg, serializer);
+        <f32>::sse_encode(self.elevation_deg, serializer);
     }
 }
 

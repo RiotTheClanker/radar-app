@@ -238,6 +238,31 @@ Future<String> installPalette({required String text}) =>
 Future<void> resetPalettes() =>
     RustLib.instance.api.crateApiRadarResetPalettes();
 
+/// Open a Level 3 product file for repeated cursor sampling.
+Future<void> inspectOpenLevel3({required List<int> data}) =>
+    RustLib.instance.api.crateApiRadarInspectOpenLevel3(data: data);
+
+/// Open a Level 2 moment/cut for repeated cursor sampling.
+Future<void> inspectOpenLevel2({
+  required List<int> data,
+  required String moment,
+  required int elevationIndex,
+}) => RustLib.instance.api.crateApiRadarInspectOpenLevel2(
+  data: data,
+  moment: moment,
+  elevationIndex: elevationIndex,
+);
+
+/// Sample the open inspect session at a point (fast; no re-decode).
+Future<SampleResult> inspectSample({
+  required double lat,
+  required double lon,
+}) => RustLib.instance.api.crateApiRadarInspectSample(lat: lat, lon: lon);
+
+/// Radar site of the open inspect session: [lat, lon].
+Future<Float64List> inspectSite() =>
+    RustLib.instance.api.crateApiRadarInspectSite();
+
 /// Lightning flashes parsed from one GOES GLM L2 LCFA file.
 class GlmResult {
   final PlatformInt64 timestamp;
@@ -375,12 +400,20 @@ class SampleResult {
   final double distanceKm;
   final double beamHeightM;
 
+  /// Compass bearing from the radar to the sampled point.
+  final double azimuthDeg;
+
+  /// Elevation angle of the sampled sweep.
+  final double elevationDeg;
+
   const SampleResult({
     this.value,
     required this.rangeFolded,
     required this.unit,
     required this.distanceKm,
     required this.beamHeightM,
+    required this.azimuthDeg,
+    required this.elevationDeg,
   });
 
   @override
@@ -389,7 +422,9 @@ class SampleResult {
       rangeFolded.hashCode ^
       unit.hashCode ^
       distanceKm.hashCode ^
-      beamHeightM.hashCode;
+      beamHeightM.hashCode ^
+      azimuthDeg.hashCode ^
+      elevationDeg.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -400,7 +435,9 @@ class SampleResult {
           rangeFolded == other.rangeFolded &&
           unit == other.unit &&
           distanceKm == other.distanceKm &&
-          beamHeightM == other.beamHeightM;
+          beamHeightM == other.beamHeightM &&
+          azimuthDeg == other.azimuthDeg &&
+          elevationDeg == other.elevationDeg;
 }
 
 /// A rendered 3D volume frame.

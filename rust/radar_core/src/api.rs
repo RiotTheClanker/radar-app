@@ -169,6 +169,10 @@ pub struct SampleResult {
     pub distance_km: f64,
     /// Beam center height above the radar, meters (4/3-earth model).
     pub beam_height_m: f64,
+    /// Compass bearing from the radar to the sampled point.
+    pub azimuth_deg: f64,
+    /// Elevation angle of the sampled sweep.
+    pub elevation_deg: f32,
 }
 
 fn sample_sweep(sweep: &Sweep, unit: String, lat: f64, lon: f64) -> SampleResult {
@@ -181,12 +185,25 @@ fn sample_sweep(sweep: &Sweep, unit: String, lat: f64, lon: f64) -> SampleResult
         },
         None => (None, false, 0.0),
     };
+    // Bearing from the radar to the sampled point.
+    let la1 = sweep.site_lat.to_radians();
+    let la2 = lat.to_radians();
+    let dlon = (lon - sweep.site_lon).to_radians();
+    let y = dlon.sin() * la2.cos();
+    let x = la1.cos() * la2.sin() - la1.sin() * la2.cos() * dlon.cos();
+    let mut az = y.atan2(x).to_degrees();
+    if az < 0.0 {
+        az += 360.0;
+    }
+
     SampleResult {
         value,
         range_folded,
         unit,
         distance_km: dist / 1000.0,
         beam_height_m: sweep.beam_height_m(dist),
+        azimuth_deg: az,
+        elevation_deg: sweep.elevation_deg,
     }
 }
 
@@ -707,4 +724,50 @@ pub fn install_palette(text: String) -> Result<String, String> {
 /// Drop all imported palettes and go back to the built-in ones.
 pub fn reset_palettes() {
     crate::palette::clear_custom();
+}
+
+// ---------------------------------------------------------------------------
+// Inspect session: keep one decoded sweep around so an aiming cursor can
+// sample it continuously without re-parsing the source file every move.
+// ---------------------------------------------------------------------------
+
+static INSPECT: Mutex<Option<(Sweep, String)>> = Mutex::new(None);
+
+/// Open a Level 3 product file for repeated sampling.
+pub fn inspect_open_level3(data: Vec<u8>) -> Result<(), String> {
+    let file = level3::parse(&data).map_err(|e| e.to_string())?;
+    let sweep = file
+        .to_sweep()
+        .ok_or_else(|| "product contains no radial data".to_string())?;
+    let unit = file.info.map(|i| i.unit.to_string()).unwrap_or_default();
+    *INSPECT.lock().unwrap() = Some((sweep, unit));
+    Ok(())
+}
+
+/// Open a Level 2 moment/cut (including derived pseudo-moments) for
+/// repeated sampling.
+pub fn inspect_open_level2(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+) -> Result<(), String> {
+    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
+    let (_, _, unit) = moment_meta(&moment);
+    *INSPECT.lock().unwrap() = Some((sweep, unit));
+    Ok(())
+}
+
+/// Sample the open inspect session at a point.
+pub fn inspect_sample(lat: f64, lon: f64) -> Result<SampleResult, String> {
+    let guard = INSPECT.lock().unwrap();
+    let (sweep, unit) = guard.as_ref().ok_or("no inspect session")?;
+    Ok(sample_sweep(sweep, unit.clone(), lat, lon))
+}
+
+/// Radar site position of the open inspect session: [lat, lon].
+pub fn inspect_site() -> Result<Vec<f64>, String> {
+    let guard = INSPECT.lock().unwrap();
+    let (sweep, _) = guard.as_ref().ok_or("no inspect session")?;
+    Ok(vec![sweep.site_lat, sweep.site_lon])
 }

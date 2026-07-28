@@ -103,6 +103,10 @@ pub struct SampleResult {
     pub unit: String,
     pub distance_km: f64,
     pub beam_height_m: f64,
+    /// Compass bearing from the radar to the sampled point.
+    pub azimuth_deg: f64,
+    /// Elevation angle of the sampled sweep.
+    pub elevation_deg: f32,
 }
 
 /// Sample a Level 3 product file at a geographic point.
@@ -130,6 +134,8 @@ fn convert_sample(s: core::SampleResult) -> SampleResult {
         unit: s.unit,
         distance_km: s.distance_km,
         beam_height_m: s.beam_height_m,
+        azimuth_deg: s.azimuth_deg,
+        elevation_deg: s.elevation_deg,
     }
 }
 
@@ -312,4 +318,28 @@ pub fn install_palette(text: String) -> Result<String, String> {
 /// Drop imported palettes and return to the built-in ones.
 pub fn reset_palettes() {
     core::reset_palettes()
+}
+
+/// Open a Level 3 product file for repeated cursor sampling.
+pub fn inspect_open_level3(data: Vec<u8>) -> Result<(), String> {
+    core::inspect_open_level3(data)
+}
+
+/// Open a Level 2 moment/cut for repeated cursor sampling.
+pub fn inspect_open_level2(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+) -> Result<(), String> {
+    core::inspect_open_level2(data, moment, elevation_index)
+}
+
+/// Sample the open inspect session at a point (fast; no re-decode).
+pub fn inspect_sample(lat: f64, lon: f64) -> Result<SampleResult, String> {
+    Ok(convert_sample(core::inspect_sample(lat, lon)?))
+}
+
+/// Radar site of the open inspect session: [lat, lon].
+pub fn inspect_site() -> Result<Vec<f64>, String> {
+    core::inspect_site()
 }

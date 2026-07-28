@@ -220,6 +220,14 @@ class _RadarScreenState extends State<RadarScreen> {
   Timer? _viewDebounce;
   int _viewGeneration = 0;
 
+  // Aiming cursor: live value + range/azimuth/height from the radar
+  bool _cursor = false;
+  LatLng? _cursorPos;
+  LatLng? _cursorSite;
+  SampleResult? _cursorSample;
+  bool _cursorBusy = false;
+  DateTime _cursorLast = DateTime.fromMillisecondsSinceEpoch(0);
+
   // Historical replay, measuring tool
   DateTime? _historyTime;
   bool _measuring = false;
@@ -342,6 +350,7 @@ class _RadarScreenState extends State<RadarScreen> {
       });
       // Sharpen for the current viewport right away.
       unawaited(_renderViewport());
+      if (_cursor) unawaited(_openCursorSession());
     } catch (e) {
       if (generation != _loadGeneration || !mounted) return;
       setState(() {
@@ -424,6 +433,50 @@ class _RadarScreenState extends State<RadarScreen> {
       _l2Cache.remove(_l2Cache.keys.first);
     }
     return frames;
+  }
+
+  /// Point the cursor at the frame currently on screen. Cheap to call: the
+  /// engine keeps the decoded sweep so each aim is just a lookup.
+  Future<void> _openCursorSession() async {
+    if (!_cursor || _frames.isEmpty || _product.isMrms) return;
+    final frame = _frames[_shownFrame];
+    try {
+      if (_product.isLevel2) {
+        await inspectOpenLevel2(
+          data: frame.raw,
+          moment: _product.l2Moment!,
+          elevationIndex: _product.hasTilts ? _tilt : 0,
+        );
+      } else {
+        await inspectOpenLevel3(data: frame.raw);
+      }
+      final site = await inspectSite();
+      if (!mounted) return;
+      setState(() {
+        _cursorSite = site.length >= 2 ? LatLng(site[0], site[1]) : null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  /// Aim at a point and read the value there. Throttled so a moving pointer
+  /// doesn't queue up work.
+  Future<void> _aimCursor(LatLng p) async {
+    if (!_cursor) return;
+    setState(() => _cursorPos = p);
+    final now = DateTime.now();
+    if (_cursorBusy || now.difference(_cursorLast).inMilliseconds < 60) return;
+    _cursorBusy = true;
+    _cursorLast = now;
+    try {
+      final s = await inspectSample(lat: p.latitude, lon: p.longitude);
+      if (mounted) setState(() => _cursorSample = s);
+    } catch (_) {
+      // No session yet (product switch in flight); next aim will retry.
+    } finally {
+      _cursorBusy = false;
+    }
   }
 
   /// Jump the whole app to a past moment (or back to live).
@@ -927,6 +980,10 @@ class _RadarScreenState extends State<RadarScreen> {
               maxZoom: 15,
               onTap: (tapPos, latlng) {
                 if (_measuring) _onMeasureTap(latlng);
+                if (_cursor) _aimCursor(latlng);
+              },
+              onPointerHover: (event, latlng) {
+                if (_cursor) _aimCursor(latlng);
               },
               onLongPress: (tapPos, latlng) => _inspect(latlng),
               // Pinch-zoom and drag, but no accidental two-finger rotation:
@@ -1033,6 +1090,48 @@ class _RadarScreenState extends State<RadarScreen> {
                       ),
                   ],
                 ),
+              if (_cursor && _cursorPos != null && _cursorSite != null) ...[
+                CircleLayer(
+                  circles: [
+                    CircleMarker(
+                      point: _cursorSite!,
+                      radius: (_cursorSample?.distanceKm ?? 0) * 1000,
+                      useRadiusInMeter: true,
+                      color: Colors.transparent,
+                      borderColor: Colors.amberAccent.withValues(alpha: 0.85),
+                      borderStrokeWidth: 1.5,
+                    ),
+                  ],
+                ),
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: [_cursorSite!, _cursorPos!],
+                      color: Colors.amberAccent.withValues(alpha: 0.9),
+                      strokeWidth: 1.5,
+                    ),
+                  ],
+                ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _cursorPos!,
+                      width: 26,
+                      height: 26,
+                      child: const IgnorePointer(
+                        child: Icon(
+                          Icons.add,
+                          size: 26,
+                          color: Colors.amberAccent,
+                          shadows: [
+                            Shadow(blurRadius: 3, color: Colors.black),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (_measurePts.length == 2)
                 PolylineLayer(
                   polylines: [
@@ -1166,6 +1265,50 @@ class _RadarScreenState extends State<RadarScreen> {
                       ],
                     ),
                   ),
+                if (_cursor && _cursorSample != null)
+                  Builder(builder: (context) {
+                    final c = _cursorSample!;
+                    final value = c.rangeFolded
+                        ? 'RF'
+                        : c.value == null
+                            ? '—'
+                            : '${c.value!.toStringAsFixed(1)} ${c.unit}'.trim();
+                    final kft = c.beamHeightM * 3.28084 / 1000.0;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xE610141A),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.amberAccent),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            value,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amberAccent,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            '${c.distanceKm.toStringAsFixed(1)} km '
+                            '(${(c.distanceKm * 0.621371).toStringAsFixed(1)} mi)'
+                            '  ·  ${c.azimuthDeg.round()}°'
+                            '  ·  ${kft.toStringAsFixed(1)} kft'
+                            '  @ ${c.elevationDeg.toStringAsFixed(1)}°',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
                 if (_measurePts.length == 2)
                   Builder(builder: (context) {
                     final (d, b) =
@@ -1404,6 +1547,25 @@ class _RadarScreenState extends State<RadarScreen> {
               Icons.my_location,
               size: 19,
               color: Colors.white70,
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Aiming cursor (range, azimuth, beam height, value)',
+            onPressed: () {
+              setState(() {
+                _cursor = !_cursor;
+                if (!_cursor) {
+                  _cursorPos = null;
+                  _cursorSample = null;
+                }
+              });
+              if (_cursor) _openCursorSession();
+            },
+            icon: Icon(
+              Icons.gps_fixed,
+              size: 19,
+              color: _cursor ? Colors.amberAccent : Colors.white38,
             ),
           ),
           PopupMenuButton<String>(
