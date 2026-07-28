@@ -1,5 +1,7 @@
 # Radar
 
+[![build](https://github.com/RiotTheClanker/radar-app/actions/workflows/build.yml/badge.svg)](https://github.com/RiotTheClanker/radar-app/actions/workflows/build.yml)
+
 A free, open, RadarScope-class weather radar app for **Windows, Android, and
 Debian Linux**.
 
@@ -32,25 +34,53 @@ your device.
   selectable 3D fields
 
 **Situational awareness**
-- Live NWS warnings with full text
+- Live NWS warnings, tap for the full text
 - SPC convective outlook and today's storm reports
-- Lightning from Blitzortung and/or GOES GLM satellite
-- Aiming cursor: exact value, range, heading, and beam height under a
-  crosshair, with a range ring from the radar
-- Historical replay back to 1991, snapshots, distance/bearing measuring
+- Lightning from Blitzortung, GOES GLM satellite, or both
+- **Aiming cursor**: hover (or tap to pin) for the exact value, range,
+  compass heading, and beam height, with a range ring drawn from the radar
+- **Historical replay** back to 1991 — the whole app, including 3D and the
+  nowcast, runs on the moment you pick
+- Distance/bearing measuring, PNG snapshots (2D and 3D)
 - GRLevelX `.pal` color table import
+- Four basemaps: dark, OpenStreetMap, satellite, topographic
+
+## Controls
+
+**Map** — drag to pan, pinch or scroll to zoom. Long-press for a one-shot
+value readout. Toolbar, left to right: lightning source, 3D volume, future
+radar, severe-weather layers, basemap, my location, aiming cursor, more
+(replay / measure / snapshot / color tables), reload.
+
+**3D view** — drag to look, two fingers to pan, pinch to fly. On desktop:
+`W` `A` `S` `D` to move, `Space` / `Shift` for altitude, `Ctrl` to speed up,
+scroll to dolly. On touch, use the on-screen stick and altitude pad. The
+scissors button reveals slice planes; the layers button switches the 3D
+field.
+
+**Files** — drop `.pal` color tables in `~/.config/radar-app/palettes/`.
+Snapshots are written to `~/Pictures/radar-app/`.
 
 ## Install
+
+Grab a build from the [releases
+page](https://github.com/RiotTheClanker/radar-app/releases).
 
 **Debian / Ubuntu**
 
 ```
-sudo dpkg -i radar-app_<version>_amd64.deb
+sudo apt install ./radar-app_<version>_amd64.deb
 ```
 
-**Windows** — run the installer from the releases page.
+**Windows** — run `radar-app-<version>-windows-setup.exe`.
 
-**Android** — install the APK for your device's ABI.
+**Android** — install the APK matching your device's ABI (`arm64-v8a` for
+almost anything modern).
+
+> Only the Linux package has been verified on real hardware so far. The
+> Windows and Android builds come out of CI and have not been smoke-tested
+> yet, and neither is code-signed — expect the usual "unknown publisher"
+> warnings.
 
 ## Build from source
 
