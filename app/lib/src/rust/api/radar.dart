@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `convert`
+// These functions are ignored because they are not marked as `pub`: `convert_sample`, `convert`
 
 /// Decode a full Level 2 (Archive II) volume and render one moment at one
 /// elevation cut. `moment`: REF, VEL, SW, ZDR, PHI, or RHO.
@@ -27,6 +27,32 @@ Future<Float32List> level2Cuts({
   required List<int> data,
   required String moment,
 }) => RustLib.instance.api.crateApiRadarLevel2Cuts(data: data, moment: moment);
+
+/// Sample a Level 3 product file at a geographic point.
+Future<SampleResult> sampleLevel3({
+  required List<int> data,
+  required double lat,
+  required double lon,
+}) => RustLib.instance.api.crateApiRadarSampleLevel3(
+  data: data,
+  lat: lat,
+  lon: lon,
+);
+
+/// Sample a Level 2 volume's moment/cut at a geographic point.
+Future<SampleResult> sampleLevel2({
+  required List<int> data,
+  required String moment,
+  required int elevationIndex,
+  required double lat,
+  required double lon,
+}) => RustLib.instance.api.crateApiRadarSampleLevel2(
+  data: data,
+  moment: moment,
+  elevationIndex: elevationIndex,
+  lat: lat,
+  lon: lon,
+);
 
 /// Decode a raw Level 3 product file and render it to a georeferenced RGBA
 /// PNG image, ready to overlay on the map.
@@ -115,4 +141,40 @@ class RadarFrame {
           south == other.south &&
           east == other.east &&
           west == other.west;
+}
+
+/// Result of sampling a product at a point (the "inspector" tool).
+class SampleResult {
+  final double? value;
+  final bool rangeFolded;
+  final String unit;
+  final double distanceKm;
+  final double beamHeightM;
+
+  const SampleResult({
+    this.value,
+    required this.rangeFolded,
+    required this.unit,
+    required this.distanceKm,
+    required this.beamHeightM,
+  });
+
+  @override
+  int get hashCode =>
+      value.hashCode ^
+      rangeFolded.hashCode ^
+      unit.hashCode ^
+      distanceKm.hashCode ^
+      beamHeightM.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SampleResult &&
+          runtimeType == other.runtimeType &&
+          value == other.value &&
+          rangeFolded == other.rangeFolded &&
+          unit == other.unit &&
+          distanceKm == other.distanceKm &&
+          beamHeightM == other.beamHeightM;
 }

@@ -91,6 +91,62 @@ pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
     Ok(vol.cuts_for(&moment).iter().map(|c| c.elevation_deg).collect())
 }
 
+/// Result of sampling a product at a point (the "inspector" tool).
+pub struct SampleResult {
+    /// Physical value at the gate, if there is data there.
+    pub value: Option<f32>,
+    pub range_folded: bool,
+    pub unit: String,
+    pub distance_km: f64,
+    /// Beam center height above the radar, meters (4/3-earth model).
+    pub beam_height_m: f64,
+}
+
+fn sample_sweep(sweep: &Sweep, unit: String, lat: f64, lon: f64) -> SampleResult {
+    let sampled = sweep.sample_raw(lat, lon);
+    let (value, range_folded, dist) = match sampled {
+        Some((raw, dist)) => match sweep.decoder.decode(raw) {
+            crate::level3::BinValue::Value(v) => (Some(v), false, dist),
+            crate::level3::BinValue::RangeFolded => (None, true, dist),
+            crate::level3::BinValue::NoData => (None, false, dist),
+        },
+        None => (None, false, 0.0),
+    };
+    SampleResult {
+        value,
+        range_folded,
+        unit,
+        distance_km: dist / 1000.0,
+        beam_height_m: sweep.beam_height_m(dist),
+    }
+}
+
+/// Sample a Level 3 product file at a geographic point.
+pub fn sample_level3(data: Vec<u8>, lat: f64, lon: f64) -> Result<SampleResult, String> {
+    let file = level3::parse(&data).map_err(|e| e.to_string())?;
+    let sweep = file
+        .to_sweep()
+        .ok_or_else(|| "product contains no radial data".to_string())?;
+    let unit = file.info.map(|i| i.unit.to_string()).unwrap_or_default();
+    Ok(sample_sweep(&sweep, unit, lat, lon))
+}
+
+/// Sample a Level 2 volume's moment/cut at a geographic point.
+pub fn sample_level2(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+    lat: f64,
+    lon: f64,
+) -> Result<SampleResult, String> {
+    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let sweep = vol
+        .sweep(&moment, elevation_index as usize)
+        .ok_or_else(|| format!("moment {moment} cut {elevation_index} not in volume"))?;
+    let (_, _, unit) = moment_meta(&moment);
+    Ok(sample_sweep(&sweep, unit, lat, lon))
+}
+
 fn moment_meta(moment: &str) -> (ProductKind, String, String) {
     match moment {
         "VEL" => (ProductKind::Velocity, "Base Velocity (L2)".into(), "m/s".into()),

@@ -39,6 +39,43 @@ pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
     core::level2_cuts(data, moment)
 }
 
+/// Result of sampling a product at a point (the "inspector" tool).
+pub struct SampleResult {
+    pub value: Option<f32>,
+    pub range_folded: bool,
+    pub unit: String,
+    pub distance_km: f64,
+    pub beam_height_m: f64,
+}
+
+/// Sample a Level 3 product file at a geographic point.
+pub fn sample_level3(data: Vec<u8>, lat: f64, lon: f64) -> Result<SampleResult, String> {
+    let s = core::sample_level3(data, lat, lon)?;
+    Ok(convert_sample(s))
+}
+
+/// Sample a Level 2 volume's moment/cut at a geographic point.
+pub fn sample_level2(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+    lat: f64,
+    lon: f64,
+) -> Result<SampleResult, String> {
+    let s = core::sample_level2(data, moment, elevation_index, lat, lon)?;
+    Ok(convert_sample(s))
+}
+
+fn convert_sample(s: core::SampleResult) -> SampleResult {
+    SampleResult {
+        value: s.value,
+        range_folded: s.range_folded,
+        unit: s.unit,
+        distance_km: s.distance_km,
+        beam_height_m: s.beam_height_m,
+    }
+}
+
 fn convert(f: core::RadarFrame) -> Result<RadarFrame, String> {
     Ok(RadarFrame {
         product_code: f.product_code,

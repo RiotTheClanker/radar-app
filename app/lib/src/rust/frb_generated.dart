@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1166178115;
+  int get rustContentHash => -734747430;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -98,6 +98,20 @@ abstract class RustLibApi extends BaseApi {
   Future<RadarFrame> crateApiRadarRenderLevel3Frame({
     required List<int> data,
     required int imageSize,
+  });
+
+  Future<SampleResult> crateApiRadarSampleLevel2({
+    required List<int> data,
+    required String moment,
+    required int elevationIndex,
+    required double lat,
+    required double lon,
+  });
+
+  Future<SampleResult> crateApiRadarSampleLevel3({
+    required List<int> data,
+    required double lat,
+    required double lon,
   });
 }
 
@@ -267,10 +281,98 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         argNames: ["data", "imageSize"],
       );
 
+  @override
+  Future<SampleResult> crateApiRadarSampleLevel2({
+    required List<int> data,
+    required String moment,
+    required int elevationIndex,
+    required double lat,
+    required double lon,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_String(moment, serializer);
+          sse_encode_u_32(elevationIndex, serializer);
+          sse_encode_f_64(lat, serializer);
+          sse_encode_f_64(lon, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_sample_result,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarSampleLevel2ConstMeta,
+        argValues: [data, moment, elevationIndex, lat, lon],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarSampleLevel2ConstMeta => const TaskConstMeta(
+    debugName: "sample_level2",
+    argNames: ["data", "moment", "elevationIndex", "lat", "lon"],
+  );
+
+  @override
+  Future<SampleResult> crateApiRadarSampleLevel3({
+    required List<int> data,
+    required double lat,
+    required double lon,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_f_64(lat, serializer);
+          sse_encode_f_64(lon, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_sample_result,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarSampleLevel3ConstMeta,
+        argValues: [data, lat, lon],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarSampleLevel3ConstMeta => const TaskConstMeta(
+    debugName: "sample_level3",
+    argNames: ["data", "lat", "lon"],
+  );
+
   @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  bool dco_decode_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
+  double dco_decode_box_autoadd_f_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
   }
 
   @protected
@@ -316,6 +418,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  double? dco_decode_opt_box_autoadd_f_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_f_32(raw);
+  }
+
+  @protected
   RadarFrame dco_decode_radar_frame(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -337,6 +445,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       south: dco_decode_f_64(arr[12]),
       east: dco_decode_f_64(arr[13]),
       west: dco_decode_f_64(arr[14]),
+    );
+  }
+
+  @protected
+  SampleResult dco_decode_sample_result(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return SampleResult(
+      value: dco_decode_opt_box_autoadd_f_32(arr[0]),
+      rangeFolded: dco_decode_bool(arr[1]),
+      unit: dco_decode_String(arr[2]),
+      distanceKm: dco_decode_f_64(arr[3]),
+      beamHeightM: dco_decode_f_64(arr[4]),
     );
   }
 
@@ -363,6 +486,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  double sse_decode_box_autoadd_f_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_f_32(deserializer));
   }
 
   @protected
@@ -411,6 +546,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  double? sse_decode_opt_box_autoadd_f_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_f_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   RadarFrame sse_decode_radar_frame(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_productCode = sse_decode_i_32(deserializer);
@@ -448,6 +594,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SampleResult sse_decode_sample_result(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_value = sse_decode_opt_box_autoadd_f_32(deserializer);
+    var var_rangeFolded = sse_decode_bool(deserializer);
+    var var_unit = sse_decode_String(deserializer);
+    var var_distanceKm = sse_decode_f_64(deserializer);
+    var var_beamHeightM = sse_decode_f_64(deserializer);
+    return SampleResult(
+      value: var_value,
+      rangeFolded: var_rangeFolded,
+      unit: var_unit,
+      distanceKm: var_distanceKm,
+      beamHeightM: var_beamHeightM,
+    );
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
@@ -465,15 +628,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
-  }
-
-  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_f_32(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_32(self, serializer);
   }
 
   @protected
@@ -533,6 +702,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_f_32(double? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_f_32(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_radar_frame(RadarFrame self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.productCode, serializer);
@@ -553,6 +732,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_sample_result(SampleResult self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_f_32(self.value, serializer);
+    sse_encode_bool(self.rangeFolded, serializer);
+    sse_encode_String(self.unit, serializer);
+    sse_encode_f_64(self.distanceKm, serializer);
+    sse_encode_f_64(self.beamHeightM, serializer);
+  }
+
+  @protected
   void sse_encode_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint32(self);
@@ -567,11 +756,5 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-  }
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
   }
 }
