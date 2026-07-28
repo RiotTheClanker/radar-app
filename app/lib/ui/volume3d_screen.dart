@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../data/basemap_tiles.dart';
+import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
 
 /// Fields available as 3D volumes.
@@ -383,6 +384,28 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     );
   }
 
+  /// Save what's on screen to ~/Pictures/radar-app.
+  Future<void> _saveSnapshot() async {
+    try {
+      Uint8List? png;
+      if (_gpu && _frame != null) {
+        final data =
+            await _frame!.toByteData(format: ui.ImageByteFormat.png);
+        png = data?.buffer.asUint8List();
+      } else {
+        png = _legacyPng;
+      }
+      if (png == null) return;
+      final f = saveSnapshot(png, '${widget.siteId}_3D_${_field.moment}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text('Saved ${f.path}')));
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
   // ------------------------------------------------------------------ ui --
 
   @override
@@ -398,6 +421,11 @@ class _Volume3DScreenState extends State<Volume3DScreen>
           style: const TextStyle(fontSize: 15),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Save snapshot',
+            onPressed: _saveSnapshot,
+            icon: const Icon(Icons.photo_camera, size: 19),
+          ),
           IconButton(
             tooltip: 'Reset view',
             onPressed: () {
