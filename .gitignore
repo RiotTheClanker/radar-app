@@ -1,0 +1,18 @@
+# Rust
+target/
+
+# Flutter/Dart
+app/.dart_tool/
+app/build/
+app/.flutter-plugins*
+app/.packages
+app/ephemeral/
+
+# Test data (fetched by scripts)
+tools/testdata/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

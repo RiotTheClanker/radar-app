@@ -1,0 +1,16 @@
+[package]
+name = "radar_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[dependencies]
+bzip2 = "0.4"
+flate2 = "1"
+thiserror = "2"
+png = "0.17"
+
+[profile.release]
+lto = true

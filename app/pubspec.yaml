@@ -1,0 +1,26 @@
+name: radar_app
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_map: ^8.3.1
+  flutter_rust_bridge: 2.12.0
+  http: ^1.6.0
+  intl: ^0.20.3
+  latlong2: ^0.10.1
+  rust_lib_radar_app:
+    path: rust_builder
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

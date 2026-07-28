@@ -1,0 +1,169 @@
+//! Color tables mapping physical values to display colors.
+//!
+//! Tables are breakpoint lists; sampling either steps or linearly
+//! interpolates between breakpoints. `.pal` (GRLevelX) import will build on
+//! this same structure later.
+
+use crate::level3::{BinValue, ValueDecoder};
+use crate::level3::products::ProductKind;
+
+#[derive(Debug, Clone, Copy)]
+pub struct ColorStop {
+    pub value: f32,
+    pub color: [u8; 4],
+}
+
+#[derive(Debug, Clone)]
+pub struct ColorTable {
+    pub stops: Vec<ColorStop>,
+    pub interpolate: bool,
+    /// Color for range-folded bins (classic purple).
+    pub rf_color: [u8; 4],
+}
+
+impl ColorTable {
+    pub fn sample(&self, v: f32) -> [u8; 4] {
+        let stops = &self.stops;
+        if stops.is_empty() {
+            return [0, 0, 0, 0];
+        }
+        if v < stops[0].value {
+            return [0, 0, 0, 0]; // below scale: transparent
+        }
+        if v >= stops[stops.len() - 1].value {
+            return stops[stops.len() - 1].color;
+        }
+        let idx = stops.partition_point(|s| s.value <= v) - 1;
+        if !self.interpolate {
+            return stops[idx].color;
+        }
+        let a = &stops[idx];
+        let b = &stops[idx + 1];
+        let t = (v - a.value) / (b.value - a.value);
+        let mut out = [0u8; 4];
+        for i in 0..4 {
+            out[i] = (a.color[i] as f32 + t * (b.color[i] as f32 - a.color[i] as f32)) as u8;
+        }
+        out
+    }
+
+    /// Precompute a raw-byte -> RGBA lookup table for one product's decoder.
+    pub fn build_lut(&self, decoder: &ValueDecoder) -> [[u8; 4]; 256] {
+        let mut lut = [[0u8; 4]; 256];
+        for raw in 0..256usize {
+            lut[raw] = match decoder.decode(raw as u8) {
+                BinValue::NoData => [0, 0, 0, 0],
+                BinValue::RangeFolded => self.rf_color,
+                BinValue::Value(v) => self.sample(v),
+            };
+        }
+        lut
+    }
+
+    /// Pick a sensible default table for a product kind.
+    pub fn default_for(kind: ProductKind) -> ColorTable {
+        match kind {
+            ProductKind::Velocity => ColorTable::velocity_default(),
+            ProductKind::CorrelationCoefficient => ColorTable::cc_default(),
+            ProductKind::Zdr => ColorTable::zdr_default(),
+            _ => ColorTable::reflectivity_default(),
+        }
+    }
+
+    /// Classic NWS reflectivity palette (dBZ), smoothly interpolated.
+    pub fn reflectivity_default() -> ColorTable {
+        let stops = vec![
+            (5.0, [4, 233, 231]),
+            (10.0, [1, 159, 244]),
+            (15.0, [3, 0, 244]),
+            (20.0, [2, 253, 2]),
+            (25.0, [1, 197, 1]),
+            (30.0, [0, 142, 0]),
+            (35.0, [253, 248, 2]),
+            (40.0, [229, 188, 0]),
+            (45.0, [253, 149, 0]),
+            (50.0, [253, 0, 0]),
+            (55.0, [212, 0, 0]),
+            (60.0, [188, 0, 0]),
+            (65.0, [248, 0, 253]),
+            (70.0, [152, 84, 198]),
+            (75.0, [253, 253, 253]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Base velocity palette (m/s): green inbound, red outbound.
+    pub fn velocity_default() -> ColorTable {
+        let stops = vec![
+            (-64.0, [144, 255, 220]),
+            (-32.0, [0, 224, 96]),
+            (-10.0, [0, 128, 32]),
+            (-1.0, [88, 110, 88]),
+            (0.0, [118, 118, 118]),
+            (1.0, [110, 88, 88]),
+            (10.0, [128, 0, 32]),
+            (32.0, [224, 0, 64]),
+            (64.0, [255, 144, 200]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Correlation coefficient (unitless 0.2–1.05).
+    pub fn cc_default() -> ColorTable {
+        let stops = vec![
+            (0.20, [0, 0, 0]),
+            (0.45, [110, 60, 160]),
+            (0.65, [40, 60, 220]),
+            (0.80, [0, 200, 255]),
+            (0.90, [0, 220, 0]),
+            (0.95, [255, 255, 0]),
+            (0.98, [255, 120, 0]),
+            (1.00, [255, 0, 0]),
+            (1.05, [255, 255, 255]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Differential reflectivity (dB).
+    pub fn zdr_default() -> ColorTable {
+        let stops = vec![
+            (-4.0, [40, 40, 40]),
+            (-2.0, [130, 130, 130]),
+            (0.0, [200, 200, 200]),
+            (0.5, [0, 150, 255]),
+            (1.0, [0, 220, 100]),
+            (2.0, [255, 255, 0]),
+            (3.0, [255, 140, 0]),
+            (4.0, [255, 0, 0]),
+            (6.0, [255, 0, 255]),
+            (8.0, [255, 255, 255]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+}
+
+fn opaque(stops: Vec<(f32, [u8; 3])>) -> Vec<ColorStop> {
+    stops
+        .into_iter()
+        .map(|(value, c)| ColorStop {
+            value,
+            color: [c[0], c[1], c[2], 255],
+        })
+        .collect()
+}
