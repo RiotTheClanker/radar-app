@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 import 'data/alerts_fetcher.dart';
 import 'data/level2_fetcher.dart';
 import 'data/level3_fetcher.dart';
+import 'data/lightning.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
 import 'src/rust/frb_generated.dart';
@@ -105,6 +106,13 @@ class _RadarScreenState extends State<RadarScreen> {
   final LayerHitNotifier<WeatherAlert> _alertHit = ValueNotifier(null);
   final Map<String, Uint8List> _l2Cache = {};
 
+  final _blitz = BlitzortungClient();
+  final List<Strike> _strikes = [];
+  bool _showLightning = false;
+  StreamSubscription<Strike>? _strikeSub;
+  Timer? _strikeTimer;
+  bool _strikesDirty = false;
+
   @override
   void initState() {
     super.initState();
@@ -121,7 +129,40 @@ class _RadarScreenState extends State<RadarScreen> {
   void dispose() {
     _animTimer?.cancel();
     _alertTimer?.cancel();
+    _strikeTimer?.cancel();
+    _strikeSub?.cancel();
+    _blitz.stop();
     super.dispose();
+  }
+
+  void _toggleLightning() {
+    setState(() => _showLightning = !_showLightning);
+    if (_showLightning) {
+      _blitz.start();
+      _strikeSub ??= _blitz.strikes.listen((s) {
+        _strikes.add(s);
+        _strikesDirty = true;
+      });
+      // Repaint on a slow tick instead of per strike (tens per second).
+      _strikeTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        final cutoff = DateTime.now().toUtc().subtract(
+              const Duration(minutes: 20),
+            );
+        final before = _strikes.length;
+        _strikes.removeWhere((s) => s.time.isBefore(cutoff));
+        if (_strikes.length > 8000) {
+          _strikes.removeRange(0, _strikes.length - 8000);
+        }
+        if (_strikesDirty || _strikes.length != before) {
+          _strikesDirty = false;
+          if (mounted) setState(() {});
+        }
+      });
+    } else {
+      _strikeTimer?.cancel();
+      _strikeTimer = null;
+      _blitz.stop();
+    }
   }
 
   Future<void> _loadAlerts() async {
@@ -263,6 +304,23 @@ class _RadarScreenState extends State<RadarScreen> {
     return dy * dy + dx * dx;
   }
 
+  CircleMarker _strikeCircle(Strike s) {
+    final ageMin =
+        DateTime.now().toUtc().difference(s.time).inSeconds / 60.0;
+    // Fresh strikes: bright white-yellow; fading to dim orange over 20 min.
+    final t = (ageMin / 20.0).clamp(0.0, 1.0);
+    final color = Color.lerp(
+      const Color(0xFFFFF59D),
+      const Color(0x66E65100),
+      t,
+    )!;
+    return CircleMarker(
+      point: s.pos,
+      radius: ageMin < 2 ? 3.5 : 2.5,
+      color: color,
+    );
+  }
+
   void _showAlertSheet(WeatherAlert alert) {
     showModalBottomSheet(
       context: context,
@@ -390,6 +448,12 @@ class _RadarScreenState extends State<RadarScreen> {
                   ],
                 ),
               ),
+              if (_showLightning)
+                CircleLayer(
+                  circles: [
+                    for (final s in _strikes) _strikeCircle(s),
+                  ],
+                ),
               MarkerLayer(
                 markers: [
                   for (final s in nexradSites)
@@ -418,7 +482,7 @@ class _RadarScreenState extends State<RadarScreen> {
                 child: Padding(
                   padding: EdgeInsets.all(4),
                   child: Text(
-                    '© OpenStreetMap © CARTO | NOAA/NWS data',
+                    '© OpenStreetMap © CARTO · NOAA/NWS · lightning © Blitzortung.org',
                     style: TextStyle(fontSize: 10, color: Colors.white54),
                   ),
                 ),
@@ -479,6 +543,16 @@ class _RadarScreenState extends State<RadarScreen> {
                 color: Colors.orangeAccent,
               ),
             ),
+          IconButton(
+            tooltip: _showLightning
+                ? 'Lightning on (Blitzortung.org)'
+                : 'Lightning off',
+            onPressed: _toggleLightning,
+            icon: Icon(
+              Icons.bolt,
+              color: _showLightning ? Colors.yellowAccent : Colors.white38,
+            ),
+          ),
           IconButton(
             tooltip: 'Reload',
             onPressed: _loading ? null : _loadFrames,
