@@ -16,3 +16,6 @@ tools/testdata/
 .idea/
 *.swp
 .DS_Store
+
+# Packaged output
+dist/
