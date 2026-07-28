@@ -491,7 +491,10 @@ class _RadarScreenState extends State<RadarScreen> {
     }
     setState(() => _cursorPos = p);
     final now = DateTime.now();
-    if (_cursorBusy || now.difference(_cursorLast).inMilliseconds < 60) return;
+    if (!fromTap &&
+        (_cursorBusy || now.difference(_cursorLast).inMilliseconds < 60)) {
+      return;
+    }
     _cursorBusy = true;
     _cursorLast = now;
     try {
@@ -591,6 +594,17 @@ class _RadarScreenState extends State<RadarScreen> {
       if (_measurePts.length >= 2) _measurePts.clear();
       _measurePts.add(p);
     });
+  }
+
+  /// Beam center height above the radar (meters) at a slant range, using
+  /// the standard 4/3-earth refraction model.
+  double _beamHeightM(double rangeM, double elevationDeg) {
+    const keR = 6371000.0 * 4.0 / 3.0;
+    final el = elevationDeg * math.pi / 180.0;
+    return math.sqrt(
+          rangeM * rangeM + keR * keR + 2 * rangeM * keR * math.sin(el),
+        ) -
+        keR;
   }
 
   /// Great-circle distance (km) and initial bearing (deg) between two points.
@@ -1120,7 +1134,11 @@ class _RadarScreenState extends State<RadarScreen> {
                   circles: [
                     CircleMarker(
                       point: _cursorSite!,
-                      radius: (_cursorSample?.distanceKm ?? 0) * 1000,
+                      // Geometric, so the ring always passes exactly through
+                      // the crosshair — even outside radar coverage, where
+                      // there is no sample to take a distance from.
+                      radius:
+                          _distanceBearing(_cursorSite!, _cursorPos!).$1 * 1000,
                       useRadiusInMeter: true,
                       color: Colors.transparent,
                       borderColor: Colors.amberAccent.withValues(alpha: 0.85),
@@ -1290,7 +1308,7 @@ class _RadarScreenState extends State<RadarScreen> {
                       ],
                     ),
                   ),
-                if (_cursor && _cursorSample != null)
+                if (_cursor && _cursorPos != null && _cursorSample != null)
                   Builder(builder: (context) {
                     final c = _cursorSample!;
                     final value = c.rangeFolded
@@ -1298,7 +1316,16 @@ class _RadarScreenState extends State<RadarScreen> {
                         : c.value == null
                             ? '—'
                             : '${c.value!.toStringAsFixed(1)} ${c.unit}'.trim();
-                    final kft = c.beamHeightM * 3.28084 / 1000.0;
+                    // Range and heading come from the cursor's actual
+                    // position so they always agree with the ring; the
+                    // sample supplies the value and the sweep's elevation.
+                    final site = _cursorSite;
+                    final (km, brg) = site == null
+                        ? (c.distanceKm, c.azimuthDeg)
+                        : _distanceBearing(site, _cursorPos!);
+                    final kft =
+                        _beamHeightM(km * 1000, c.elevationDeg) * 3.28084 /
+                            1000.0;
                     return Container(
                       margin: const EdgeInsets.only(bottom: 6),
                       padding: const EdgeInsets.symmetric(
@@ -1331,9 +1358,9 @@ class _RadarScreenState extends State<RadarScreen> {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            '${c.distanceKm.toStringAsFixed(1)} km '
-                            '(${(c.distanceKm * 0.621371).toStringAsFixed(1)} mi)'
-                            '  ·  ${c.azimuthDeg.round()}°'
+                            '${km.toStringAsFixed(1)} km '
+                            '(${(km * 0.621371).toStringAsFixed(1)} mi)'
+                            '  ·  ${brg.round()}°'
                             '  ·  ${kft.toStringAsFixed(1)} kft'
                             '  @ ${c.elevationDeg.toStringAsFixed(1)}°',
                             style: const TextStyle(fontSize: 12),
