@@ -68,6 +68,8 @@ impl ColorTable {
             ProductKind::Kdp => ColorTable::kdp_default(),
             ProductKind::HydroClass => ColorTable::hydro_class_default(),
             ProductKind::Precipitation => ColorTable::precip_default(),
+            ProductKind::Vil => ColorTable::vil_default(),
+            ProductKind::EchoTops => ColorTable::echo_tops_default(),
             _ => ColorTable::reflectivity_default(),
         }
     }
@@ -196,6 +198,45 @@ impl ColorTable {
         ColorTable {
             stops: opaque(stops),
             interpolate: false,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Vertically integrated liquid (kg/m²).
+    pub fn vil_default() -> ColorTable {
+        let stops = vec![
+            (0.5, [70, 70, 70]),
+            (5.0, [0, 180, 220]),
+            (10.0, [0, 100, 255]),
+            (20.0, [0, 200, 0]),
+            (30.0, [255, 255, 0]),
+            (40.0, [255, 150, 0]),
+            (50.0, [255, 0, 0]),
+            (60.0, [255, 0, 255]),
+            (70.0, [255, 255, 255]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Echo tops (kft).
+    pub fn echo_tops_default() -> ColorTable {
+        let stops = vec![
+            (5.0, [40, 60, 120]),
+            (15.0, [0, 120, 255]),
+            (25.0, [0, 220, 180]),
+            (35.0, [80, 230, 0]),
+            (45.0, [255, 255, 0]),
+            (55.0, [255, 120, 0]),
+            (65.0, [255, 0, 60]),
+            (75.0, [255, 255, 255]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
             rf_color: [119, 0, 125, 255],
         }
     }

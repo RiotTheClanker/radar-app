@@ -10,6 +10,8 @@ pub enum ProductKind {
     Kdp,
     HydroClass,
     Precipitation,
+    Vil,
+    EchoTops,
     Other,
 }
 

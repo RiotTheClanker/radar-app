@@ -39,6 +39,8 @@ pub struct Level2Volume {
     pub vcp: u16,
     /// (elevation_number, moment) -> sweep, in scan order.
     sweeps: BTreeMap<(u8, String), MomentSweep>,
+    /// elevation_number -> nyquist velocity (m/s), for Doppler cuts.
+    pub nyquist: BTreeMap<u8, f32>,
 }
 
 /// Metadata about one available cut for a moment.
@@ -59,6 +61,27 @@ impl Level2Volume {
                 elevation_deg: s.elevation_deg,
             })
             .collect()
+    }
+
+    /// Sweep plus the Nyquist velocity of its cut (0 when unknown).
+    pub fn sweep_and_nyquist(&self, moment: &str, index: usize) -> Option<(Sweep, f32)> {
+        let (elnum, _) = self
+            .sweeps
+            .iter()
+            .filter(|((_, m), _)| m == moment)
+            .map(|((e, _), _)| (*e, ()))
+            .nth(index)?;
+        let s = self.sweep(moment, index)?;
+        let nyq = self.nyquist.get(&elnum).copied().unwrap_or(0.0);
+        Some((s, nyq))
+    }
+
+    /// Every cut of one moment, lowest elevation first.
+    pub fn all_sweeps(&self, moment: &str) -> Vec<Sweep> {
+        let n = self.cuts_for(moment).len();
+        let mut out: Vec<Sweep> = (0..n).filter_map(|i| self.sweep(moment, i)).collect();
+        out.sort_by(|a, b| a.elevation_deg.total_cmp(&b.elevation_deg));
+        out
     }
 
     /// Extract the `index`-th cut (0-based, scan order) of a moment as a
@@ -112,6 +135,7 @@ pub fn parse(data: &[u8]) -> Result<Level2Volume> {
         site_lon: 0.0,
         vcp: 0,
         sweeps: BTreeMap::new(),
+        nyquist: BTreeMap::new(),
     };
 
     let mut pos = 24usize;
@@ -187,6 +211,12 @@ fn parse_msg31(m: &[u8], vol: &mut Level2Volume) {
                     vol.site_lat = be_f32(b, 8) as f64;
                     vol.site_lon = be_f32(b, 12) as f64;
                     vol.vcp = be_u16(b, 40);
+                } else if &b[1..4] == b"RAD" && b.len() >= 18 {
+                    // Radial block: nyquist velocity in 0.01 m/s at offset 16
+                    let nyq = be_u16(b, 16) as f32 * 0.01;
+                    if nyq > 0.0 {
+                        vol.nyquist.entry(elnum).or_insert(nyq);
+                    }
                 }
             }
             b'D' => {

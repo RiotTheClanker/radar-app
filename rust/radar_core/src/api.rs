@@ -78,9 +78,7 @@ pub fn render_level2_frame(
     image_size: u32,
 ) -> Result<RadarFrame, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
-    let sweep = vol
-        .sweep(&moment, elevation_index as usize)
-        .ok_or_else(|| format!("moment {moment} cut {elevation_index} not in volume"))?;
+    let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (kind, name, unit) = moment_meta(&moment);
     frame_from_sweep(&sweep, kind, 0, name, unit, vol.vcp as i32, image_size)
 }
@@ -88,7 +86,11 @@ pub fn render_level2_frame(
 /// Elevation cuts available for a moment in a Level 2 volume, in scan order.
 pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
-    Ok(vol.cuts_for(&moment).iter().map(|c| c.elevation_deg).collect())
+    Ok(match moment.as_str() {
+        "CREF" | "VIL" | "ET" => vec![0.0],
+        "SRM" => vol.cuts_for("VEL").iter().map(|c| c.elevation_deg).collect(),
+        _ => vol.cuts_for(&moment).iter().map(|c| c.elevation_deg).collect(),
+    })
 }
 
 /// Viewport-matched render of a Level 3 product: rasterize only the given
@@ -133,9 +135,7 @@ pub fn render_level2_view(
     height: u32,
 ) -> Result<RadarFrame, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
-    let sweep = vol
-        .sweep(&moment, elevation_index as usize)
-        .ok_or_else(|| format!("moment {moment} cut {elevation_index} not in volume"))?;
+    let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (kind, name, unit) = moment_meta(&moment);
     let table = ColorTable::default_for(kind);
     let img = render::rasterize_sweep_view(&sweep, &table, north, south, east, west, width, height)
@@ -209,9 +209,7 @@ pub fn sample_level2(
     lon: f64,
 ) -> Result<SampleResult, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
-    let sweep = vol
-        .sweep(&moment, elevation_index as usize)
-        .ok_or_else(|| format!("moment {moment} cut {elevation_index} not in volume"))?;
+    let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (_, _, unit) = moment_meta(&moment);
     Ok(sample_sweep(&sweep, unit, lat, lon))
 }
@@ -227,7 +225,59 @@ fn moment_meta(moment: &str) -> (ProductKind, String, String) {
             "Correlation Coefficient (L2)".into(),
             "".into(),
         ),
+        "SRM" => (
+            ProductKind::Velocity,
+            "Storm-Relative Velocity (derived)".into(),
+            "m/s".into(),
+        ),
+        "CREF" => (
+            ProductKind::Reflectivity,
+            "Composite Reflectivity (derived)".into(),
+            "dBZ".into(),
+        ),
+        "VIL" => (ProductKind::Vil, "Vertically Integrated Liquid (derived)".into(), "kg/m²".into()),
+        "ET" => (ProductKind::EchoTops, "Echo Tops (derived)".into(), "kft".into()),
         _ => (ProductKind::Reflectivity, "Base Reflectivity (L2)".into(), "dBZ".into()),
+    }
+}
+
+/// Default storm motion for SRM until a user setting / STI estimate exists.
+const DEFAULT_STORM_FROM_DEG: f32 = 240.0;
+const DEFAULT_STORM_SPEED_MS: f32 = 12.0;
+
+/// Resolve a real or derived moment into a renderable sweep.
+fn level2_sweep(
+    vol: &level2::Level2Volume,
+    moment: &str,
+    index: usize,
+) -> Result<Sweep, String> {
+    match moment {
+        "SRM" => {
+            // Level 2 velocity is already dealiased by the RDA, so use it
+            // directly; process::dealias stays available for repairing the
+            // occasional RDA failure once that's detectable.
+            let (s, _nyq) = vol
+                .sweep_and_nyquist("VEL", index)
+                .ok_or_else(|| format!("VEL cut {index} not in volume"))?;
+            Ok(crate::process::storm_relative(
+                &s,
+                DEFAULT_STORM_FROM_DEG,
+                DEFAULT_STORM_SPEED_MS,
+            ))
+        }
+        "CREF" | "VIL" | "ET" => {
+            let cuts = vol.all_sweeps("REF");
+            let vp = crate::process::volume_products(&cuts)
+                .ok_or_else(|| "no reflectivity cuts in volume".to_string())?;
+            Ok(match moment {
+                "CREF" => vp.composite,
+                "VIL" => vp.vil,
+                _ => vp.echo_tops,
+            })
+        }
+        _ => vol
+            .sweep(moment, index)
+            .ok_or_else(|| format!("moment {moment} cut {index} not in volume")),
     }
 }
 

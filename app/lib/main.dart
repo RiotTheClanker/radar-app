@@ -53,16 +53,20 @@ class _Product {
   final String? tiltSuffix;
   final String? fixedCode;
   final String? l2Moment;
+
+  /// Volume-integrated Level 2 products have no tilt dimension.
+  final bool l2Volume;
   const _Product(
     this.label,
     this.short, {
     this.tiltSuffix,
     this.fixedCode,
     this.l2Moment,
+    this.l2Volume = false,
   });
 
   bool get isLevel2 => l2Moment != null;
-  bool get hasTilts => tiltSuffix != null || isLevel2;
+  bool get hasTilts => tiltSuffix != null || (isLevel2 && !l2Volume);
   String code(int tilt) => fixedCode ?? 'N$tilt$tiltSuffix';
 }
 
@@ -79,9 +83,17 @@ const _l3Products = [
 const _l2Products = [
   _Product('Reflectivity', 'L2 REF', l2Moment: 'REF'),
   _Product('Velocity', 'L2 VEL', l2Moment: 'VEL'),
+  _Product('Storm-Relative Velocity', 'L2 SRM', l2Moment: 'SRM'),
   _Product('Spectrum Width', 'L2 SW', l2Moment: 'SW'),
   _Product('Differential Reflectivity', 'L2 ZDR', l2Moment: 'ZDR'),
   _Product('Correlation Coefficient', 'L2 CC', l2Moment: 'RHO'),
+];
+
+/// On-device derived products, computed from the full Level 2 volume.
+const _derivedProducts = [
+  _Product('Composite Reflectivity', 'CREF', l2Moment: 'CREF', l2Volume: true),
+  _Product('Vert. Integrated Liquid', 'VIL', l2Moment: 'VIL', l2Volume: true),
+  _Product('Echo Tops', 'ET', l2Moment: 'ET', l2Volume: true),
 ];
 
 class _Basemap {
@@ -325,7 +337,7 @@ class _RadarScreenState extends State<RadarScreen> {
       final frame = await renderLevel2Frame(
         data: bytes,
         moment: _product.l2Moment!,
-        elevationIndex: _tilt,
+        elevationIndex: _product.hasTilts ? _tilt : 0,
         imageSize: 1024,
       );
       frames
@@ -382,7 +394,7 @@ class _RadarScreenState extends State<RadarScreen> {
             ? await renderLevel2View(
                 data: f.raw,
                 moment: _product.l2Moment!,
-                elevationIndex: _tilt,
+                elevationIndex: _product.hasTilts ? _tilt : 0,
                 north: north,
                 south: south,
                 east: east,
@@ -541,7 +553,7 @@ class _RadarScreenState extends State<RadarScreen> {
           ? await sampleLevel2(
               data: frame.raw,
               moment: _product.l2Moment!,
-              elevationIndex: _tilt,
+              elevationIndex: _product.hasTilts ? _tilt : 0,
               lat: p.latitude,
               lon: p.longitude,
             )
@@ -965,6 +977,36 @@ class _RadarScreenState extends State<RadarScreen> {
                 ),
               ),
               for (final p in _l3Products)
+                PopupMenuItem(
+                  value: p,
+                  height: 36,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 44,
+                        child: Text(
+                          p.short,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ),
+                      Text(p.label, style: const TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                enabled: false,
+                height: 28,
+                child: Text(
+                  'DERIVED · ON-DEVICE',
+                  style: TextStyle(fontSize: 11, color: Colors.white54),
+                ),
+              ),
+              for (final p in _derivedProducts)
                 PopupMenuItem(
                   value: p,
                   height: 36,

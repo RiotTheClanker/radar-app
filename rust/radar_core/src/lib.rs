@@ -10,6 +10,7 @@ pub mod error;
 pub mod glm;
 pub mod level2;
 pub mod level3;
+pub mod process;
 pub mod render;
 pub mod sweep;
 
