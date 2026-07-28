@@ -21,10 +21,40 @@ impl Grid3D {
     }
 }
 
+/// How physical values are packed into grid bytes: raw = v*scale + offset.
+#[derive(Clone, Copy)]
+pub struct GridEncode {
+    pub scale: f32,
+    pub offset: f32,
+    /// Values below this are treated as empty air.
+    pub min_show: f32,
+    /// Value that "no echo" fades toward (e.g. -33 dBZ, 0 m/s).
+    pub no_echo: f32,
+}
+
+pub const ENCODE_DBZ: GridEncode = GridEncode {
+    scale: 2.0,
+    offset: 66.0,
+    min_show: -30.0,
+    no_echo: -33.0,
+};
+
 /// Sample every REF cut into a regular grid. Between cut beam heights the
 /// reflectivity is linearly interpolated; above/below the scanned cone it
 /// fades out quickly.
 pub fn build_grid(cuts: &[Sweep], nxy: usize, nz: usize, half_extent_m: f32, top_m: f32) -> Option<Grid3D> {
+    build_grid_encoded(cuts, nxy, nz, half_extent_m, top_m, ENCODE_DBZ)
+}
+
+/// Grid build with an explicit value encoding (velocity, ZDR, CC, ...).
+pub fn build_grid_encoded(
+    cuts: &[Sweep],
+    nxy: usize,
+    nz: usize,
+    half_extent_m: f32,
+    top_m: f32,
+    enc: GridEncode,
+) -> Option<Grid3D> {
     if cuts.is_empty() {
         return None;
     }
@@ -81,7 +111,7 @@ pub fn build_grid(cuts: &[Sweep], nxy: usize, nz: usize, half_extent_m: f32, top
                 };
                 if raw <= 1 {
                     // keep explicit "no echo" so interpolation can fade
-                    col.push((cut.beam_height_m(slant) as f32, -33.0));
+                    col.push((cut.beam_height_m(slant) as f32, enc.no_echo));
                     continue;
                 }
                 if let crate::level3::BinValue::Value(dbz) = cut.decoder.decode(raw) {
@@ -114,12 +144,12 @@ pub fn build_grid(cuts: &[Sweep], nxy: usize, nz: usize, half_extent_m: f32, top
                         if fade <= 0.0 {
                             continue;
                         }
-                        vt * fade - 33.0 * (1.0 - fade)
+                        vt * fade + enc.no_echo * (1.0 - fade)
                     }
                 };
-                if dbz > -30.0 {
+                if dbz > enc.min_show {
                     data[(gz * nxy + gy) * nxy + gx] =
-                        ((dbz * 2.0 + 66.0).round()).clamp(2.0, 255.0) as u8;
+                        ((dbz * enc.scale + enc.offset).round()).clamp(2.0, 255.0) as u8;
                 }
             }
         }
@@ -127,13 +157,19 @@ pub fn build_grid(cuts: &[Sweep], nxy: usize, nz: usize, half_extent_m: f32, top
 
     // Light separable box blur (horizontal only, radius 1) knocks down radial
     // speckle so the trilinear render reads as cloud masses, not static.
+    // Empty voxels (0) adopt the center value so edges don't smear toward
+    // zero — critical for center-offset encodings like velocity.
+    let nb = |v: u8, c: u8| if v == 0 { c as u16 } else { v as u16 };
     let mut blurred = data.clone();
     for z in 0..nz {
         for y in 0..nxy {
             for x in 1..nxy - 1 {
                 let i = (z * nxy + y) * nxy + x;
-                blurred[i] =
-                    ((data[i - 1] as u16 + 2 * data[i] as u16 + data[i + 1] as u16) / 4) as u8;
+                let c = data[i];
+                if c == 0 {
+                    continue;
+                }
+                blurred[i] = ((nb(data[i - 1], c) + 2 * c as u16 + nb(data[i + 1], c)) / 4) as u8;
             }
         }
     }
@@ -141,10 +177,13 @@ pub fn build_grid(cuts: &[Sweep], nxy: usize, nz: usize, half_extent_m: f32, top
         for x in 0..nxy {
             for y in 1..nxy - 1 {
                 let i = (z * nxy + y) * nxy + x;
+                let c = blurred[i];
+                if c == 0 {
+                    continue;
+                }
                 let up = (z * nxy + y - 1) * nxy + x;
                 let dn = (z * nxy + y + 1) * nxy + x;
-                data[i] =
-                    ((blurred[up] as u16 + 2 * blurred[i] as u16 + blurred[dn] as u16) / 4) as u8;
+                data[i] = ((nb(blurred[up], c) + 2 * c as u16 + nb(blurred[dn], c)) / 4) as u8;
             }
         }
     }

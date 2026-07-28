@@ -203,3 +203,57 @@ pub fn render_volume3d(
         timestamp: f.timestamp,
     })
 }
+
+/// Info about an open 3D fly-through session.
+pub struct Volume3DInfo {
+    pub gpu: bool,
+    pub half_extent_m: f32,
+    pub top_m: f32,
+}
+
+/// Build (or rebuild) the 3D session for one volume + moment
+/// (REF, SRM, VEL, ZDR, RHO).
+pub fn volume3d_open(
+    data: Vec<u8>,
+    moment: String,
+    threshold: f32,
+) -> Result<Volume3DInfo, String> {
+    let i = core::volume3d_open(data, moment, threshold)?;
+    Ok(Volume3DInfo {
+        gpu: i.gpu,
+        half_extent_m: i.half_extent_m,
+        top_m: i.top_m,
+    })
+}
+
+/// Update the 3D opacity threshold without rebuilding the grid.
+pub fn volume3d_set_threshold(threshold: f32) -> Result<(), String> {
+    core::volume3d_set_threshold(threshold)
+}
+
+/// A raw RGBA frame (no PNG encode) for fast display.
+pub struct RawFrame {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// Render one free-fly frame. `clip` = [minx,miny,minz,maxx,maxy,maxz] 0..1.
+#[allow(clippy::too_many_arguments)]
+pub fn volume3d_render_fly(
+    eye_x: f32,
+    eye_y: f32,
+    eye_z: f32,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    clip: Vec<f32>,
+    width: u32,
+    height: u32,
+) -> Result<RawFrame, String> {
+    let f = core::volume3d_render_fly(eye_x, eye_y, eye_z, yaw_deg, pitch_deg, clip, width, height)?;
+    Ok(RawFrame {
+        width: f.width,
+        height: f.height,
+        rgba: f.rgba,
+    })
+}

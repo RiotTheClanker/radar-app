@@ -2,6 +2,7 @@
 
 pub mod color_table;
 pub mod raster;
+pub mod gpu3d;
 pub mod volume3d;
 
 pub use color_table::ColorTable;

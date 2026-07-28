@@ -11,6 +11,12 @@ bzip2 = "0.4"
 flate2 = "1"
 thiserror = "2"
 png = "0.17"
+wgpu = "30.0.0"
+pollster = "1.0.1"
+bytemuck = "1.25.2"
 
 [profile.release]
 lto = true
+
+[dev-dependencies]
+png = "0.17"

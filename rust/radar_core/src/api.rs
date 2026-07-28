@@ -368,3 +368,150 @@ pub struct Volume3DFrame {
     pub png: Vec<u8>,
     pub timestamp: i64,
 }
+
+// ---------------------------------------------------------------------------
+// 3D fly-through session (GPU raymarcher with CPU-built grids)
+// ---------------------------------------------------------------------------
+
+use crate::process::grid3d::{build_grid_encoded, Grid3D, GridEncode, ENCODE_DBZ};
+use std::sync::Mutex;
+
+struct Vol3DSession {
+    grid: Grid3D,
+    moment: String,
+    gpu: Option<crate::render::gpu3d::GpuVolume>,
+}
+
+static VOL3D: Mutex<Option<Vol3DSession>> = Mutex::new(None);
+
+const Z_EXAG: f32 = 4.0;
+
+fn grid_encode_for(moment: &str) -> GridEncode {
+    match moment {
+        "VEL" | "SRM" => GridEncode { scale: 2.0, offset: 128.0, min_show: -999.0, no_echo: 0.0 },
+        "ZDR" => GridEncode { scale: 16.0, offset: 66.0, min_show: -3.9, no_echo: 0.0 },
+        "RHO" => GridEncode { scale: 200.0, offset: -35.0, min_show: 0.2, no_echo: 1.0 },
+        _ => ENCODE_DBZ,
+    }
+}
+
+/// Palette + opacity transfer for the 3D view, keyed by moment + threshold.
+fn palette_3d(moment: &str, threshold: f32) -> [[u8; 4]; 256] {
+    let enc = grid_encode_for(moment);
+    let kind = match moment {
+        "VEL" | "SRM" => ProductKind::Velocity,
+        "ZDR" => ProductKind::Zdr,
+        "RHO" => ProductKind::CorrelationCoefficient,
+        _ => ProductKind::Reflectivity,
+    };
+    let table = ColorTable::default_for(kind);
+    let mut pal = [[0u8; 4]; 256];
+    for raw in 2..256usize {
+        let v = (raw as f32 - enc.offset) / enc.scale;
+        // Opacity (0..1, scaled in-shader): strong signal = more opaque.
+        let a = match moment {
+            "VEL" | "SRM" => {
+                let thr = threshold * 0.6; // slider 0-50 -> 0-30 m/s
+                ((v.abs() - thr) / 20.0).clamp(0.0, 0.85)
+            }
+            "ZDR" | "RHO" => 0.30,
+            _ => {
+                if v < threshold {
+                    0.0
+                } else {
+                    ((v - threshold) / 25.0).clamp(0.03, 1.0)
+                }
+            }
+        };
+        if a > 0.0 {
+            let c = table.sample(v);
+            pal[raw] = [c[0], c[1], c[2], (a * 255.0) as u8];
+        }
+    }
+    pal
+}
+
+/// Session info returned by [`volume3d_open`].
+pub struct Volume3DInfo {
+    pub gpu: bool,
+    pub half_extent_m: f32,
+    /// Vertical extent in *exaggerated* world units used by the camera.
+    pub top_m: f32,
+}
+
+/// Build (or rebuild) the 3D session for one volume + moment.
+pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Volume3DInfo, String> {
+    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let cuts = match moment.as_str() {
+        "SRM" => vol
+            .all_sweeps("VEL")
+            .iter()
+            .map(|s| crate::process::storm_relative(s, DEFAULT_STORM_FROM_DEG, DEFAULT_STORM_SPEED_MS))
+            .collect::<Vec<_>>(),
+        m @ ("VEL" | "ZDR" | "RHO") => vol.all_sweeps(m),
+        _ => vol.all_sweeps("REF"),
+    };
+    let grid = build_grid_encoded(&cuts, 384, 40, 120_000.0, 16_000.0, grid_encode_for(&moment))
+        .ok_or_else(|| format!("no {moment} cuts in volume"))?;
+    let pal = palette_3d(&moment, threshold);
+    let gpu = crate::render::gpu3d::GpuVolume::new(&grid, &pal, Z_EXAG).ok();
+    let info = Volume3DInfo {
+        gpu: gpu.is_some(),
+        half_extent_m: grid.half_extent_m,
+        top_m: grid.top_m * Z_EXAG,
+    };
+    *VOL3D.lock().unwrap() = Some(Vol3DSession { grid, moment, gpu });
+    Ok(info)
+}
+
+/// Update the opacity threshold without rebuilding the grid.
+pub fn volume3d_set_threshold(threshold: f32) -> Result<(), String> {
+    let guard = VOL3D.lock().unwrap();
+    let s = guard.as_ref().ok_or("no 3D session")?;
+    if let Some(gpu) = &s.gpu {
+        gpu.update_palette(&palette_3d(&s.moment, threshold));
+    }
+    Ok(())
+}
+
+/// A raw (unencoded) RGBA frame for fast display.
+pub struct RawFrame {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// Render one free-fly frame from the open 3D session.
+#[allow(clippy::too_many_arguments)]
+pub fn volume3d_render_fly(
+    eye_x: f32,
+    eye_y: f32,
+    eye_z: f32,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    clip: Vec<f32>,
+    width: u32,
+    height: u32,
+) -> Result<RawFrame, String> {
+    let guard = VOL3D.lock().unwrap();
+    let s = guard.as_ref().ok_or("no 3D session")?;
+    let gpu = s.gpu.as_ref().ok_or("no GPU in session")?;
+    let c = |i: usize, d: f32| clip.get(i).copied().unwrap_or(d);
+    let rgba = gpu.render(
+        &crate::render::gpu3d::FlyParams {
+            eye: [eye_x, eye_y, eye_z],
+            yaw_deg,
+            pitch_deg,
+            fov_deg: 55.0,
+            clip_min: [c(0, 0.0), c(1, 0.0), c(2, 0.0)],
+            clip_max: [c(3, 1.0), c(4, 1.0), c(5, 1.0)],
+        },
+        width,
+        height,
+    )?;
+    Ok(RawFrame {
+        width,
+        height,
+        rgba,
+    })
+}

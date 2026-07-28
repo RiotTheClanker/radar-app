@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 725905193;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1058273031;
 
 // Section: executor
 
@@ -470,6 +470,124 @@ fn wire__crate__api__radar__sample_level3_impl(
         },
     )
 }
+fn wire__crate__api__radar__volume3d_open_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "volume3d_open",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_data = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_moment = <String>::sse_decode(&mut deserializer);
+            let api_threshold = <f32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::radar::volume3d_open(api_data, api_moment, api_threshold)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__radar__volume3d_render_fly_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "volume3d_render_fly",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_eye_x = <f32>::sse_decode(&mut deserializer);
+            let api_eye_y = <f32>::sse_decode(&mut deserializer);
+            let api_eye_z = <f32>::sse_decode(&mut deserializer);
+            let api_yaw_deg = <f32>::sse_decode(&mut deserializer);
+            let api_pitch_deg = <f32>::sse_decode(&mut deserializer);
+            let api_clip = <Vec<f32>>::sse_decode(&mut deserializer);
+            let api_width = <u32>::sse_decode(&mut deserializer);
+            let api_height = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::volume3d_render_fly(
+                        api_eye_x,
+                        api_eye_y,
+                        api_eye_z,
+                        api_yaw_deg,
+                        api_pitch_deg,
+                        api_clip,
+                        api_width,
+                        api_height,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__radar__volume3d_set_threshold_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "volume3d_set_threshold",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_threshold = <f32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::volume3d_set_threshold(api_threshold)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 
 // Section: dart2rust
 
@@ -603,6 +721,20 @@ impl SseDecode for crate::api::radar::RadarFrame {
     }
 }
 
+impl SseDecode for crate::api::radar::RawFrame {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_width = <u32>::sse_decode(deserializer);
+        let mut var_height = <u32>::sse_decode(deserializer);
+        let mut var_rgba = <Vec<u8>>::sse_decode(deserializer);
+        return crate::api::radar::RawFrame {
+            width: var_width,
+            height: var_height,
+            rgba: var_rgba,
+        };
+    }
+}
+
 impl SseDecode for crate::api::radar::SampleResult {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -656,6 +788,20 @@ impl SseDecode for crate::api::radar::Volume3DFrame {
     }
 }
 
+impl SseDecode for crate::api::radar::Volume3DInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_gpu = <bool>::sse_decode(deserializer);
+        let mut var_halfExtentM = <f32>::sse_decode(deserializer);
+        let mut var_topM = <f32>::sse_decode(deserializer);
+        return crate::api::radar::Volume3DInfo {
+            gpu: var_gpu,
+            half_extent_m: var_halfExtentM,
+            top_m: var_topM,
+        };
+    }
+}
+
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -675,6 +821,11 @@ fn pde_ffi_dispatcher_primary_impl(
         9 => wire__crate__api__radar__render_volume3d_impl(port, ptr, rust_vec_len, data_len),
         10 => wire__crate__api__radar__sample_level2_impl(port, ptr, rust_vec_len, data_len),
         11 => wire__crate__api__radar__sample_level3_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__radar__volume3d_open_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__radar__volume3d_render_fly_impl(port, ptr, rust_vec_len, data_len),
+        14 => {
+            wire__crate__api__radar__volume3d_set_threshold_impl(port, ptr, rust_vec_len, data_len)
+        }
         _ => unreachable!(),
     }
 }
@@ -745,6 +896,25 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::RadarFrame>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::radar::RawFrame {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.width.into_into_dart().into_dart(),
+            self.height.into_into_dart().into_dart(),
+            self.rgba.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::radar::RawFrame {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::RawFrame>
+    for crate::api::radar::RawFrame
+{
+    fn into_into_dart(self) -> crate::api::radar::RawFrame {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::radar::SampleResult {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -788,6 +958,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::Volume3DFrame>
     for crate::api::radar::Volume3DFrame
 {
     fn into_into_dart(self) -> crate::api::radar::Volume3DFrame {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::radar::Volume3DInfo {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.gpu.into_into_dart().into_dart(),
+            self.half_extent_m.into_into_dart().into_dart(),
+            self.top_m.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::radar::Volume3DInfo
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::Volume3DInfo>
+    for crate::api::radar::Volume3DInfo
+{
+    fn into_into_dart(self) -> crate::api::radar::Volume3DInfo {
         self
     }
 }
@@ -894,6 +1086,15 @@ impl SseEncode for crate::api::radar::RadarFrame {
     }
 }
 
+impl SseEncode for crate::api::radar::RawFrame {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.width, serializer);
+        <u32>::sse_encode(self.height, serializer);
+        <Vec<u8>>::sse_encode(self.rgba, serializer);
+    }
+}
+
 impl SseEncode for crate::api::radar::SampleResult {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -931,6 +1132,15 @@ impl SseEncode for crate::api::radar::Volume3DFrame {
         <u32>::sse_encode(self.height, serializer);
         <Vec<u8>>::sse_encode(self.png, serializer);
         <i64>::sse_encode(self.timestamp, serializer);
+    }
+}
+
+impl SseEncode for crate::api::radar::Volume3DInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.gpu, serializer);
+        <f32>::sse_encode(self.half_extent_m, serializer);
+        <f32>::sse_encode(self.top_m, serializer);
     }
 }
 

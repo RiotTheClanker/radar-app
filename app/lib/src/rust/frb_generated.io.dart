@@ -44,6 +44,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
+  List<double> dco_decode_list_prim_f_32_loose(dynamic raw);
+
+  @protected
   Float32List dco_decode_list_prim_f_32_strict(dynamic raw);
 
   @protected
@@ -59,6 +62,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RadarFrame dco_decode_radar_frame(dynamic raw);
 
   @protected
+  RawFrame dco_decode_raw_frame(dynamic raw);
+
+  @protected
   SampleResult dco_decode_sample_result(dynamic raw);
 
   @protected
@@ -72,6 +78,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Volume3DFrame dco_decode_volume_3_d_frame(dynamic raw);
+
+  @protected
+  Volume3DInfo dco_decode_volume_3_d_info(dynamic raw);
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
@@ -98,6 +107,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
+  List<double> sse_decode_list_prim_f_32_loose(SseDeserializer deserializer);
+
+  @protected
   Float32List sse_decode_list_prim_f_32_strict(SseDeserializer deserializer);
 
   @protected
@@ -113,6 +125,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RadarFrame sse_decode_radar_frame(SseDeserializer deserializer);
 
   @protected
+  RawFrame sse_decode_raw_frame(SseDeserializer deserializer);
+
+  @protected
   SampleResult sse_decode_sample_result(SseDeserializer deserializer);
 
   @protected
@@ -126,6 +141,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Volume3DFrame sse_decode_volume_3_d_frame(SseDeserializer deserializer);
+
+  @protected
+  Volume3DInfo sse_decode_volume_3_d_info(SseDeserializer deserializer);
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
@@ -152,6 +170,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_prim_f_32_loose(
+    List<double> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_f_32_strict(
     Float32List self,
     SseSerializer serializer,
@@ -173,6 +197,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_radar_frame(RadarFrame self, SseSerializer serializer);
 
   @protected
+  void sse_encode_raw_frame(RawFrame self, SseSerializer serializer);
+
+  @protected
   void sse_encode_sample_result(SampleResult self, SseSerializer serializer);
 
   @protected
@@ -189,6 +216,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     Volume3DFrame self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_volume_3_d_info(Volume3DInfo self, SseSerializer serializer);
 }
 
 // Section: wire_class

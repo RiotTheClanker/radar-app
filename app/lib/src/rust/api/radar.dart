@@ -129,6 +129,45 @@ Future<Volume3DFrame> renderVolume3D({
   height: height,
 );
 
+/// Build (or rebuild) the 3D session for one volume + moment
+/// (REF, SRM, VEL, ZDR, RHO).
+Future<Volume3DInfo> volume3DOpen({
+  required List<int> data,
+  required String moment,
+  required double threshold,
+}) => RustLib.instance.api.crateApiRadarVolume3DOpen(
+  data: data,
+  moment: moment,
+  threshold: threshold,
+);
+
+/// Update the 3D opacity threshold without rebuilding the grid.
+Future<void> volume3DSetThreshold({required double threshold}) => RustLib
+    .instance
+    .api
+    .crateApiRadarVolume3DSetThreshold(threshold: threshold);
+
+/// Render one free-fly frame. `clip` = [minx,miny,minz,maxx,maxy,maxz] 0..1.
+Future<RawFrame> volume3DRenderFly({
+  required double eyeX,
+  required double eyeY,
+  required double eyeZ,
+  required double yawDeg,
+  required double pitchDeg,
+  required List<double> clip,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarVolume3DRenderFly(
+  eyeX: eyeX,
+  eyeY: eyeY,
+  eyeZ: eyeZ,
+  yawDeg: yawDeg,
+  pitchDeg: pitchDeg,
+  clip: clip,
+  width: width,
+  height: height,
+);
+
 /// Lightning flashes parsed from one GOES GLM L2 LCFA file.
 class GlmResult {
   final PlatformInt64 timestamp;
@@ -233,6 +272,31 @@ class RadarFrame {
           west == other.west;
 }
 
+/// A raw RGBA frame (no PNG encode) for fast display.
+class RawFrame {
+  final int width;
+  final int height;
+  final Uint8List rgba;
+
+  const RawFrame({
+    required this.width,
+    required this.height,
+    required this.rgba,
+  });
+
+  @override
+  int get hashCode => width.hashCode ^ height.hashCode ^ rgba.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RawFrame &&
+          runtimeType == other.runtimeType &&
+          width == other.width &&
+          height == other.height &&
+          rgba == other.rgba;
+}
+
 /// Result of sampling a product at a point (the "inspector" tool).
 class SampleResult {
   final double? value;
@@ -296,4 +360,29 @@ class Volume3DFrame {
           height == other.height &&
           png == other.png &&
           timestamp == other.timestamp;
+}
+
+/// Info about an open 3D fly-through session.
+class Volume3DInfo {
+  final bool gpu;
+  final double halfExtentM;
+  final double topM;
+
+  const Volume3DInfo({
+    required this.gpu,
+    required this.halfExtentM,
+    required this.topM,
+  });
+
+  @override
+  int get hashCode => gpu.hashCode ^ halfExtentM.hashCode ^ topM.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Volume3DInfo &&
+          runtimeType == other.runtimeType &&
+          gpu == other.gpu &&
+          halfExtentM == other.halfExtentM &&
+          topM == other.topM;
 }
