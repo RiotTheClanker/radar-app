@@ -3,9 +3,9 @@
 //! Output images are sampled in Web Mercator so a map view can stretch them
 //! linearly between corner coordinates with no visible misregistration.
 //! Each pixel is inverse-mapped to (azimuth, range) from the radar site and
-//! looks up the matching bin — no polygon tessellation, no seams.
+//! looks up the matching gate — no polygon tessellation, no seams.
 
-use crate::level3::{Level3File, RadialDataArray};
+use crate::sweep::{GateData, Sweep};
 use crate::render::ColorTable;
 
 const EARTH_R: f64 = 6_371_000.0;
@@ -32,9 +32,9 @@ fn inv_merc_y(y: f64) -> f64 {
 }
 
 /// Build a 0.1°-resolution azimuth -> radial-index lookup table.
-fn azimuth_lut(radials: &RadialDataArray) -> Vec<i32> {
+fn azimuth_lut(sweep: &Sweep) -> Vec<i32> {
     let mut lut = vec![-1i32; 3600];
-    for (idx, rad) in radials.radials.iter().enumerate() {
+    for (idx, rad) in sweep.radials.iter().enumerate() {
         let start = (rad.start_az_deg * 10.0).round() as i32;
         let steps = (rad.delta_az_deg * 10.0).round().max(1.0) as i32;
         for s in 0..steps {
@@ -45,26 +45,28 @@ fn azimuth_lut(radials: &RadialDataArray) -> Vec<i32> {
     lut
 }
 
-/// Render a Level 3 radial product to a georeferenced RGBA image.
-pub fn rasterize_radials(file: &Level3File, table: &ColorTable, size: u32) -> Option<GeoImage> {
-    let radial = file.radial.as_ref()?;
-    let range_m = file.max_range_m() as f64;
-    if range_m <= 0.0 || radial.radials.is_empty() {
+/// Render a sweep to a georeferenced RGBA image.
+pub fn rasterize_sweep(sweep: &Sweep, table: &ColorTable, size: u32) -> Option<GeoImage> {
+    let range_m = sweep.max_range_m() as f64;
+    if range_m <= 0.0 || sweep.radials.is_empty() {
         return None;
     }
 
-    let site_lat = file.site_lat.to_radians();
-    let site_lon = file.site_lon.to_radians();
+    let site_lat = sweep.site_lat.to_radians();
+    let site_lon = sweep.site_lon.to_radians();
 
     let dlat = range_m / M_PER_DEG_LAT;
     let dlon = range_m / (M_PER_DEG_LAT * site_lat.cos().abs().max(0.01));
-    let north = file.site_lat + dlat;
-    let south = file.site_lat - dlat;
-    let east = file.site_lon + dlon;
-    let west = file.site_lon - dlon;
+    let north = sweep.site_lat + dlat;
+    let south = sweep.site_lat - dlat;
+    let east = sweep.site_lon + dlon;
+    let west = sweep.site_lon - dlon;
 
-    let lut = table.build_lut(&radial.decoder);
-    let az_lut = azimuth_lut(radial);
+    // Color LUT sized to the actual raw range (256 for 8-bit, larger for
+    // 16-bit moments).
+    let lut_len = ((sweep.max_raw as usize) + 2).clamp(256, 65536);
+    let lut = table.build_lut(&sweep.decoder, lut_len);
+    let az_lut = azimuth_lut(sweep);
 
     let w = size as usize;
     let h = size as usize;
@@ -74,9 +76,10 @@ pub fn rasterize_radials(file: &Level3File, table: &ColorTable, size: u32) -> Op
     let y_s = merc_y(south.to_radians());
     let sin_site = site_lat.sin();
     let cos_site = site_lat.cos();
-    let inv_gate = 1.0 / radial.gate_size_m as f64;
-    let first_bin = radial.first_bin as i64;
-    let nbins = radial.nbins as i64;
+    let inv_gate = 1.0 / sweep.gate_size_m as f64;
+    // Gate i covers [first_gate + (i-0.5)*gate, first_gate + (i+0.5)*gate).
+    let gate_origin = sweep.first_gate_m as f64 - sweep.gate_size_m as f64 * 0.5;
+    let nbins = sweep.nbins as i64;
 
     for py in 0..h {
         // Row latitude via Mercator interpolation between the box edges.
@@ -95,7 +98,7 @@ pub fn rasterize_radials(file: &Level3File, table: &ColorTable, size: u32) -> Op
             let cos_c = (sin_site * sin_lat + cos_site * cos_lat * dlon_r.cos()).clamp(-1.0, 1.0);
             let dist = cos_c.acos() * EARTH_R;
 
-            let bin = (dist * inv_gate) as i64 - first_bin;
+            let bin = ((dist - gate_origin) * inv_gate) as i64;
             if bin < 0 || bin >= nbins {
                 continue;
             }
@@ -110,12 +113,18 @@ pub fn rasterize_radials(file: &Level3File, table: &ColorTable, size: u32) -> Op
             if ridx < 0 {
                 continue;
             }
-            let data = &radial.radials[ridx as usize].data;
-            let b = bin as usize;
-            if b >= data.len() {
-                continue;
-            }
-            let color = lut[data[b] as usize];
+            let data = &sweep.radials[ridx as usize].data;
+            let raw = match data {
+                GateData::U8(v) => match v.get(bin as usize) {
+                    Some(&b) => b as usize,
+                    None => continue,
+                },
+                GateData::U16(v) => match v.get(bin as usize) {
+                    Some(&b) => b as usize,
+                    None => continue,
+                },
+            };
+            let color = lut[raw.min(lut_len - 1)];
             if color[3] == 0 {
                 continue;
             }

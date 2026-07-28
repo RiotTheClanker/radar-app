@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'data/alerts_fetcher.dart';
+import 'data/level2_fetcher.dart';
 import 'data/level3_fetcher.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
@@ -40,15 +41,18 @@ class RadarApp extends StatelessWidget {
   }
 }
 
-/// One product on offer in the UI. Tilted products map to mnemonics like
-/// N0B/N1B/N2B/N3B (tilt digit in the middle); others have a fixed code.
+/// One product on offer in the UI. Level 3 tilted products map to mnemonics
+/// like N0B/N1B/N2B/N3B (tilt digit in the middle); Level 2 products carry a
+/// moment name and decode full Archive II volumes on-device.
 class _Product {
   final String label;
   final String? tiltSuffix;
   final String? fixedCode;
-  const _Product(this.label, {this.tiltSuffix, this.fixedCode});
+  final String? l2Moment;
+  const _Product(this.label, {this.tiltSuffix, this.fixedCode, this.l2Moment});
 
-  bool get hasTilts => tiltSuffix != null;
+  bool get isLevel2 => l2Moment != null;
+  bool get hasTilts => tiltSuffix != null || isLevel2;
   String code(int tilt) => fixedCode ?? 'N$tilt$tiltSuffix';
 }
 
@@ -60,6 +64,11 @@ const _products = [
   _Product('Specific Diff Phase', tiltSuffix: 'K'),
   _Product('Hydrometeor Class', tiltSuffix: 'H'),
   _Product('Storm Total Precip', fixedCode: 'DTA'),
+  _Product('L2 Reflectivity', l2Moment: 'REF'),
+  _Product('L2 Velocity', l2Moment: 'VEL'),
+  _Product('L2 Spectrum Width', l2Moment: 'SW'),
+  _Product('L2 ZDR', l2Moment: 'ZDR'),
+  _Product('L2 Correlation Coeff', l2Moment: 'RHO'),
 ];
 
 class _Frame {
@@ -94,6 +103,7 @@ class _RadarScreenState extends State<RadarScreen> {
   List<WeatherAlert> _alerts = [];
   Timer? _alertTimer;
   final LayerHitNotifier<WeatherAlert> _alertHit = ValueNotifier(null);
+  final Map<String, Uint8List> _l2Cache = {};
 
   @override
   void initState() {
@@ -148,23 +158,8 @@ class _RadarScreenState extends State<RadarScreen> {
       _error = null;
     });
     try {
-      final productCode = _product.code(_tilt);
-      final keys = await listRecentKeys(
-        _site.shortId,
-        productCode,
-        count: 8,
-      );
-      if (keys.isEmpty) {
-        throw Exception('no recent $productCode data for ${_site.icao}');
-      }
-      final frames = await Future.wait(keys.map((key) async {
-        final bytes = await fetchObject(key);
-        final frame = await renderLevel3Frame(
-          data: Uint8List.fromList(bytes),
-          imageSize: 1024,
-        );
-        return _Frame(frame, MemoryImage(Uint8List.fromList(frame.png)));
-      }));
+      final frames =
+          _product.isLevel2 ? await _loadLevel2Frames() : await _loadLevel3Frames();
       if (generation != _loadGeneration || !mounted) return;
       for (final f in frames) {
         // Warm the image cache so animation doesn't flicker.
@@ -184,6 +179,52 @@ class _RadarScreenState extends State<RadarScreen> {
         _error = e.toString();
       });
     }
+  }
+
+  Future<List<_Frame>> _loadLevel3Frames() async {
+    final productCode = _product.code(_tilt);
+    final keys = await listRecentKeys(
+      _site.shortId,
+      productCode,
+      count: 8,
+    );
+    if (keys.isEmpty) {
+      throw Exception('no recent $productCode data for ${_site.icao}');
+    }
+    return Future.wait(keys.map((key) async {
+      final bytes = await fetchObject(key);
+      final frame = await renderLevel3Frame(
+        data: Uint8List.fromList(bytes),
+        imageSize: 1024,
+      );
+      return _Frame(frame, MemoryImage(Uint8List.fromList(frame.png)));
+    }));
+  }
+
+  /// Level 2 volumes are big (5-15 MB), so fetch fewer frames and cache the
+  /// raw bytes so tilt/moment switches don't re-download.
+  Future<List<_Frame>> _loadLevel2Frames() async {
+    final keys = await listRecentVolumes(_site.icao, count: 3);
+    if (keys.isEmpty) {
+      throw Exception('no recent Level 2 volumes for ${_site.icao}');
+    }
+    final frames = <_Frame>[];
+    for (final key in keys) {
+      final bytes = _l2Cache[key] ?? await fetchVolume(key);
+      _l2Cache[key] = bytes;
+      final frame = await renderLevel2Frame(
+        data: bytes,
+        moment: _product.l2Moment!,
+        elevationIndex: _tilt,
+        imageSize: 1024,
+      );
+      frames.add(_Frame(frame, MemoryImage(Uint8List.fromList(frame.png))));
+    }
+    // Keep the cache from growing without bound.
+    while (_l2Cache.length > 6) {
+      _l2Cache.remove(_l2Cache.keys.first);
+    }
+    return frames;
   }
 
   void _selectSite(NexradSite site, {bool moveMap = false}) {

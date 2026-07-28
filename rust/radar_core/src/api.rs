@@ -2,8 +2,11 @@
 //! flutter_rust_bridge. Signatures stay simple (owned types, String errors)
 //! so the generated bindings are clean.
 
+use crate::level2;
 use crate::level3;
+use crate::level3::products::ProductKind;
 use crate::render::{self, ColorTable};
+use crate::sweep::Sweep;
 
 /// A ready-to-display radar frame: RGBA pixels plus the geographic bounds the
 /// map should stretch them across, and metadata for the UI.
@@ -45,23 +48,85 @@ pub fn render_level3_frame(data: Vec<u8>, image_size: u32) -> Result<RadarFrame,
     let kind = file
         .info
         .map(|i| i.kind)
-        .unwrap_or(level3::products::ProductKind::Reflectivity);
-    let table = ColorTable::default_for(kind);
-    let img = render::rasterize_radials(&file, &table, image_size)
+        .unwrap_or(ProductKind::Reflectivity);
+    let sweep = file
+        .to_sweep()
         .ok_or_else(|| "product contains no radial data".to_string())?;
+    let name = file
+        .info
+        .map(|i| i.name.to_string())
+        .unwrap_or_else(|| format!("Product {}", file.product_code));
+    let unit = file.info.map(|i| i.unit.to_string()).unwrap_or_default();
+    frame_from_sweep(
+        &sweep,
+        kind,
+        file.product_code as i32,
+        name,
+        unit,
+        file.vcp as i32,
+        image_size,
+    )
+}
 
+/// Decode a full Level 2 (Archive II) volume and render one moment at one
+/// elevation cut. `moment` is REF, VEL, SW, ZDR, PHI, or RHO;
+/// `elevation_index` is the 0-based index among cuts containing that moment.
+pub fn render_level2_frame(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+    image_size: u32,
+) -> Result<RadarFrame, String> {
+    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let sweep = vol
+        .sweep(&moment, elevation_index as usize)
+        .ok_or_else(|| format!("moment {moment} cut {elevation_index} not in volume"))?;
+    let (kind, name, unit) = moment_meta(&moment);
+    frame_from_sweep(&sweep, kind, 0, name, unit, vol.vcp as i32, image_size)
+}
+
+/// Elevation cuts available for a moment in a Level 2 volume, in scan order.
+pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
+    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    Ok(vol.cuts_for(&moment).iter().map(|c| c.elevation_deg).collect())
+}
+
+fn moment_meta(moment: &str) -> (ProductKind, String, String) {
+    match moment {
+        "VEL" => (ProductKind::Velocity, "Base Velocity (L2)".into(), "m/s".into()),
+        "SW" => (ProductKind::SpectrumWidth, "Spectrum Width (L2)".into(), "m/s".into()),
+        "ZDR" => (ProductKind::Zdr, "Differential Reflectivity (L2)".into(), "dB".into()),
+        "PHI" => (ProductKind::Kdp, "Differential Phase (L2)".into(), "deg".into()),
+        "RHO" => (
+            ProductKind::CorrelationCoefficient,
+            "Correlation Coefficient (L2)".into(),
+            "".into(),
+        ),
+        _ => (ProductKind::Reflectivity, "Base Reflectivity (L2)".into(), "dBZ".into()),
+    }
+}
+
+fn frame_from_sweep(
+    sweep: &Sweep,
+    kind: ProductKind,
+    product_code: i32,
+    name: String,
+    unit: String,
+    vcp: i32,
+    image_size: u32,
+) -> Result<RadarFrame, String> {
+    let table = ColorTable::default_for(kind);
+    let img = render::rasterize_sweep(sweep, &table, image_size)
+        .ok_or_else(|| "no radial data".to_string())?;
     Ok(RadarFrame {
-        product_code: file.product_code as i32,
-        product_name: file
-            .info
-            .map(|i| i.name.to_string())
-            .unwrap_or_else(|| format!("Product {}", file.product_code)),
-        unit: file.info.map(|i| i.unit.to_string()).unwrap_or_default(),
-        site_lat: file.site_lat,
-        site_lon: file.site_lon,
-        timestamp: file.volume_scan_time,
-        elevation_deg: file.elevation_angle_deg,
-        vcp: file.vcp as i32,
+        product_code,
+        product_name: name,
+        unit,
+        site_lat: sweep.site_lat,
+        site_lon: sweep.site_lon,
+        timestamp: sweep.timestamp,
+        elevation_deg: sweep.elevation_deg,
+        vcp,
         width: img.width,
         height: img.height,
         png: encode_png(img.width, img.height, &img.pixels)?,

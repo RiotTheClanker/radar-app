@@ -6,6 +6,28 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These functions are ignored because they are not marked as `pub`: `convert`
+
+/// Decode a full Level 2 (Archive II) volume and render one moment at one
+/// elevation cut. `moment`: REF, VEL, SW, ZDR, PHI, or RHO.
+Future<RadarFrame> renderLevel2Frame({
+  required List<int> data,
+  required String moment,
+  required int elevationIndex,
+  required int imageSize,
+}) => RustLib.instance.api.crateApiRadarRenderLevel2Frame(
+  data: data,
+  moment: moment,
+  elevationIndex: elevationIndex,
+  imageSize: imageSize,
+);
+
+/// Elevation angles (deg) available for a moment in a Level 2 volume.
+Future<Float32List> level2Cuts({
+  required List<int> data,
+  required String moment,
+}) => RustLib.instance.api.crateApiRadarLevel2Cuts(data: data, moment: moment);
+
 /// Decode a raw Level 3 product file and render it to a georeferenced RGBA
 /// PNG image, ready to overlay on the map.
 Future<RadarFrame> renderLevel3Frame({

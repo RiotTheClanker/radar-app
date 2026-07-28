@@ -4,4 +4,4 @@ pub mod color_table;
 pub mod raster;
 
 pub use color_table::ColorTable;
-pub use raster::{rasterize_radials, GeoImage};
+pub use raster::{rasterize_sweep, GeoImage};

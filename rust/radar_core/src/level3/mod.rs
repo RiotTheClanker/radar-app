@@ -52,7 +52,7 @@ pub enum ValueDecoder {
 }
 
 impl ValueDecoder {
-    pub fn decode(&self, raw: u8) -> BinValue {
+    pub fn decode(&self, raw: u16) -> BinValue {
         match *self {
             ValueDecoder::LegacyLinear { min, inc } => match raw {
                 0 => BinValue::NoData,
@@ -107,6 +107,31 @@ impl Level3File {
             Some(r) => (r.first_bin as f32 + r.nbins as f32) * r.gate_size_m,
             None => 0.0,
         }
+    }
+
+    /// Convert to the common renderable sweep type.
+    pub fn to_sweep(&self) -> Option<crate::sweep::Sweep> {
+        let r = self.radial.as_ref()?;
+        Some(crate::sweep::Sweep {
+            site_lat: self.site_lat,
+            site_lon: self.site_lon,
+            first_gate_m: r.first_bin as f32 * r.gate_size_m,
+            gate_size_m: r.gate_size_m,
+            nbins: r.nbins as u32,
+            radials: r
+                .radials
+                .iter()
+                .map(|rad| crate::sweep::SweepRadial {
+                    start_az_deg: rad.start_az_deg,
+                    delta_az_deg: rad.delta_az_deg,
+                    data: crate::sweep::GateData::U8(rad.data.clone()),
+                })
+                .collect(),
+            decoder: r.decoder,
+            timestamp: self.volume_scan_time,
+            elevation_deg: self.elevation_angle_deg,
+            max_raw: 255,
+        })
     }
 }
 

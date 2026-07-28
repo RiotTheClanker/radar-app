@@ -5,7 +5,7 @@
 //! works in a fresh checkout.
 
 use radar_core::level3;
-use radar_core::render::{rasterize_radials, ColorTable};
+use radar_core::render::{rasterize_sweep, ColorTable};
 
 fn testdata() -> Option<Vec<u8>> {
     let path = concat!(
@@ -34,7 +34,7 @@ fn parses_live_n0b() {
     let mut max = f32::MIN;
     for rad in &r.radials {
         for &b in &rad.data {
-            if let level3::BinValue::Value(v) = r.decoder.decode(b) {
+            if let level3::BinValue::Value(v) = r.decoder.decode(b as u16) {
                 assert!((-35.0..=95.0).contains(&v), "dBZ out of range: {v}");
                 max = max.max(v);
             }
@@ -49,7 +49,7 @@ fn rasterizes_n0b() {
         return;
     };
     let f = level3::parse(&data).expect("parse");
-    let img = rasterize_radials(&f, &ColorTable::reflectivity_default(), 256).expect("raster");
+    let img = rasterize_sweep(&f.to_sweep().unwrap(), &ColorTable::reflectivity_default(), 256).expect("raster");
     assert_eq!(img.width, 256);
     assert!(img.north > f.site_lat && img.south < f.site_lat);
     assert!(img.pixels.iter().skip(3).step_by(4).any(|&a| a > 0), "image is fully transparent");

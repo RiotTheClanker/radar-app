@@ -7,7 +7,9 @@
 
 pub mod api;
 pub mod error;
+pub mod level2;
 pub mod level3;
 pub mod render;
+pub mod sweep;
 
 pub use error::RadarError;

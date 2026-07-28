@@ -47,17 +47,16 @@ impl ColorTable {
         out
     }
 
-    /// Precompute a raw-byte -> RGBA lookup table for one product's decoder.
-    pub fn build_lut(&self, decoder: &ValueDecoder) -> [[u8; 4]; 256] {
-        let mut lut = [[0u8; 4]; 256];
-        for raw in 0..256usize {
-            lut[raw] = match decoder.decode(raw as u8) {
+    /// Precompute a raw-value -> RGBA lookup table for one product's decoder.
+    /// `n` is the LUT size: 256 for 8-bit data, up to 65536 for 16-bit.
+    pub fn build_lut(&self, decoder: &ValueDecoder, n: usize) -> Vec<[u8; 4]> {
+        (0..n)
+            .map(|raw| match decoder.decode(raw as u16) {
                 BinValue::NoData => [0, 0, 0, 0],
                 BinValue::RangeFolded => self.rf_color,
                 BinValue::Value(v) => self.sample(v),
-            };
-        }
-        lut
+            })
+            .collect()
     }
 
     /// Pick a sensible default table for a product kind.

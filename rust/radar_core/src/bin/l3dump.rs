@@ -3,7 +3,7 @@
 //! Usage: l3dump <level3-file> [out.png]
 
 use radar_core::level3;
-use radar_core::render::{rasterize_radials, ColorTable};
+use radar_core::render::{rasterize_sweep, ColorTable};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -36,7 +36,7 @@ fn main() {
             let mut max = f32::MIN;
             for rad in &r.radials {
                 for &b in &rad.data {
-                    if let level3::BinValue::Value(v) = r.decoder.decode(b) {
+                    if let level3::BinValue::Value(v) = r.decoder.decode(b as u16) {
                         n += 1;
                         if v > max {
                             max = v;
@@ -55,7 +55,8 @@ fn main() {
             .map(|i| i.kind)
             .unwrap_or(level3::products::ProductKind::Reflectivity);
         let table = ColorTable::default_for(kind);
-        let img = rasterize_radials(&file, &table, 1024).expect("rasterize");
+        let sweep = file.to_sweep().expect("no radial data");
+        let img = rasterize_sweep(&sweep, &table, 1024).expect("rasterize");
         write_png(&out_path, img.width, img.height, &img.pixels);
         println!(
             "wrote {} ({}x{}, bounds N{:.3} S{:.3} E{:.3} W{:.3})",

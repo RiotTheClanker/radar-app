@@ -23,6 +23,42 @@ pub struct RadarFrame {
     pub west: f64,
 }
 
+/// Decode a full Level 2 (Archive II) volume and render one moment at one
+/// elevation cut. `moment`: REF, VEL, SW, ZDR, PHI, or RHO.
+pub fn render_level2_frame(
+    data: Vec<u8>,
+    moment: String,
+    elevation_index: u32,
+    image_size: u32,
+) -> Result<RadarFrame, String> {
+    convert(core::render_level2_frame(data, moment, elevation_index, image_size)?)
+}
+
+/// Elevation angles (deg) available for a moment in a Level 2 volume.
+pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
+    core::level2_cuts(data, moment)
+}
+
+fn convert(f: core::RadarFrame) -> Result<RadarFrame, String> {
+    Ok(RadarFrame {
+        product_code: f.product_code,
+        product_name: f.product_name,
+        unit: f.unit,
+        site_lat: f.site_lat,
+        site_lon: f.site_lon,
+        timestamp: f.timestamp,
+        elevation_deg: f.elevation_deg,
+        vcp: f.vcp,
+        width: f.width,
+        height: f.height,
+        png: f.png,
+        north: f.north,
+        south: f.south,
+        east: f.east,
+        west: f.west,
+    })
+}
+
 /// Decode a raw Level 3 product file and render it to a georeferenced RGBA
 /// PNG image, ready to overlay on the map.
 pub fn render_level3_frame(data: Vec<u8>, image_size: u32) -> Result<RadarFrame, String> {
