@@ -95,6 +95,57 @@ pub fn storm_relative(sweep: &Sweep, storm_from_deg: f32, storm_speed_ms: f32) -
     out
 }
 
+/// Azimuthal shear of a velocity sweep: how fast the radial velocity changes
+/// across adjacent radials, in (m/s) per km of arc. Cyclonic rotation shows
+/// as a strong signed couplet. Encoded raw = value*4 + 128.
+pub fn azimuthal_shear(vel: &Sweep) -> Sweep {
+    let n = vel.radials.len();
+    let mut out = vel.clone();
+    if n < 3 {
+        return out;
+    }
+    let (scale, offset) = match vel.decoder {
+        ValueDecoder::ScaleOffset { scale, offset } => (scale, offset),
+        _ => return out,
+    };
+
+    let get = |ri: usize, gi: usize| -> Option<f32> {
+        let raw = vel.radials[ri].data.get(gi)?;
+        if raw <= 1 {
+            return None;
+        }
+        Some((raw as f32 - offset) / scale)
+    };
+
+    for i in 0..n {
+        let prev = (i + n - 1) % n;
+        let next = (i + 1) % n;
+        let d_az = (vel.radials[i].delta_az_deg as f64).to_radians() * 2.0;
+        let ngates = vel.radials[i].data.len();
+        let mut data = vec![0u8; ngates];
+        for j in 0..ngates {
+            let (Some(v1), Some(v2)) = (get(prev, j), get(next, j)) else {
+                continue;
+            };
+            let r_m = vel.first_gate_m as f64 + (j as f64 + 0.5) * vel.gate_size_m as f64;
+            let arc_km = (r_m * d_az / 1000.0).max(0.05);
+            let shear = ((v2 - v1) as f64 / arc_km) as f32; // m/s per km
+            data[j] = (shear * 4.0 + 128.0).round().clamp(2.0, 254.0) as u8;
+        }
+        out.radials[i] = SweepRadial {
+            start_az_deg: vel.radials[i].start_az_deg,
+            delta_az_deg: vel.radials[i].delta_az_deg,
+            data: GateData::U8(data),
+        };
+    }
+    out.decoder = ValueDecoder::ScaleOffset {
+        scale: 4.0,
+        offset: 128.0,
+    };
+    out.max_raw = 255;
+    out
+}
+
 /// Build a 0.5°-resolution azimuth -> radial index map for a sweep.
 fn az_index(sweep: &Sweep) -> Vec<i32> {
     let mut lut = vec![-1i32; 720];

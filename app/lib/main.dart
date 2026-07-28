@@ -84,6 +84,7 @@ const _l2Products = [
   _Product('Reflectivity', 'L2 REF', l2Moment: 'REF'),
   _Product('Velocity', 'L2 VEL', l2Moment: 'VEL'),
   _Product('Storm-Relative Velocity', 'L2 SRM', l2Moment: 'SRM'),
+  _Product('Rotation (Az. Shear)', 'L2 ROT', l2Moment: 'ROT'),
   _Product('Spectrum Width', 'L2 SW', l2Moment: 'SW'),
   _Product('Differential Reflectivity', 'L2 ZDR', l2Moment: 'ZDR'),
   _Product('Correlation Coefficient', 'L2 CC', l2Moment: 'RHO'),

@@ -70,6 +70,7 @@ impl ColorTable {
             ProductKind::Precipitation => ColorTable::precip_default(),
             ProductKind::Vil => ColorTable::vil_default(),
             ProductKind::EchoTops => ColorTable::echo_tops_default(),
+            ProductKind::Rotation => ColorTable::rotation_default(),
             _ => ColorTable::reflectivity_default(),
         }
     }
@@ -198,6 +199,25 @@ impl ColorTable {
         ColorTable {
             stops: opaque(stops),
             interpolate: false,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
+    /// Azimuthal shear (m/s per km). Weak shear fades to transparent so only
+    /// genuine rotation couplets stand out.
+    pub fn rotation_default() -> ColorTable {
+        let stops = vec![
+            ColorStop { value: -30.0, color: [0, 60, 255, 255] },
+            ColorStop { value: -15.0, color: [0, 180, 255, 220] },
+            ColorStop { value: -5.0, color: [0, 0, 0, 0] },
+            ColorStop { value: 5.0, color: [0, 0, 0, 0] },
+            ColorStop { value: 15.0, color: [255, 220, 0, 220] },
+            ColorStop { value: 25.0, color: [255, 80, 0, 255] },
+            ColorStop { value: 35.0, color: [255, 0, 255, 255] },
+        ];
+        ColorTable {
+            stops,
+            interpolate: true,
             rf_color: [119, 0, 125, 255],
         }
     }

@@ -88,7 +88,7 @@ pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
     Ok(match moment.as_str() {
         "CREF" | "VIL" | "ET" => vec![0.0],
-        "SRM" => vol.cuts_for("VEL").iter().map(|c| c.elevation_deg).collect(),
+        "SRM" | "ROT" => vol.cuts_for("VEL").iter().map(|c| c.elevation_deg).collect(),
         _ => vol.cuts_for(&moment).iter().map(|c| c.elevation_deg).collect(),
     })
 }
@@ -230,6 +230,11 @@ fn moment_meta(moment: &str) -> (ProductKind, String, String) {
             "Storm-Relative Velocity (derived)".into(),
             "m/s".into(),
         ),
+        "ROT" => (
+            ProductKind::Rotation,
+            "Rotation / Azimuthal Shear (derived)".into(),
+            "m/s/km".into(),
+        ),
         "CREF" => (
             ProductKind::Reflectivity,
             "Composite Reflectivity (derived)".into(),
@@ -264,6 +269,12 @@ fn level2_sweep(
                 DEFAULT_STORM_FROM_DEG,
                 DEFAULT_STORM_SPEED_MS,
             ))
+        }
+        "ROT" => {
+            let (s, _nyq) = vol
+                .sweep_and_nyquist("VEL", index)
+                .ok_or_else(|| format!("VEL cut {index} not in volume"))?;
+            Ok(crate::process::azimuthal_shear(&s))
         }
         "CREF" | "VIL" | "ET" => {
             let cuts = vol.all_sweeps("REF");
