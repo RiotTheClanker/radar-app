@@ -20,7 +20,9 @@ import 'data/locate.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
 import 'src/rust/frb_generated.dart';
+import 'data/sounding_fetcher.dart';
 import 'ui/color_key.dart';
+import 'ui/sounding_screen.dart';
 import 'ui/toolbar.dart';
 import 'ui/volume3d_screen.dart';
 
@@ -1492,6 +1494,17 @@ class _RadarScreenState extends State<RadarScreen> {
 
   /// Fetch the color scale for whatever is on screen. Keyed by product plus
   /// palette generation so an imported `.pal` refreshes the key too.
+  /// Open the sounding for the launch site nearest whatever we are looking
+  /// at — the radar site, or the user's own position if we have one.
+  void _openSounding() {
+    final here = _myLocation ?? LatLng(_site.lat, _site.lon);
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => SoundingScreen(
+        site: nearestRaobSite(here.latitude, here.longitude),
+      ),
+    ));
+  }
+
   Future<void> _loadColorKey(_Frame? frame) async {
     final id = '${_product.short}|$_paletteGeneration';
     if (_keyFor == id) return;
@@ -1751,6 +1764,8 @@ class _RadarScreenState extends State<RadarScreen> {
                   });
                 case 'key':
                   setState(() => _showKey = !_showKey);
+                case 'sounding':
+                  _openSounding();
                 case 'palette_reset':
                   _applyPalette('');
                 default:
@@ -1783,6 +1798,10 @@ class _RadarScreenState extends State<RadarScreen> {
                   value: 'key',
                   checked: _showKey,
                   child: const Text('Color key'),
+                ),
+                const PopupMenuItem(
+                  value: 'sounding',
+                  child: Text('Upper-air sounding…'),
                 ),
                 const PopupMenuItem(
                   value: 'snapshot',

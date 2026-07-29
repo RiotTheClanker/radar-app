@@ -40,6 +40,8 @@ your device.
   full text — plus a list of everything active, including the county-issued
   alerts that have no polygon to draw
 - SPC convective outlook and today's storm reports
+- **Upper-air soundings**: the latest radiosonde launch from the site nearest
+  you, plotted on a log-pressure axis with the wind profile alongside
 - Lightning from Blitzortung, GOES GLM satellite, or both
 - **Aiming cursor**: hover (or tap to pin) for the exact value, range,
   compass heading, and beam height, with a range ring drawn from the radar
@@ -55,7 +57,7 @@ your device.
 value readout. Toolbar, left to right: lightning source, 3D volume, future
 radar, alert layers (warnings / watches / advisories, and the full list),
 basemap, my location, aiming cursor, more
-(replay / measure / color key / snapshot / color tables), reload.
+(replay / measure / color key / sounding / snapshot / color tables), reload.
 
 **Color key** — a scale down the right edge showing what the colors mean for
 whatever product is up, in that product's own units. It is built from the
@@ -142,8 +144,9 @@ Debug tools live in `rust/radar_core/src/bin` and `examples/` — `l2dump`,
 
 NEXRAD Level 2/3 and MRMS (NOAA Open Data on AWS), api.weather.gov for
 warnings, SPC for outlooks and storm reports, GOES GLM for satellite
-lightning, Blitzortung.org for ground-network lightning, and AWS Terrain
-Tiles for 3D terrain elevation.
+lightning, Blitzortung.org for ground-network lightning, AWS Terrain Tiles
+for 3D terrain elevation, and rucsoundings.noaa.gov for radiosonde
+soundings.
 
 ## License
 
