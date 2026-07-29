@@ -1,8 +1,13 @@
-/// Upper-air sounding (radiosonde) data from NOAA's rucsoundings service.
+/// Upper-air sounding (radiosonde) data.
 ///
-/// Free, no key, same spirit as the rest of the sources. The service returns
-/// the GSD text format, which is fixed-meaning whitespace columns rather than
-/// JSON — the parser below is written to that documented layout.
+/// SPC's observed soundings are the primary source: one small text file per
+/// launch, on a host this app already talks to. NOAA's rucsoundings service
+/// is the fallback, in a different text format again.
+///
+/// Both are free and keyless. Neither is IGRA, NOAA's full radiosonde
+/// archive, which is the authoritative record but ships a station's whole
+/// history as one zip — 80 MB for Norman — and lags a couple of days. Right
+/// for research, wrong for "what went up tonight".
 library;
 
 import 'dart:math' as math;
