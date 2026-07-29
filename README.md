@@ -36,7 +36,9 @@ your device.
   selectable 3D fields
 
 **Situational awareness**
-- Live NWS warnings, tap for the full text
+- Live NWS warnings, watches and advisories, each layer separate, tap for the
+  full text — plus a list of everything active, including the county-issued
+  alerts that have no polygon to draw
 - SPC convective outlook and today's storm reports
 - Lightning from Blitzortung, GOES GLM satellite, or both
 - **Aiming cursor**: hover (or tap to pin) for the exact value, range,
@@ -51,7 +53,8 @@ your device.
 
 **Map** — drag to pan, pinch or scroll to zoom. Long-press for a one-shot
 value readout. Toolbar, left to right: lightning source, 3D volume, future
-radar, severe-weather layers, basemap, my location, aiming cursor, more
+radar, alert layers (warnings / watches / advisories, and the full list),
+basemap, my location, aiming cursor, more
 (replay / measure / color key / snapshot / color tables), reload.
 
 **Color key** — a scale down the right edge showing what the colors mean for
@@ -96,10 +99,10 @@ sudo apt install ./radar-app_<version>_amd64.deb
 **Android** — install the APK matching your device's ABI (`arm64-v8a` for
 almost anything modern).
 
-> Only the Linux package has been verified on real hardware so far. The
-> Windows and Android builds come out of CI and have not been smoke-tested
-> yet, and neither is code-signed — expect the usual "unknown publisher"
-> warnings.
+> Linux and Android `arm64-v8a` are tested on real hardware. The Windows
+> build comes out of CI and has not been smoke-tested, and no build is
+> code-signed — expect the usual "unknown publisher" warnings, and on Android
+> an install prompt about an unknown source.
 
 ## Build from source
 

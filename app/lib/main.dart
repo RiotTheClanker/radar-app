@@ -201,6 +201,11 @@ class _RadarScreenState extends State<RadarScreen> {
   bool _showOutlook = false;
   bool _showReports = false;
 
+  /// Which alert categories go on the map. Warnings are what matters in the
+  /// moment; watches cover whole counties for hours and would otherwise wash
+  /// the map out, so they start off.
+  final Set<AlertCategory> _alertLayers = {AlertCategory.warning};
+
   /// Color key. Cached per product so switching back is instant, and rebuilt
   /// when a palette is imported since that changes the colors on the map.
   bool _showKey = true;
@@ -1102,14 +1107,26 @@ class _RadarScreenState extends State<RadarScreen> {
                   hitNotifier: _alertHit,
                   polygons: [
                     for (final a in _alerts)
-                      for (final ring in a.polygons)
-                        Polygon(
-                          points: ring,
-                          hitValue: a,
-                          color: a.color.withValues(alpha: 0.12),
-                          borderColor: a.color,
-                          borderStrokeWidth: 2,
-                        ),
+                      if (_alertLayers.contains(a.category))
+                        for (final ring in a.polygons)
+                          Polygon(
+                            points: ring,
+                            hitValue: a,
+                            // Watches and advisories sit under the warnings
+                            // rather than competing with them.
+                            color: a.color.withValues(
+                              alpha: a.category == AlertCategory.warning
+                                  ? 0.12
+                                  : 0.07,
+                            ),
+                            borderColor: a.color.withValues(
+                              alpha: a.category == AlertCategory.warning
+                                  ? 1.0
+                                  : 0.75,
+                            ),
+                            borderStrokeWidth:
+                                a.category == AlertCategory.warning ? 2 : 1.2,
+                          ),
                   ],
                 ),
               ),
@@ -1622,20 +1639,47 @@ class _RadarScreenState extends State<RadarScreen> {
             icon: Icon(
               Icons.warning_amber,
               size: 20,
-              color: (_showOutlook || _showReports)
+              // Lit when anything beyond the default warnings layer is on.
+              color: (_showOutlook ||
+                      _showReports ||
+                      _alertLayers.length > 1 ||
+                      !_alertLayers.contains(AlertCategory.warning))
                   ? Colors.amberAccent
                   : Colors.white70,
             ),
             onSelected: (v) {
-              if (v == 'outlook') {
-                setState(() => _showOutlook = !_showOutlook);
-                if (_showOutlook) _loadOutlook();
-              } else {
-                setState(() => _showReports = !_showReports);
-                if (_showReports) _loadReports();
+              switch (v) {
+                case 'outlook':
+                  setState(() => _showOutlook = !_showOutlook);
+                  if (_showOutlook) _loadOutlook();
+                case 'reports':
+                  setState(() => _showReports = !_showReports);
+                  if (_showReports) _loadReports();
+                case 'list':
+                  _showAlertList();
+                default:
+                  final cat = AlertCategory.values.firstWhere(
+                    (c) => c.name == v,
+                    orElse: () => AlertCategory.warning,
+                  );
+                  setState(() {
+                    if (!_alertLayers.remove(cat)) _alertLayers.add(cat);
+                  });
               }
             },
             itemBuilder: (context) => [
+              for (final c in AlertCategory.values)
+                CheckedPopupMenuItem(
+                  value: c.name,
+                  checked: _alertLayers.contains(c),
+                  child: Text(c.label),
+                ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'list',
+                child: Text('All active alerts (${_alerts.length})'),
+              ),
+              const PopupMenuDivider(),
               CheckedPopupMenuItem(
                 value: 'outlook',
                 checked: _showOutlook,
@@ -2007,6 +2051,107 @@ class _RadarScreenState extends State<RadarScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Every active alert, grouped by category. This is the only place the
+  /// county-issued ones show up at all, since they have no polygon to draw.
+  void _showAlertList() {
+    final byCat = <AlertCategory, List<WeatherAlert>>{};
+    for (final a in _alerts) {
+      byCat.putIfAbsent(a.category, () => []).add(a);
+    }
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        minChildSize: 0.25,
+        maxChildSize: 0.95,
+        builder: (context, controller) {
+          if (_alerts.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('Nothing active right now.'),
+              ),
+            );
+          }
+          return ListView(
+            controller: controller,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            children: [
+              for (final c in AlertCategory.values)
+                if ((byCat[c] ?? const []).isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
+                    child: Text(
+                      '${c.label.toUpperCase()}  ·  ${byCat[c]!.length}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white54,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  for (final a in byCat[c]!)
+                    ListTile(
+                      dense: true,
+                      leading: Container(
+                        width: 10,
+                        height: 10,
+                        margin: const EdgeInsets.only(top: 6),
+                        decoration: BoxDecoration(
+                          color: a.color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      title: Text(a.event,
+                          style: const TextStyle(fontSize: 14)),
+                      subtitle: Text(
+                        a.areaDesc.isEmpty ? a.headline : a.areaDesc,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      // Only the drawn ones can be zoomed to.
+                      trailing: a.hasPolygon
+                          ? const Icon(Icons.map, size: 16)
+                          : null,
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        if (a.hasPolygon) _zoomToAlert(a);
+                        _showAlertSheet(a);
+                      },
+                    ),
+                ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Frame an alert's polygon on the map.
+  void _zoomToAlert(WeatherAlert a) {
+    var north = -90.0, south = 90.0, east = -180.0, west = 180.0;
+    for (final ring in a.polygons) {
+      for (final p in ring) {
+        north = math.max(north, p.latitude);
+        south = math.min(south, p.latitude);
+        east = math.max(east, p.longitude);
+        west = math.min(west, p.longitude);
+      }
+    }
+    if (north <= south || east <= west) return;
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds(LatLng(north, west), LatLng(south, east)),
+        padding: const EdgeInsets.all(48),
       ),
     );
   }
