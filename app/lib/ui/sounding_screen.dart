@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../data/sounding_fetcher.dart';
+import '../data/sounding_indices.dart';
 import 'toolbar.dart';
 
 class SoundingScreen extends StatefulWidget {
@@ -108,6 +109,7 @@ class _SoundingScreenState extends State<SoundingScreen> {
               : Column(
                   children: [
                     _header(s!),
+                    _Indices(indices: computeIndices(s)),
                     Expanded(child: _SoundingPlot(sounding: s)),
                   ],
                 ),
@@ -144,6 +146,79 @@ class _SoundingScreenState extends State<SoundingScreen> {
           _Swatch(color: Color(0xFFFF5252), label: 'temp'),
           SizedBox(width: 10),
           _Swatch(color: Color(0xFF69F0AE), label: 'dewpt'),
+        ],
+      ),
+    );
+  }
+}
+
+/// The derived numbers, all worked out on the device from the levels above.
+class _Indices extends StatelessWidget {
+  const _Indices({required this.indices});
+
+  final SoundingIndices indices;
+
+  @override
+  Widget build(BuildContext context) {
+    String n(double? v, {int dp = 0, String unit = ''}) =>
+        v == null ? '—' : '${v.toStringAsFixed(dp)}$unit';
+
+    final cells = <(String, String)>[
+      ('CAPE', n(indices.capeJkg)),
+      ('CIN', n(indices.cinJkg)),
+      ('MUCAPE', n(indices.muCapeJkg)),
+      ('LI', n(indices.liC, dp: 1)),
+      ('LCL', n(indices.lclM, unit: 'm')),
+      ('LFC', n(indices.lfcM, unit: 'm')),
+      ('EL', n(indices.elM, unit: 'm')),
+      ('0°C', n(indices.freezingM, unit: 'm')),
+      ('PWAT', n(indices.pwatMm, dp: 1, unit: 'mm')),
+      ('0-1 SHR', n(indices.shear1kmKt, unit: 'kt')),
+      ('0-6 SHR', n(indices.shear6kmKt, unit: 'kt')),
+      ('SRH1', n(indices.srh1km)),
+      ('SRH3', n(indices.srh3km)),
+      (
+        'STORM',
+        indices.stormDirDeg == null
+            ? '—'
+            : '${indices.stormDirDeg!.round()}° '
+                '${indices.stormKt!.round()}kt'
+      ),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      color: const Color(0xFF0D1117),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 8,
+        children: [
+          for (final (label, value) in cells)
+            SizedBox(
+              width: 74,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: Colors.white38,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

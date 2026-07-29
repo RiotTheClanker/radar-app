@@ -103,11 +103,13 @@ const _headers = {
 
 /// Fetch every active alert.
 ///
-/// The API caps a page at 500 features and nationally there are often more
-/// than that, so a single request silently truncates the set — which is how
-/// a whole category can appear to be missing. Follow the pagination cursor.
+/// The URL is left exactly as the API wants it. An earlier attempt added
+/// `&limit=500` to force pagination, but /alerts/active does not take that
+/// parameter — only the /alerts archive endpoint does — and it answered 400,
+/// which threw and left the map with no alerts at all. If the response does
+/// carry a cursor it is followed, and if it does not that is the whole set.
 Future<List<WeatherAlert>> fetchActiveAlerts({int maxPages = 6}) async {
-  var url = 'https://api.weather.gov/alerts/active?status=actual&limit=500';
+  var url = 'https://api.weather.gov/alerts/active?status=actual';
   final all = <WeatherAlert>[];
   final seen = <String>{};
 
@@ -120,7 +122,9 @@ Future<List<WeatherAlert>> fetchActiveAlerts({int maxPages = 6}) async {
       break; // keep what we already have
     }
     for (final a in parseAlerts(resp.body)) {
-      if (seen.add(a.id)) all.add(a);
+      // Only de-duplicate on a real id. Keying on an empty one would fold
+      // every id-less alert into a single entry.
+      if (a.id.isEmpty || seen.add(a.id)) all.add(a);
     }
     final next = nextPageUrl(resp.body);
     if (next == null || next == url) break;

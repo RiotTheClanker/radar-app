@@ -208,6 +208,9 @@ class _RadarScreenState extends State<RadarScreen> {
   /// the map out, so they start off.
   final Set<AlertCategory> _alertLayers = {AlertCategory.warning};
 
+  /// Last alert-fetch failure, surfaced rather than swallowed.
+  String? _alertError;
+
   /// Color key. Cached per product so switching back is instant, and rebuilt
   /// when a palette is imported since that changes the colors on the map.
   bool _showKey = true;
@@ -301,10 +304,15 @@ class _RadarScreenState extends State<RadarScreen> {
     try {
       final alerts = await fetchActiveAlerts();
       if (!mounted) return;
-      setState(() => _alerts = alerts);
+      setState(() {
+        _alerts = alerts;
+        if (_alertError != null) _alertError = null;
+      });
       await _resolveAlertOutlines();
-    } catch (_) {
-      // Alerts are supplementary; keep the last good set on failure.
+    } catch (e) {
+      // Keep the last good set, but say something. Swallowing this silently
+      // is how a broken request looked like "there are no warnings".
+      if (mounted) setState(() => _alertError = e.toString());
     }
   }
 
@@ -1604,6 +1612,15 @@ class _RadarScreenState extends State<RadarScreen> {
             ),
         ],
         actions: [
+          if (_alertError != null)
+            Tooltip(
+              message: 'Alerts: $_alertError',
+              child: const Icon(
+                Icons.gpp_maybe,
+                size: 18,
+                color: Colors.orangeAccent,
+              ),
+            ),
           if (_error != null)
             Tooltip(
               message: _error!,

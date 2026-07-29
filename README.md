@@ -41,7 +41,9 @@ your device.
   alerts that have no polygon to draw
 - SPC convective outlook and today's storm reports
 - **Upper-air soundings**: the latest radiosonde launch from the site nearest
-  you, plotted on a log-pressure axis with the wind profile alongside
+  you, plotted on a log-pressure axis with the wind profile alongside, and
+  CAPE, CIN, LI, LCL/LFC/EL, precipitable water, shear and storm-relative
+  helicity all worked out on the device
 - Lightning from Blitzortung, GOES GLM satellite, or both
 - **Aiming cursor**: hover (or tap to pin) for the exact value, range,
   compass heading, and beam height, with a range ring drawn from the radar
