@@ -2,7 +2,7 @@
 ; Build first:  cd app && flutter build windows --release
 ; Then compile this with Inno Setup 6 (iscc packaging\windows-installer.iss).
 
-#define AppName "Radar"
+#define AppName "Taa'a Yuku Radar"
 #define AppExe "radar_app.exe"
 #ifndef AppVersion
   #define AppVersion "0.1.0"
@@ -12,8 +12,8 @@
 AppId={{7C2B1E64-3F0B-4C1E-9D6E-4F3B2A9C51D7}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=radar-app contributors
-DefaultDirName={autopf}\RadarApp
+AppPublisher=Taa'a Yuku Radar contributors
+DefaultDirName={autopf}\Taa'a Yuku Radar
 DefaultGroupName={#AppName}
 OutputDir=..\dist
 OutputBaseFilename=radar-app-{#AppVersion}-windows-setup
@@ -22,6 +22,9 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 WizardStyle=modern
+; The installer .exe itself gets the app icon; the installed program picks it
+; up from the resources compiled into radar_app.exe.
+SetupIconFile=..\app\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 
 [Tasks]

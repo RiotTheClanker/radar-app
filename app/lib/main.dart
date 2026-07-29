@@ -25,6 +25,7 @@ import 'ui/color_key.dart';
 import 'ui/sounding_screen.dart';
 import 'ui/toolbar.dart';
 import 'ui/volume3d_screen.dart';
+import 'data/identity.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +39,7 @@ class RadarApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Radar',
+      title: appName,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -586,7 +587,7 @@ class _RadarScreenState extends State<RadarScreen> {
     _loadFrames();
   }
 
-  /// Write the current radar image to ~/Pictures/radar-app.
+  /// Write the current radar image to ~/Pictures/taa-yuku-radar.
   Future<void> _saveSnapshot() async {
     final frame = _future && _futureFrame != null
         ? _futureFrame
@@ -1095,7 +1096,7 @@ class _RadarScreenState extends State<RadarScreen> {
             children: [
               TileLayer(
                 urlTemplate: _basemap.url,
-                userAgentPackageName: 'dev.radarapp.radar_app',
+                userAgentPackageName: appId,
               ),
               if (frame != null)
                 OverlayImageLayer(

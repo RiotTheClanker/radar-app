@@ -7,6 +7,7 @@ import 'dart:ui';
 
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'identity.dart';
 
 /// One categorical outlook area (SPC day 1-3 convective outlook).
 class OutlookArea {
@@ -52,7 +53,7 @@ class StormReport {
       };
 }
 
-const _headers = {'User-Agent': 'radar_app-dev (open source radar app)'};
+const _headers = userAgentHeader;
 
 /// Fetch the categorical convective outlook for day 1, 2, or 3.
 Future<List<OutlookArea>> fetchOutlook({int day = 1}) async {

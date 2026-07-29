@@ -24,6 +24,16 @@ install -d "$STAGE/$PKG/DEBIAN" \
 cp -r "$BUNDLE"/. "$STAGE/$PKG/usr/lib/radar-app/"
 ln -s ../lib/radar-app/radar_app "$STAGE/$PKG/usr/bin/radar-app"
 
+# Our own icon, at every size the shell might ask for. Previously the
+# desktop entry pointed at the theme icon "weather-storm", which is not in
+# every icon theme -- where it was missing the launcher showed a blank.
+for SZ in 16 24 32 48 64 128 256 512; do
+  install -Dm644 "packaging/icons/hicolor/${SZ}x${SZ}/apps/radar-app.png" \
+    "$STAGE/$PKG/usr/share/icons/hicolor/${SZ}x${SZ}/apps/radar-app.png"
+done
+install -Dm644 branding/icon.svg \
+  "$STAGE/$PKG/usr/share/icons/hicolor/scalable/apps/radar-app.svg"
+
 INSTALLED_KB=$(du -ks "$STAGE/$PKG/usr" | cut -f1)
 
 cat > "$STAGE/$PKG/DEBIAN/control" <<CONTROL
@@ -34,7 +44,7 @@ Priority: optional
 Architecture: $ARCH
 Depends: libgtk-3-0, libstdc++6, zlib1g, libbz2-1.0
 Installed-Size: $INSTALLED_KB
-Maintainer: radar-app contributors
+Maintainer: Taa'a Yuku Radar contributors
 Description: Free weather radar with on-device NEXRAD processing
  Level 2 and Level 3 NEXRAD decoding, derived products, 3D storm volumes,
  lightning, warnings and on-device future radar. No subscription, no
@@ -44,12 +54,14 @@ CONTROL
 cat > "$STAGE/$PKG/usr/share/applications/radar-app.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Radar
+Name=Taa'a Yuku Radar
 Comment=Free weather radar with on-device NEXRAD processing
 Exec=/usr/bin/radar-app
-Icon=weather-storm
+Icon=radar-app
 Terminal=false
 Categories=Science;Education;
+Keywords=weather;radar;nexrad;storm;forecast;lightning;
+StartupWMClass=dev.radarapp.radar_app
 DESKTOP
 
 fakeroot dpkg-deb --build "$STAGE/$PKG" >/dev/null

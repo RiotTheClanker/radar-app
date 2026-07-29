@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sweep" gradientUnits="userSpaceOnUse"
+        x1="762.7" y1="213.2" x2="213.2" y2="261.3">
+      <stop offset="0" stop-color="#38E1FF" stop-opacity="0.85"/>
+      <stop offset="0.45" stop-color="#38E1FF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#38E1FF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(512.0 512.0) scale(0.8) translate(-512.0 -512.0)">
+  <g>
+    <circle cx="512.0" cy="512.0" r="130" fill="none" stroke="#4C74A8" stroke-width="7" opacity="0.75"/>
+    <circle cx="512.0" cy="512.0" r="260" fill="none" stroke="#4C74A8" stroke-width="7" opacity="0.60"/>
+    <circle cx="512.0" cy="512.0" r="390" fill="none" stroke="#4C74A8" stroke-width="9" opacity="0.45"/>
+    <ellipse cx="612" cy="648" rx="134" ry="104" fill="#2FBF4E" opacity="0.95" transform="rotate(-25 612 648)"/>
+    <ellipse cx="624" cy="640" rx="86" ry="64" fill="#F5D30A" opacity="0.95" transform="rotate(-25 624 640)"/>
+    <ellipse cx="632" cy="634" rx="44" ry="32" fill="#E8342C" opacity="0.95" transform="rotate(-25 632 634)"/>
+    <path d="M 512.0 512.0 L 762.7 213.2
+             A 390.0 390.0 0 0 0 213.2 261.3 Z"
+          fill="url(#sweep)"/>
+    <path d="M 512.0 512.0 L 762.7 213.2" stroke="#38E1FF"
+          stroke-width="11" stroke-linecap="round" opacity="0.95"/>
+    <circle cx="512.0" cy="512.0" r="26" fill="#38E1FF"/>
+  </g>
+  </g>
+</svg>

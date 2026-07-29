@@ -6,13 +6,31 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
-/// `~/.config/radar-app/palettes`, created on first use with a README.
+import 'identity.dart';
+
+String _home() =>
+    Platform.environment['HOME'] ??
+    Platform.environment['USERPROFILE'] ??
+    Directory.systemTemp.path;
+
+/// `~/.config/taa-yuku-radar/palettes`, created on first use with a README.
 Directory paletteDir() {
-  final home = Platform.environment['HOME'] ??
-      Platform.environment['USERPROFILE'] ??
-      Directory.systemTemp.path;
-  final dir = Directory('$home/.config/radar-app/palettes');
+  final dir = Directory('${_home()}/.config/$appSlug/palettes');
   if (!dir.existsSync()) {
+    // Before the app had a name this lived under `radar-app`. Carry the old
+    // directory over rather than silently losing someone's imported color
+    // tables. Only ever done when there is nothing here to overwrite.
+    final old = Directory('${_home()}/.config/radar-app/palettes');
+    if (old.existsSync()) {
+      try {
+        dir.parent.createSync(recursive: true);
+        old.renameSync(dir.path);
+        return dir;
+      } catch (_) {
+        // Different filesystem, or no permission. Fall through and start
+        // fresh; the old files stay where they are, untouched.
+      }
+    }
     dir.createSync(recursive: true);
     File('${dir.path}/README.txt').writeAsStringSync(
       'Drop .pal color table files here.\n'
@@ -35,10 +53,7 @@ List<File> listPalettes() {
 
 /// Save a PNG snapshot and return the file written.
 File saveSnapshot(Uint8List png, String label) {
-  final home = Platform.environment['HOME'] ??
-      Platform.environment['USERPROFILE'] ??
-      Directory.systemTemp.path;
-  final dir = Directory('$home/Pictures/radar-app');
+  final dir = Directory('${_home()}/Pictures/$appSlug');
   if (!dir.existsSync()) dir.createSync(recursive: true);
   final now = DateTime.now();
   String p(int v) => v.toString().padLeft(2, '0');

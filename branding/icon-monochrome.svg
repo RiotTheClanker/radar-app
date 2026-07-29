@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sweep" gradientUnits="userSpaceOnUse"
+        x1="762.7" y1="213.2" x2="213.2" y2="261.3">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(512.0 512.0) scale(0.8) translate(-512.0 -512.0)">
+  <g>
+    <circle cx="512.0" cy="512.0" r="130" fill="none" stroke="#FFFFFF" stroke-width="7" opacity="0.90"/>
+    <circle cx="512.0" cy="512.0" r="260" fill="none" stroke="#FFFFFF" stroke-width="7" opacity="0.72"/>
+    <circle cx="512.0" cy="512.0" r="390" fill="none" stroke="#FFFFFF" stroke-width="9" opacity="0.54"/>
+    <ellipse cx="618" cy="644" rx="110" ry="84" fill="#FFFFFF" opacity="1.0" transform="rotate(-25 618 644)"/>
+    <path d="M 512.0 512.0 L 762.7 213.2
+             A 390.0 390.0 0 0 0 213.2 261.3 Z"
+          fill="url(#sweep)"/>
+    <path d="M 512.0 512.0 L 762.7 213.2" stroke="#FFFFFF"
+          stroke-width="11" stroke-linecap="round" opacity="0.95"/>
+    <circle cx="512.0" cy="512.0" r="26" fill="#FFFFFF"/>
+  </g>
+  </g>
+</svg>

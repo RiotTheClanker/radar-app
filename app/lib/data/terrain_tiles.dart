@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:http/http.dart' as http;
+import 'identity.dart';
 
 /// Public-domain elevation, no key required, same spirit as the NOAA buckets.
 const _terrariumUrl =
@@ -114,7 +115,7 @@ Future<(Float32List, int, int)?> _tileHeights(int x, int y, int z) async {
         .replaceAll('{y}', '$y');
     final resp = await http.get(
       Uri.parse(url),
-      headers: {'User-Agent': 'radar_app-dev (open source radar app)'},
+      headers: userAgentHeader,
     ).timeout(const Duration(seconds: 10));
     if (resp.statusCode != 200) return null;
 

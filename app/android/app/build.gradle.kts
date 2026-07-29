@@ -1,8 +1,23 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing. key.properties is deliberately not in the repo (see
+// android/.gitignore) — create it yourself, or let CI write one from secrets.
+// Without it we fall back to the debug key so `flutter build apk --release`
+// still works for anyone building from source.
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+}
+val releaseKeystore = keystoreProperties.getProperty("storeFile")?.let { rootProject.file(it) }
+val hasReleaseKey = releaseKeystore != null && releaseKeystore.exists()
 
 android {
     namespace = "dev.radarapp.radar_app"
@@ -25,11 +40,28 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.lifecycle(
+                    "radar-app: no android/key.properties, signing release with the debug key. " +
+                        "Builds signed this way cannot be installed over a properly signed one."
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

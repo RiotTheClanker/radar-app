@@ -9,6 +9,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 import 'package:http/http.dart' as http;
+import 'identity.dart';
 
 class StitchedMap {
   final Uint8List rgba;
@@ -78,7 +79,7 @@ Future<StitchedMap?> stitchBasemap({
         try {
           final resp = await http.get(
             Uri.parse(url),
-            headers: {'User-Agent': 'radar_app-dev (open source radar app)'},
+            headers: userAgentHeader,
           ).timeout(const Duration(seconds: 8));
           if (resp.statusCode != 200) return;
           final codec = await ui.instantiateImageCodec(resp.bodyBytes);
