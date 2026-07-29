@@ -103,10 +103,17 @@ sudo apt install ./radar-app_<version>_amd64.deb
 **Android** — install the APK matching your device's ABI (`arm64-v8a` for
 almost anything modern).
 
-> Linux and Android `arm64-v8a` are tested on real hardware. The Windows
-> build comes out of CI and has not been smoke-tested, and no build is
-> code-signed — expect the usual "unknown publisher" warnings, and on Android
-> an install prompt about an unknown source.
+> Linux and Android `arm64-v8a` are tested on real hardware each release. The
+> Windows build comes out of CI and has not been smoke-tested.
+>
+> Nothing is code-signed yet, so Windows shows an "unknown publisher" warning
+> and Android asks about installing from an unknown source.
+>
+> On Android there is a second consequence worth knowing: release builds are
+> still signed with a *debug* key, and CI generates a fresh one on every run.
+> Android refuses to install an APK over one signed by a different key, so
+> upgrading in place usually fails and you have to uninstall first. Signing
+> with one stable key would fix that, and is the main reason to bother.
 
 ## Build from source
 
@@ -123,7 +130,7 @@ Package a `.deb`:
 
 ```
 cd app && flutter build linux --release && cd ..
-./packaging/build-deb.sh 0.1.0
+./packaging/build-deb.sh 0.1.2
 ```
 
 ## Architecture
