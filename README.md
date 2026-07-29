@@ -147,8 +147,8 @@ Debug tools live in `rust/radar_core/src/bin` and `examples/` — `l2dump`,
 NEXRAD Level 2/3 and MRMS (NOAA Open Data on AWS), api.weather.gov for
 warnings, SPC for outlooks and storm reports, GOES GLM for satellite
 lightning, Blitzortung.org for ground-network lightning, AWS Terrain Tiles
-for 3D terrain elevation, and rucsoundings.noaa.gov for radiosonde
-soundings.
+for 3D terrain elevation, and SPC observed soundings (falling back to
+rucsoundings.noaa.gov) for radiosonde data.
 
 ## License
 
