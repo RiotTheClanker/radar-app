@@ -52,11 +52,12 @@ value readout. Toolbar, left to right: lightning source, 3D volume, future
 radar, severe-weather layers, basemap, my location, aiming cursor, more
 (replay / measure / snapshot / color tables), reload.
 
-**3D view** — drag to look, two fingers to pan, pinch to fly. On desktop:
-`W` `A` `S` `D` to move, `Space` / `Shift` for altitude, `Ctrl` to speed up,
-scroll to dolly. On touch, use the on-screen stick and altitude pad. The
-scissors button reveals slice planes; the layers button switches the 3D
-field.
+**3D view** — fills the screen, with the controls floating over the storm.
+Drag to look, two fingers to pan, pinch to fly. On desktop: `W` `A` `S` `D`
+to move, `Space` / `Shift` for altitude, `Ctrl` to speed up, scroll to dolly.
+On touch, use the on-screen stick and altitude pad. The scissors button
+reveals slice planes; the layers button switches the 3D field; the eye button
+hides the stick and every other control, leaving just the storm.
 
 **Files** — drop `.pal` color tables in `~/.config/radar-app/palettes/`.
 Snapshots are written to `~/Pictures/radar-app/`.
