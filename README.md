@@ -109,6 +109,13 @@ sudo apt install ./radar-app_<version>_amd64.deb
 **Android** — install the APK matching your device's ABI (`arm64-v8a` for
 almost anything modern).
 
+> **Upgrading from 0.1.2 or earlier on Android:** 0.1.3 changed the
+> application ID, which Android treats as a different app entirely. The new
+> APK installs *alongside* the old one instead of replacing it, and you will
+> briefly have two icons. Uninstall the old one — the one still labelled
+> `radar_app` — by hand. This is a one-time move, done deliberately before
+> any signed release, because after that the ID can never change again.
+
 > Linux and Android `arm64-v8a` are tested on real hardware each release. The
 > Windows build comes out of CI and has not been smoke-tested.
 >
@@ -136,7 +143,7 @@ Package a `.deb`:
 
 ```
 cd app && flutter build linux --release && cd ..
-./packaging/build-deb.sh 0.1.2
+./packaging/build-deb.sh 0.1.3
 ```
 
 ## Architecture

@@ -1,4 +1,4 @@
-package dev.radarapp.radar_app
+package io.github.riottheclanker.taayuku
 
 import io.flutter.embedding.android.FlutterActivity
 
