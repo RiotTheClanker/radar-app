@@ -288,6 +288,11 @@ Future<void> volume3DSetTerrain({
   height: height,
 );
 
+/// Draw the cone of silence — the unsampled column above the radar's top cut
+/// — as a translucent haze, so you can see what the radar cannot.
+Future<void> volume3DShowCone({required bool show_}) =>
+    RustLib.instance.api.crateApiRadarVolume3DShowCone(show_: show_);
+
 /// Everything the UI needs to draw a key for what the colors mean.
 class ColorScale {
   /// Breakpoints in ascending value order.

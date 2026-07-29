@@ -493,7 +493,15 @@ pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Vo
     let grid = build_grid_encoded(&cuts, 384, 40, 120_000.0, 16_000.0, grid_encode_for(&moment))
         .ok_or_else(|| format!("no {moment} cuts in volume"))?;
     let pal = palette_3d(&moment, threshold);
-    let gpu = crate::render::gpu3d::GpuVolume::new(&grid, &pal, Z_EXAG).ok();
+    // The top cut is where the cone of silence begins.
+    let el_max = cuts
+        .iter()
+        .map(|c| c.elevation_deg)
+        .fold(f32::MIN, f32::max);
+    let mut gpu = crate::render::gpu3d::GpuVolume::new(&grid, &pal, Z_EXAG).ok();
+    if let Some(g) = gpu.as_mut() {
+        g.set_beam_limits(el_max);
+    }
     let info = Volume3DInfo {
         gpu: gpu.is_some(),
         half_extent_m: grid.half_extent_m,
@@ -603,6 +611,17 @@ pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(),
     let s = guard.as_mut().ok_or("no 3D session")?;
     if let Some(gpu) = s.gpu.as_mut() {
         gpu.set_ground(&rgba, width, height);
+    }
+    Ok(())
+}
+
+/// Draw the cone of silence — the unsampled column above the radar's top cut
+/// — as a translucent haze, so you can see what the radar cannot.
+pub fn volume3d_show_cone(show: bool) -> Result<(), String> {
+    let mut guard = VOL3D.lock().unwrap();
+    let s = guard.as_mut().ok_or("no 3D session")?;
+    if let Some(gpu) = s.gpu.as_mut() {
+        gpu.set_show_cone(show);
     }
     Ok(())
 }

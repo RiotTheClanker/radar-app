@@ -24,6 +24,9 @@ struct U {
     // g0.z: tallest terrain height in meters, before exaggeration
     // g0.w: vertical exaggeration, matching the volume's
     g0: vec4f,
+    // g1.x: 1 when the cone of silence should be drawn
+    // g1.y: highest elevation the volume scanned, radians
+    g1: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: U;
@@ -178,6 +181,19 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
             acc += c.rgb * a;
             alpha += a;
         }
+        // The cone of silence: the radar cannot tilt past its top cut, so
+        // nothing above that angle is ever sampled. Fill it with a thin haze
+        // so the shape of what the radar cannot see is visible. Heights are
+        // exaggerated in world space, so undo that before taking the angle.
+        if (u.g1.x > 0.5) {
+            let gr = length(p.xy);
+            let real_z = p.z / max(u.g0.w, 0.001);
+            if (gr > 1.0 && atan2(real_z, gr) > u.g1.y) {
+                let ca = min(0.000016 * step, 0.02) * (1.0 - alpha);
+                acc += vec3f(0.38, 0.74, 0.95) * ca;
+                alpha += ca;
+            }
+        }
         t += step;
     }
 
@@ -206,6 +222,10 @@ pub struct GpuVolume {
     /// heightfield march so rays above every hill exit straight away.
     terrain_max_m: f32,
     z_exaggeration: f32,
+    /// Highest elevation the volume scanned, degrees. Everything above this
+    /// angle is the cone of silence.
+    el_max_deg: f32,
+    show_cone: bool,
     pub ex: f32,
     pub top: f32,
 }
@@ -426,6 +446,8 @@ impl GpuVolume {
             has_terrain: false,
             terrain_max_m: 0.0,
             z_exaggeration,
+            el_max_deg: 19.5,
+            show_cone: false,
             ex: grid.half_extent_m,
             top: grid.top_m * z_exaggeration,
         };
@@ -479,6 +501,17 @@ impl GpuVolume {
         self.has_terrain = true;
     }
 
+    /// Tell the renderer where the scanned cone ends, so it can draw what
+    /// lies above it.
+    pub fn set_beam_limits(&mut self, el_max_deg: f32) {
+        self.el_max_deg = el_max_deg;
+    }
+
+    /// Draw the cone of silence as a translucent haze.
+    pub fn set_show_cone(&mut self, show: bool) {
+        self.show_cone = show;
+    }
+
     /// Go back to the flat ground plane.
     pub fn clear_terrain(&mut self) {
         self.has_terrain = false;
@@ -526,6 +559,8 @@ impl GpuVolume {
         u[33] = if self.has_terrain { 1.0 } else { 0.0 };
         u[34] = self.terrain_max_m;
         u[35] = self.z_exaggeration;
+        u[36] = if self.show_cone { 1.0 } else { 0.0 };
+        u[37] = self.el_max_deg.to_radians();
         self.queue
             .write_buffer(&self.uniforms, 0, bytemuck::cast_slice(&u));
 
@@ -812,5 +847,59 @@ mod tests {
         gpu.clear_terrain();
         let again = gpu.render(&params, w, h).unwrap();
         assert_eq!(flat, again, "clear_terrain must restore the flat ground");
+    }
+
+    /// The cone of silence haze, through the real shader. Same adapter
+    /// caveat as above: a no-op where there is no GPU.
+    #[test]
+    fn the_cone_of_silence_stands_on_the_radar() {
+        let nxy = 32;
+        let nz = 16;
+        let grid = Grid3D {
+            nxy,
+            nz,
+            data: vec![0u8; nxy * nxy * nz],
+            half_extent_m: 120_000.0,
+            top_m: 16_000.0,
+        };
+        let Ok(mut gpu) = GpuVolume::new(&grid, &[[0u8; 4]; 256], 4.0) else {
+            eprintln!("no graphics adapter; skipping");
+            return;
+        };
+        let params = FlyParams {
+            eye: [0.0, -200_000.0, 22_000.0],
+            yaw_deg: 0.0,
+            pitch_deg: -2.0,
+            fov_deg: 55.0,
+            clip_min: [0.0, 0.0, 0.0],
+            clip_max: [1.0, 1.0, 1.0],
+        };
+        let (w, h) = (160u32, 120u32);
+        let off = gpu.render(&params, w, h).unwrap();
+
+        gpu.set_beam_limits(19.5);
+        gpu.set_show_cone(true);
+        let on = gpu.render(&params, w, h).unwrap();
+        assert_ne!(off, on, "the cone should be visible once switched on");
+
+        // It stands over the radar, so the middle of the frame gains far more
+        // haze than the edges — the wrong way round would mean the angle test
+        // is inverted and it is the scanned region being shaded instead.
+        let lit = |x0: u32, x1: u32| -> u32 {
+            let mut sum = 0u32;
+            for y in 0..h / 2 {
+                for x in x0..x1 {
+                    let i = ((y * w + x) * 4) as usize;
+                    sum += (on[i + 2] as i32 - off[i + 2] as i32).max(0) as u32;
+                }
+            }
+            sum
+        };
+        let middle = lit(w / 2 - 12, w / 2 + 12);
+        let edge = lit(0, 24);
+        assert!(
+            middle > edge * 4,
+            "the cone belongs over the radar: middle {middle} vs edge {edge}",
+        );
     }
 }

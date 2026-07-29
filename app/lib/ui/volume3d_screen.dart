@@ -126,6 +126,10 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   StitchedMap? _ground;
   bool _groundLoading = false;
 
+  /// Whether to shade the cone of silence, the unsampled column standing over
+  /// the radar. Off by default; it is an overlay on top of the data.
+  bool _showCone = false;
+
   /// Terrain relief. Off by default: it is a second set of tiles to fetch and
   /// it is not always wanted, so it is opt-in per the request.
   bool _terrain = false;
@@ -312,6 +316,17 @@ class _Volume3DScreenState extends State<Volume3DScreen>
       // The storm renders fine on a flat ground plane.
     } finally {
       _terrainLoading = false;
+    }
+  }
+
+  /// Show or hide the cone of silence.
+  Future<void> _toggleCone() async {
+    setState(() => _showCone = !_showCone);
+    try {
+      await volume3DShowCone(show_: _showCone);
+      _dirty = true;
+    } catch (_) {
+      // Nothing to draw if the session has gone.
     }
   }
 
@@ -655,6 +670,16 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                       }
                     },
                     icon: const Icon(Icons.center_focus_strong, size: 20),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Cone of silence',
+                    onPressed: _toggleCone,
+                    icon: Icon(
+                      Icons.signal_cellular_alt,
+                      size: 19,
+                      color: _showCone ? Colors.cyanAccent : Colors.white70,
+                    ),
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,

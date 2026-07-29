@@ -399,3 +399,9 @@ pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, Stri
 pub fn volume3d_set_terrain(heights: Vec<f32>, width: u32, height: u32) -> Result<(), String> {
     core::volume3d_set_terrain(heights, width, height)
 }
+
+/// Draw the cone of silence — the unsampled column above the radar's top cut
+/// — as a translucent haze, so you can see what the radar cannot.
+pub fn volume3d_show_cone(show: bool) -> Result<(), String> {
+    core::volume3d_show_cone(show)
+}

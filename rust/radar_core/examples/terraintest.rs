@@ -82,6 +82,13 @@ fn main() {
     let terr = gpu.render(&params, w, h).unwrap();
     write("terrain.png", &terr, w, h);
 
+    // And the cone of silence over the site.
+    gpu.clear_terrain();
+    gpu.set_beam_limits(19.5);
+    gpu.set_show_cone(true);
+    let cone = gpu.render(&params, w, h).unwrap();
+    write("cone.png", &cone, w, h);
+
     // How different are they? If terrain did nothing this is ~0.
     let diff = flat
         .chunks(4)

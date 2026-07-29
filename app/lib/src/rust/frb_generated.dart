@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -110053467;
+  int get rustContentHash => 1861753179;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -227,6 +227,8 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<void> crateApiRadarVolume3DSetThreshold({required double threshold});
+
+  Future<void> crateApiRadarVolume3DShowCone({required bool show_});
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -1221,6 +1223,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         debugName: "volume3d_set_threshold",
         argNames: ["threshold"],
       );
+
+  @override
+  Future<void> crateApiRadarVolume3DShowCone({required bool show_}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_bool(show_, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 27,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarVolume3DShowConeConstMeta,
+        argValues: [show_],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarVolume3DShowConeConstMeta =>
+      const TaskConstMeta(debugName: "volume3d_show_cone", argNames: ["show_"]);
 
   @protected
   String dco_decode_String(dynamic raw) {
