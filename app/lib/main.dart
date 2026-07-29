@@ -607,7 +607,7 @@ class _RadarScreenState extends State<RadarScreen> {
     }
   }
 
-  /// Apply a GRLevelX .pal file (or clear back to the built-ins).
+  /// Apply a .pal file (or clear back to the built-ins).
   Future<void> _applyPalette(String path) async {
     try {
       if (path.isEmpty) {

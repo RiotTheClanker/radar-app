@@ -1,4 +1,4 @@
-//! GRLevelX `.pal` color table import.
+//! `.pal` color table import.
 //!
 //! There is a large community library of these files, so supporting the
 //! format lets people bring the palettes they already use. Format:

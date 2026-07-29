@@ -1,4 +1,4 @@
-/// User file locations: imported GRLevelX `.pal` palettes and exported
+/// User file locations: imported `.pal` palettes and exported
 /// snapshots. Plain filesystem paths, no plugins, so this works the same on
 /// Linux, Windows, and (with the app's own data dir) Android.
 library;
@@ -15,7 +15,7 @@ Directory paletteDir() {
   if (!dir.existsSync()) {
     dir.createSync(recursive: true);
     File('${dir.path}/README.txt').writeAsStringSync(
-      'Drop GRLevelX .pal color table files here.\n'
+      'Drop .pal color table files here.\n'
       'They appear in the app under the palette menu.\n',
     );
   }

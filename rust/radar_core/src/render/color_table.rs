@@ -1,7 +1,7 @@
 //! Color tables mapping physical values to display colors.
 //!
 //! Tables are breakpoint lists; sampling either steps or linearly
-//! interpolates between breakpoints. `.pal` (GRLevelX) import will build on
+//! interpolates between breakpoints. `.pal` import will build on
 //! this same structure later.
 
 use crate::level3::{BinValue, ValueDecoder};
@@ -60,7 +60,7 @@ impl ColorTable {
     }
 
     /// Pick a sensible default table for a product kind. A user-imported
-    /// GRLevelX `.pal` table for that kind wins over the built-in palette.
+    /// imported `.pal` table for that kind wins over the built-in palette.
     pub fn default_for(kind: ProductKind) -> ColorTable {
         if let Some(custom) = crate::palette::custom_for(kind) {
             return custom;
