@@ -42,6 +42,91 @@ const _box = [
 ];
 
 void main() {
+  group('pagination', () {
+    test('the next cursor is followed until it runs out', () {
+      const body = '{"features":[],"pagination":{"next":"https://x/page2"}}';
+      expect(nextPageUrl(body), 'https://x/page2');
+    });
+
+    test('no cursor means the last page', () {
+      expect(nextPageUrl('{"features":[]}'), isNull);
+      expect(nextPageUrl('{"features":[],"pagination":{}}'), isNull);
+      expect(nextPageUrl('{"features":[],"pagination":{"next":""}}'), isNull);
+      expect(nextPageUrl('not json at all'.replaceAll('x', 'x')), isNull);
+    });
+  });
+
+  group('zone outlines', () {
+    test('a zone Feature yields its ring', () {
+      final zone = {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'Polygon',
+          'coordinates': [
+            [
+              [-97.6, 35.3],
+              [-97.4, 35.3],
+              [-97.4, 35.5],
+            ]
+          ],
+        },
+      };
+      final rings = ringsOfFeature(zone);
+      expect(rings.length, 1);
+      expect(rings.single.first.latitude, closeTo(35.3, 1e-9));
+      expect(rings.single.first.longitude, closeTo(-97.6, 1e-9));
+    });
+
+    test('a MultiPolygon zone yields one ring per part', () {
+      final zone = {
+        'geometry': {
+          'type': 'MultiPolygon',
+          'coordinates': [
+            [
+              [
+                [-97.6, 35.3],
+                [-97.4, 35.3],
+              ]
+            ],
+            [
+              [
+                [-96.6, 34.3],
+                [-96.4, 34.3],
+              ]
+            ],
+          ],
+        },
+      };
+      expect(ringsOfFeature(zone).length, 2);
+    });
+
+    test('a zone with no usable geometry yields nothing, not a throw', () {
+      expect(ringsOfFeature(null), isEmpty);
+      expect(ringsOfFeature({'geometry': null}), isEmpty);
+      expect(ringsOfFeature({'geometry': {'type': 'Point'}}), isEmpty);
+    });
+  });
+
+  test('zone urls are carried through so outlines can be built later', () {
+    final doc = jsonEncode({
+      'features': [
+        {
+          'geometry': null,
+          'properties': {
+            'event': 'Tornado Watch',
+            'affectedZones': [
+              'https://api.weather.gov/zones/county/OKC027',
+              'https://api.weather.gov/zones/county/OKC083',
+            ],
+          },
+        }
+      ]
+    });
+    final a = parseAlerts(doc).single;
+    expect(a.hasPolygon, isFalse);
+    expect(a.zoneUrls.length, 2);
+  });
+
   group('categories', () {
     test('the last word of the event name decides', () {
       expect(categoryOf('Tornado Warning'), AlertCategory.warning);

@@ -302,9 +302,23 @@ class _RadarScreenState extends State<RadarScreen> {
       final alerts = await fetchActiveAlerts();
       if (!mounted) return;
       setState(() => _alerts = alerts);
+      await _resolveAlertOutlines();
     } catch (_) {
       // Alerts are supplementary; keep the last good set on failure.
     }
+  }
+
+  /// Build outlines for the county-issued alerts in whichever categories are
+  /// switched on. Only those, because resolving every zone nationwide would
+  /// be hundreds of requests for shapes nobody asked to see.
+  Future<void> _resolveAlertOutlines() async {
+    final wanted = [
+      for (final a in _alerts)
+        if (!a.hasPolygon && _alertLayers.contains(a.category)) a,
+    ];
+    if (wanted.isEmpty) return;
+    await resolveZoneOutlines(wanted);
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadOutlook() async {
@@ -1678,6 +1692,7 @@ class _RadarScreenState extends State<RadarScreen> {
                   setState(() {
                     if (!_alertLayers.remove(cat)) _alertLayers.add(cat);
                   });
+                  unawaited(_resolveAlertOutlines());
               }
             },
             itemBuilder: (context) => [
@@ -2104,20 +2119,29 @@ class _RadarScreenState extends State<RadarScreen> {
             controller: controller,
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             children: [
-              for (final c in AlertCategory.values)
-                if ((byCat[c] ?? const []).isNotEmpty) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
-                    child: Text(
-                      '${c.label.toUpperCase()}  ·  ${byCat[c]!.length}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.white54,
-                        fontWeight: FontWeight.bold,
-                      ),
+              for (final c in AlertCategory.values) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
+                  child: Text(
+                    '${c.label.toUpperCase()}  ·  ${(byCat[c] ?? const []).length}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.white54,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  for (final a in byCat[c]!)
+                ),
+                // Say so explicitly. A missing heading looks the same as a
+                // broken feature, and "no watches right now" is a real and
+                // common answer.
+                if ((byCat[c] ?? const []).isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 4, 4),
+                    child: Text('none active',
+                        style:
+                            TextStyle(fontSize: 12, color: Colors.white38)),
+                  ),
+                  for (final a in byCat[c] ?? const <WeatherAlert>[])
                     ListTile(
                       dense: true,
                       leading: Container(

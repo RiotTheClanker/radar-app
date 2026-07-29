@@ -2,6 +2,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:http/http.dart' as http;
@@ -40,9 +41,13 @@ class WeatherAlert {
   final DateTime? expires;
   final List<List<LatLng>> polygons;
 
-  /// Plain-English list of the counties or zones covered. For alerts issued
-  /// by zone rather than by polygon this is the only geography there is.
+  /// Plain-English list of the counties or zones covered.
   final String areaDesc;
+
+  /// API URLs of the zones this alert covers. County-issued alerts arrive
+  /// with no drawn shape at all; these are what their outline has to be
+  /// built from.
+  final List<String> zoneUrls;
 
   WeatherAlert({
     required this.id,
@@ -53,6 +58,7 @@ class WeatherAlert {
     required this.expires,
     required this.polygons,
     this.areaDesc = '',
+    this.zoneUrls = const [],
   });
 
   /// Warnings come with a drawn polygon; watches and advisories are issued
@@ -95,15 +101,128 @@ const _headers = {
   'Accept': 'application/geo+json',
 };
 
-Future<List<WeatherAlert>> fetchActiveAlerts() async {
-  final uri = Uri.parse(
-    'https://api.weather.gov/alerts/active?status=actual',
-  );
-  final resp = await http.get(uri, headers: _headers);
-  if (resp.statusCode != 200) {
-    throw Exception('alerts fetch failed: HTTP ${resp.statusCode}');
+/// Fetch every active alert.
+///
+/// The API caps a page at 500 features and nationally there are often more
+/// than that, so a single request silently truncates the set — which is how
+/// a whole category can appear to be missing. Follow the pagination cursor.
+Future<List<WeatherAlert>> fetchActiveAlerts({int maxPages = 6}) async {
+  var url = 'https://api.weather.gov/alerts/active?status=actual&limit=500';
+  final all = <WeatherAlert>[];
+  final seen = <String>{};
+
+  for (var page = 0; page < maxPages; page++) {
+    final resp = await http.get(Uri.parse(url), headers: _headers);
+    if (resp.statusCode != 200) {
+      if (page == 0) {
+        throw Exception('alerts fetch failed: HTTP ${resp.statusCode}');
+      }
+      break; // keep what we already have
+    }
+    for (final a in parseAlerts(resp.body)) {
+      if (seen.add(a.id)) all.add(a);
+    }
+    final next = nextPageUrl(resp.body);
+    if (next == null || next == url) break;
+    url = next;
   }
-  return parseAlerts(resp.body);
+  return all;
+}
+
+/// The cursor for the next page, or null at the end.
+String? nextPageUrl(String body) {
+  // The body is not always JSON — a gateway error page will arrive here too,
+  // and throwing would lose the pages already fetched.
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(body);
+  } catch (_) {
+    return null;
+  }
+  if (decoded is! Map) return null;
+  final pagination = decoded['pagination'];
+  if (pagination is! Map) return null;
+  final next = pagination['next'];
+  return (next is String && next.isNotEmpty) ? next : null;
+}
+
+/// Zone outlines, keyed by API URL. Zone geography does not change, so this
+/// only ever grows and a refresh costs nothing for zones already seen.
+final Map<String, List<List<LatLng>>> _zoneCache = {};
+
+/// Give county-issued alerts an outline to draw.
+///
+/// A watch covers dozens of counties and carries no polygon of its own, so
+/// without this it can only ever be listed, never shown on the map. Zones are
+/// fetched once each and cached; [maxFetches] bounds a cold start, and
+/// anything that fails just leaves that alert list-only.
+Future<void> resolveZoneOutlines(
+  List<WeatherAlert> alerts, {
+  int maxFetches = 240,
+}) async {
+  final wanted = <String>{};
+  for (final a in alerts) {
+    if (a.hasPolygon) continue;
+    for (final z in a.zoneUrls) {
+      if (!_zoneCache.containsKey(z)) wanted.add(z);
+    }
+  }
+
+  for (final batch in _chunks(wanted.take(maxFetches).toList(), 12)) {
+    await Future.wait([for (final z in batch) _fetchZone(z)]);
+  }
+
+  for (final a in alerts) {
+    if (a.hasPolygon) continue;
+    for (final z in a.zoneUrls) {
+      final rings = _zoneCache[z];
+      if (rings != null) a.polygons.addAll(rings);
+    }
+  }
+}
+
+Iterable<List<T>> _chunks<T>(List<T> list, int size) sync* {
+  for (var i = 0; i < list.length; i += size) {
+    yield list.sublist(i, math.min(i + size, list.length));
+  }
+}
+
+Future<void> _fetchZone(String url) async {
+  try {
+    final resp = await http
+        .get(Uri.parse(url), headers: _headers)
+        .timeout(const Duration(seconds: 12));
+    if (resp.statusCode != 200) {
+      _zoneCache[url] = const []; // remember the miss, do not retry forever
+      return;
+    }
+    _zoneCache[url] = ringsOfFeature(jsonDecode(resp.body));
+  } catch (_) {
+    _zoneCache[url] = const [];
+  }
+}
+
+/// Outer rings of a GeoJSON Feature's Polygon or MultiPolygon geometry.
+List<List<LatLng>> ringsOfFeature(Object? decoded) {
+  if (decoded is! Map) return const [];
+  final geom = decoded['geometry'];
+  if (geom is! Map) return const [];
+  final coords = geom['coordinates'];
+  if (coords is! List || coords.isEmpty) return const [];
+
+  List<LatLng> ring(List r) => [
+        for (final c in r)
+          if (c is List && c.length >= 2)
+            LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()),
+      ];
+
+  if (geom['type'] == 'Polygon') {
+    return [ring(coords[0] as List)];
+  }
+  if (geom['type'] == 'MultiPolygon') {
+    return [for (final p in coords) ring((p as List)[0] as List)];
+  }
+  return const [];
 }
 
 /// Parse an alerts GeoJSON document.
@@ -154,6 +273,10 @@ List<WeatherAlert> parseAlerts(String body) {
       expires: DateTime.tryParse(props['expires']?.toString() ?? ''),
       polygons: polygons,
       areaDesc: (props['areaDesc'] ?? '').toString(),
+      zoneUrls: [
+        for (final z in (props['affectedZones'] as List?) ?? const [])
+          z.toString(),
+      ],
     ));
   }
   return alerts;

@@ -68,12 +68,66 @@ class Sounding {
   SoundingLevel? get surface => levels.isEmpty ? null : levels.first;
 }
 
+const _ua = {'User-Agent': 'radar_app-dev (open source radar app)'};
+
 /// Fetch the most recent observed sounding for a station.
 ///
-/// [station] is an upper-air site id such as `OUN`. The service wants a time
-/// window; asking for the last 12 hours reliably catches the 00Z/12Z launches
-/// without pulling a long history.
-Future<Sounding?> fetchSounding(String station, {int hoursBack = 12}) async {
+/// SPC first. Balloons go up at 00Z and 12Z, so the most recent launch is
+/// found by walking back through synoptic hours rather than guessing — a file
+/// appears an hour or so after release, so the newest slot is often not there
+/// yet and the one before it is.
+///
+/// rucsoundings is kept as a fallback. It is NOAA's own sounding service and
+/// serves a richer format, but it proved unreachable from at least one mobile
+/// network ("no route to host") while spc.noaa.gov — which this app already
+/// uses for outlooks and storm reports — was fine.
+Future<Sounding?> fetchSounding(String station, {DateTime? now}) async {
+  Object? firstError;
+  for (final t in synopticTimes(now ?? DateTime.now().toUtc())) {
+    try {
+      final resp = await http
+          .get(Uri.parse(spcSoundingUrl(station, t)), headers: _ua)
+          .timeout(const Duration(seconds: 20));
+      if (resp.statusCode != 200) continue;
+      final s = parseSpcSounding(resp.body);
+      if (s != null && !s.isEmpty) return s;
+    } catch (e) {
+      firstError ??= e;
+    }
+  }
+
+  try {
+    final s = await _fetchFromRucsoundings(station);
+    if (s != null) return s;
+  } catch (e) {
+    firstError ??= e;
+  }
+
+  if (firstError != null) {
+    throw Exception('could not reach a sounding service: $firstError');
+  }
+  return null;
+}
+
+/// The 00Z and 12Z slots to try, most recent first.
+List<DateTime> synopticTimes(DateTime nowUtc, {int count = 4}) {
+  final base = DateTime.utc(nowUtc.year, nowUtc.month, nowUtc.day,
+      nowUtc.hour >= 12 ? 12 : 0);
+  return [for (var i = 0; i < count; i++) base.subtract(Duration(hours: 12 * i))];
+}
+
+/// SPC keeps observed soundings under a per-launch directory named for the
+/// two-digit year, month, day and hour.
+String spcSoundingUrl(String station, DateTime t) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  final stamp = '${two(t.year % 100)}${two(t.month)}${two(t.day)}${two(t.hour)}';
+  return 'https://www.spc.noaa.gov/exper/soundings/${stamp}_OBS/'
+      '${station.toUpperCase()}.txt';
+}
+
+Future<Sounding?> _fetchFromRucsoundings(String station,
+    {int hoursBack = 24}) async {
+  final nowSecs = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
   final uri = Uri.parse('https://rucsoundings.noaa.gov/get_soundings.cgi')
       .replace(queryParameters: {
     'data_source': 'RAOB',
@@ -82,22 +136,91 @@ Future<Sounding?> fetchSounding(String station, {int hoursBack = 12}) async {
     'n_hrs': '$hoursBack',
     'airport': station,
     'hydrometeors': 'false',
-    'startSecs': '${_secsAgo(hoursBack)}',
-    'endSecs': '${_nowSecs()}',
+    'startSecs': '${nowSecs - hoursBack * 3600}',
+    'endSecs': '$nowSecs',
   });
-  final resp = await http.get(
-    uri,
-    headers: {'User-Agent': 'radar_app-dev (open source radar app)'},
-  ).timeout(const Duration(seconds: 20));
-  if (resp.statusCode != 200) {
-    throw Exception('sounding fetch failed: HTTP ${resp.statusCode}');
-  }
+  final resp =
+      await http.get(uri, headers: _ua).timeout(const Duration(seconds: 20));
+  if (resp.statusCode != 200) return null;
   final s = parseGsdSounding(resp.body);
   return (s == null || s.isEmpty) ? null : s;
 }
 
-int _nowSecs() => DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-int _secsAgo(int hours) => _nowSecs() - hours * 3600;
+/// Parse SPC's observed sounding text.
+///
+/// The interesting part sits between %RAW% and %END% as comma-separated
+/// columns: pressure (mb), height (m), temperature and dewpoint (C), wind
+/// direction (degrees) and speed (knots). Missing values are -9999.
+Sounding? parseSpcSounding(String text) {
+  if (!text.contains('%RAW%')) return null;
+  final lines = text.split('\n');
+
+  var title = '';
+  var station = '';
+  DateTime? time;
+  var inRaw = false;
+  final levels = <SoundingLevel>[];
+
+  for (final raw in lines) {
+    final line = raw.trim();
+    if (line == '%RAW%') {
+      inRaw = true;
+      continue;
+    }
+    if (line == '%END%') break;
+    if (!inRaw) {
+      // "%TITLE%" then " OUN   260729/0000" — station id, then the launch
+      // as YYMMDD/HHMM.
+      if (line.isEmpty || line.startsWith('%')) continue;
+      final m = RegExp(r'^([A-Za-z0-9]{3,5})\s+(\d{6})/(\d{4})')
+          .firstMatch(line);
+      if (m != null && station.isEmpty) {
+        station = m.group(1)!.toUpperCase();
+        title = line;
+        final d = m.group(2)!;
+        final t = m.group(3)!;
+        final yy = int.tryParse(d.substring(0, 2));
+        final mm = int.tryParse(d.substring(2, 4));
+        final dd = int.tryParse(d.substring(4, 6));
+        final hh = int.tryParse(t.substring(0, 2));
+        final mi = int.tryParse(t.substring(2, 4));
+        if (yy != null && mm != null && dd != null && hh != null) {
+          time = DateTime.utc(2000 + yy, mm, dd, hh, mi ?? 0);
+        }
+      }
+      continue;
+    }
+
+    final f = line.split(',');
+    if (f.length < 6) continue;
+    double? v(int i) {
+      final d = double.tryParse(f[i].trim());
+      // SPC uses -9999 for missing; a real reading never comes near it.
+      if (d == null || d <= -999) return null;
+      return d;
+    }
+
+    final p = v(0);
+    if (p == null || p <= 0) continue;
+    levels.add(SoundingLevel(
+      pressureHpa: p,
+      heightM: v(1),
+      tempC: v(2),
+      dewpointC: v(3),
+      windDirDeg: v(4),
+      windKt: v(5),
+    ));
+  }
+
+  if (levels.isEmpty) return null;
+  levels.sort((a, b) => b.pressureHpa.compareTo(a.pressureHpa));
+  return Sounding(
+    station: station,
+    title: title,
+    levels: levels,
+    time: time,
+  );
+}
 
 /// Parse the GSD ("Ascii text") sounding format.
 ///
