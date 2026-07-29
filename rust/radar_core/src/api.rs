@@ -771,3 +771,65 @@ pub fn inspect_site() -> Result<Vec<f64>, String> {
     let (sweep, _) = guard.as_ref().ok_or("no inspect session")?;
     Ok(vec![sweep.site_lat, sweep.site_lon])
 }
+
+/// One breakpoint of a product's color scale.
+pub struct ColorScaleStop {
+    pub value: f32,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+/// Everything the UI needs to draw a key for what the colors mean.
+pub struct ColorScale {
+    /// Breakpoints in ascending value order.
+    pub stops: Vec<ColorScaleStop>,
+    /// True when the renderer blends between stops, false when it steps.
+    /// The key should be drawn the same way or it will not match the map.
+    pub interpolate: bool,
+    pub unit: String,
+    /// Purple by convention, for bins that are range folded.
+    pub rf_r: u8,
+    pub rf_g: u8,
+    pub rf_b: u8,
+}
+
+/// The color scale a product is drawn with, so the key matches the map.
+///
+/// Pass `moment` for Level 2 and derived products, or leave it empty and pass
+/// the Level 3 `product_code` from the rendered frame. Both routes end at the
+/// same `ColorTable::default_for`, which is also where a user's imported
+/// `.pal` table takes over — so the key follows a custom palette too.
+pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, String> {
+    let (kind, unit) = if !moment.is_empty() {
+        let (kind, _, unit) = moment_meta(&moment);
+        (kind, unit)
+    } else {
+        match level3::products::product_info(product_code as i16) {
+            Some(info) => (info.kind, info.unit.to_string()),
+            // Code 0 is the MRMS mosaic, which renders as reflectivity.
+            None => (ProductKind::Reflectivity, "dBZ".to_string()),
+        }
+    };
+
+    let table = ColorTable::default_for(kind);
+    Ok(ColorScale {
+        stops: table
+            .stops
+            .iter()
+            .map(|s| ColorScaleStop {
+                value: s.value,
+                r: s.color[0],
+                g: s.color[1],
+                b: s.color[2],
+                a: s.color[3],
+            })
+            .collect(),
+        interpolate: table.interpolate,
+        unit,
+        rf_r: table.rf_color[0],
+        rf_g: table.rf_color[1],
+        rf_b: table.rf_color[2],
+    })
+}

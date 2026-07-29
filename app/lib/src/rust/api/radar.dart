@@ -263,6 +263,96 @@ Future<SampleResult> inspectSample({
 Future<Float64List> inspectSite() =>
     RustLib.instance.api.crateApiRadarInspectSite();
 
+/// The color scale a product is drawn with, so the key matches the map.
+///
+/// Pass `moment` for Level 2 and derived products, or leave it empty and pass
+/// the Level 3 `product_code` from the rendered frame.
+Future<ColorScale> colorScale({
+  required int productCode,
+  required String moment,
+}) => RustLib.instance.api.crateApiRadarColorScale(
+  productCode: productCode,
+  moment: moment,
+);
+
+/// Everything the UI needs to draw a key for what the colors mean.
+class ColorScale {
+  /// Breakpoints in ascending value order.
+  final List<ColorScaleStop> stops;
+
+  /// True when the renderer blends between stops, false when it steps. The
+  /// key must be drawn the same way or it will not match the map.
+  final bool interpolate;
+  final String unit;
+
+  /// Purple by convention, for bins that are range folded.
+  final int rfR;
+  final int rfG;
+  final int rfB;
+
+  const ColorScale({
+    required this.stops,
+    required this.interpolate,
+    required this.unit,
+    required this.rfR,
+    required this.rfG,
+    required this.rfB,
+  });
+
+  @override
+  int get hashCode =>
+      stops.hashCode ^
+      interpolate.hashCode ^
+      unit.hashCode ^
+      rfR.hashCode ^
+      rfG.hashCode ^
+      rfB.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ColorScale &&
+          runtimeType == other.runtimeType &&
+          stops == other.stops &&
+          interpolate == other.interpolate &&
+          unit == other.unit &&
+          rfR == other.rfR &&
+          rfG == other.rfG &&
+          rfB == other.rfB;
+}
+
+/// One breakpoint of a product's color scale.
+class ColorScaleStop {
+  final double value;
+  final int r;
+  final int g;
+  final int b;
+  final int a;
+
+  const ColorScaleStop({
+    required this.value,
+    required this.r,
+    required this.g,
+    required this.b,
+    required this.a,
+  });
+
+  @override
+  int get hashCode =>
+      value.hashCode ^ r.hashCode ^ g.hashCode ^ b.hashCode ^ a.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ColorScaleStop &&
+          runtimeType == other.runtimeType &&
+          value == other.value &&
+          r == other.r &&
+          g == other.g &&
+          b == other.b &&
+          a == other.a;
+}
+
 /// Lightning flashes parsed from one GOES GLM L2 LCFA file.
 class GlmResult {
   final PlatformInt64 timestamp;

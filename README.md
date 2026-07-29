@@ -50,7 +50,12 @@ your device.
 **Map** — drag to pan, pinch or scroll to zoom. Long-press for a one-shot
 value readout. Toolbar, left to right: lightning source, 3D volume, future
 radar, severe-weather layers, basemap, my location, aiming cursor, more
-(replay / measure / snapshot / color tables), reload.
+(replay / measure / color key / snapshot / color tables), reload.
+
+**Color key** — a scale down the right edge showing what the colors mean for
+whatever product is up, in that product's own units. It is built from the
+same table the renderer used, so an imported `.pal` changes the key too.
+Toggle it under the more menu.
 
 **3D view** — fills the screen, with the controls floating over the storm.
 Drag to look, two fingers to pan, pinch to fly. On desktop: `W` `A` `S` `D`
