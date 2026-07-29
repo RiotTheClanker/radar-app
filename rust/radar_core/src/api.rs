@@ -607,6 +607,22 @@ pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(),
     Ok(())
 }
 
+/// Give the ground relief. `heights` is metres above sea level on a north-up
+/// grid covering the same extent as the basemap, row-major from the north
+/// edge. Pass an empty slice to go back to a flat plane.
+pub fn volume3d_set_terrain(heights: Vec<f32>, width: u32, height: u32) -> Result<(), String> {
+    let mut guard = VOL3D.lock().unwrap();
+    let s = guard.as_mut().ok_or("no 3D session")?;
+    if let Some(gpu) = s.gpu.as_mut() {
+        if heights.is_empty() {
+            gpu.clear_terrain();
+        } else {
+            gpu.set_terrain(&heights, width, height);
+        }
+    }
+    Ok(())
+}
+
 /// Geographic bounds of the open 3D session's ground plane, so the app can
 /// fetch matching map tiles: [north, south, east, west].
 pub fn volume3d_ground_bounds() -> Result<Vec<f64>, String> {

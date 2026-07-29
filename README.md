@@ -61,8 +61,12 @@ Toggle it under the more menu.
 Drag to look, two fingers to pan, pinch to fly. On desktop: `W` `A` `S` `D`
 to move, `Space` / `Shift` for altitude, `Ctrl` to speed up, scroll to dolly.
 On touch, use the on-screen stick and altitude pad. The scissors button
-reveals slice planes; the layers button switches the 3D field; the eye button
-hides the stick and every other control, leaving just the storm.
+reveals slice planes; the layers button switches the 3D field; the mountain
+button drapes the storm over real terrain; the eye button hides the stick and
+every other control, leaving just the storm.
+
+Terrain is off by default — it is a second set of tiles to fetch, and it is
+not always wanted. Elevation comes from the free AWS Terrain Tiles dataset.
 
 **Location** — the app opens on the radar nearest you, and the my-location
 button re-centers there. It uses GPS when you grant permission and falls back
@@ -132,7 +136,8 @@ Debug tools live in `rust/radar_core/src/bin` and `examples/` — `l2dump`,
 
 NEXRAD Level 2/3 and MRMS (NOAA Open Data on AWS), api.weather.gov for
 warnings, SPC for outlooks and storm reports, GOES GLM for satellite
-lightning, and Blitzortung.org for ground-network lightning.
+lightning, Blitzortung.org for ground-network lightning, and AWS Terrain
+Tiles for 3D terrain elevation.
 
 ## License
 

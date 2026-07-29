@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -9,6 +10,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../data/basemap_tiles.dart';
+import '../data/terrain_tiles.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
 import 'fly_controls.dart';
@@ -123,6 +125,12 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   // Ground basemap (stitched once, re-applied when the session is rebuilt)
   StitchedMap? _ground;
   bool _groundLoading = false;
+
+  /// Terrain relief. Off by default: it is a second set of tiles to fetch and
+  /// it is not always wanted, so it is opt-in per the request.
+  bool _terrain = false;
+  TerrainGrid? _terrainGrid;
+  bool _terrainLoading = false;
 
   // Frame plumbing
   ui.Image? _frame;
@@ -268,10 +276,58 @@ class _Volume3DScreenState extends State<Volume3DScreen>
         height: g.height,
       );
       _dirty = true;
+      if (_terrain) unawaited(_applyTerrain());
     } catch (_) {
       // The storm renders fine without a basemap.
     } finally {
       _groundLoading = false;
+    }
+  }
+
+  /// Fetch (once) and upload the heightfield under the storm.
+  Future<void> _applyTerrain() async {
+    if (_terrainLoading) return;
+    _terrainLoading = true;
+    try {
+      if (_terrainGrid == null) {
+        final b = await volume3DGroundBounds();
+        if (b.length < 4) return;
+        _terrainGrid = await fetchTerrain(
+          north: b[0],
+          south: b[1],
+          east: b[2],
+          west: b[3],
+        );
+      }
+      final t = _terrainGrid;
+      if (t == null || !mounted || !_terrain) return;
+      await volume3DSetTerrain(
+        heights: t.heights,
+        width: t.width,
+        height: t.height,
+      );
+      _dirty = true;
+      if (mounted) setState(() {});
+    } catch (_) {
+      // The storm renders fine on a flat ground plane.
+    } finally {
+      _terrainLoading = false;
+    }
+  }
+
+  /// Turn relief on or off. Off sends an empty heightfield, which puts the
+  /// flat plane back without tearing down the session.
+  Future<void> _toggleTerrain() async {
+    setState(() => _terrain = !_terrain);
+    if (_terrain) {
+      await _applyTerrain();
+    } else {
+      try {
+        await volume3DSetTerrain(heights: Float32List(0), width: 0, height: 0);
+        _dirty = true;
+      } catch (_) {
+        // Nothing to undo if the session has gone.
+      }
     }
   }
 
@@ -599,6 +655,16 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                       }
                     },
                     icon: const Icon(Icons.center_focus_strong, size: 20),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Terrain',
+                    onPressed: _toggleTerrain,
+                    icon: Icon(
+                      Icons.terrain,
+                      size: 19,
+                      color: _terrain ? Colors.lightGreenAccent : Colors.white70,
+                    ),
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,

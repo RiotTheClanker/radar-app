@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 830987748;
+  int get rustContentHash => -110053467;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -216,6 +216,12 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiRadarVolume3DSetGround({
     required List<int> rgba,
+    required int width,
+    required int height,
+  });
+
+  Future<void> crateApiRadarVolume3DSetTerrain({
+    required List<double> heights,
     required int width,
     required int height,
   });
@@ -1149,6 +1155,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiRadarVolume3DSetTerrain({
+    required List<double> heights,
+    required int width,
+    required int height,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_f_32_loose(heights, serializer);
+          sse_encode_u_32(width, serializer);
+          sse_encode_u_32(height, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 25,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarVolume3DSetTerrainConstMeta,
+        argValues: [heights, width, height],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarVolume3DSetTerrainConstMeta =>
+      const TaskConstMeta(
+        debugName: "volume3d_set_terrain",
+        argNames: ["heights", "width", "height"],
+      );
+
+  @override
   Future<void> crateApiRadarVolume3DSetThreshold({required double threshold}) {
     return handler.executeNormal(
       NormalTask(
@@ -1158,7 +1201,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },

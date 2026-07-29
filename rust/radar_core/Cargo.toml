@@ -7,6 +7,7 @@ edition = "2021"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
+half = "2"
 bzip2 = "0.4"
 flate2 = "1"
 thiserror = "2"

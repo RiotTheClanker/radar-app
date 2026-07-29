@@ -275,6 +275,19 @@ Future<ColorScale> colorScale({
   moment: moment,
 );
 
+/// Give the 3D ground relief. `heights` is metres above sea level on a
+/// north-up grid covering the same extent as the basemap, row-major from the
+/// north edge. Pass an empty list to go back to a flat plane.
+Future<void> volume3DSetTerrain({
+  required List<double> heights,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarVolume3DSetTerrain(
+  heights: heights,
+  width: width,
+  height: height,
+);
+
 /// Everything the UI needs to draw a key for what the colors mean.
 class ColorScale {
   /// Breakpoints in ascending value order.
