@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import '../data/basemap_tiles.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
+import 'fly_controls.dart';
 import 'toolbar.dart';
 
 /// Pixels the raymarcher may fill in one frame. This is what the old fixed
@@ -35,6 +36,20 @@ const double _pixelBudget = 1100 * 740;
     h.round().clamp(256, 2600),
   );
 }
+
+/// Keys the fly camera consumes. Everything else is left alone so the rest
+/// of the app's shortcuts still work.
+final _flyKeys = <LogicalKeyboardKey>{
+  LogicalKeyboardKey.keyW,
+  LogicalKeyboardKey.keyA,
+  LogicalKeyboardKey.keyS,
+  LogicalKeyboardKey.keyD,
+  LogicalKeyboardKey.keyE,
+  LogicalKeyboardKey.keyQ,
+  LogicalKeyboardKey.space,
+  LogicalKeyboardKey.shiftLeft,
+  LogicalKeyboardKey.controlLeft,
+};
 
 /// Fields available as 3D volumes.
 class _VolField {
@@ -129,6 +144,10 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   /// but the storm and a single button to bring them back.
   bool _chrome = true;
 
+  /// Watches for the app leaving the foreground, which can swallow the
+  /// release half of whatever is being held.
+  late final AppLifecycleListener _lifecycle;
+
   @override
   void initState() {
     super.initState();
@@ -137,11 +156,26 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     if (Platform.isAndroid || Platform.isIOS) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
+    _lifecycle = AppLifecycleListener(
+      onStateChange: (state) {
+        if (state != AppLifecycleState.resumed) _clearInputs();
+      },
+    );
     _open();
+  }
+
+  /// Forget every held input. Anything still down when the app is backgrounded
+  /// or the screen is torn down would otherwise keep driving the camera.
+  void _clearInputs() {
+    _keys.clear();
+    _stick = Offset.zero;
+    _vertInput = 0;
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
+    _clearInputs();
     if (Platform.isAndroid || Platform.isIOS) {
       SystemChrome.setEnabledSystemUIMode(
         SystemUiMode.manual,
@@ -644,16 +678,16 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  _Stick(onChanged: (v) => _stick = v),
+                  FlyStick(onChanged: (v) => _stick = v),
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _HoldButton(
+                      HoldButton(
                         icon: Icons.keyboard_arrow_up,
                         onChanged: (down) => _vertInput = down ? 1 : 0,
                       ),
                       const SizedBox(height: 10),
-                      _HoldButton(
+                      HoldButton(
                         icon: Icons.keyboard_arrow_down,
                         onChanged: (down) => _vertInput = down ? -1 : 0,
                       ),
@@ -702,7 +736,14 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   Widget _flyView() {
     return Focus(
       autofocus: true,
+      // A key held while focus moves elsewhere — a toolbar button, the field
+      // menu, another window — never delivers its key-up, and the camera
+      // would fly on by itself. Drop everything held on the way out.
+      onFocusChange: (hasFocus) {
+        if (!hasFocus) _keys.clear();
+      },
       onKeyEvent: (node, e) {
+        if (!_flyKeys.contains(e.logicalKey)) return KeyEventResult.ignored;
         if (e is KeyDownEvent) {
           _keys.add(e.logicalKey);
         } else if (e is KeyUpEvent) {
@@ -866,116 +907,6 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     );
   }
 }
-
-/// Analog movement stick: drag from the center, springs back on release.
-class _Stick extends StatefulWidget {
-  final ValueChanged<Offset> onChanged;
-  const _Stick({required this.onChanged});
-
-  @override
-  State<_Stick> createState() => _StickState();
-}
-
-class _StickState extends State<_Stick> {
-  static const double _size = 108;
-  static const double _knob = 40;
-  Offset _pos = Offset.zero; // pixels from center
-
-  void _update(Offset local) {
-    const c = Offset(_size / 2, _size / 2);
-    var d = local - c;
-    const maxR = (_size - _knob) / 2;
-    if (d.distance > maxR) d = d / d.distance * maxR;
-    setState(() => _pos = d);
-    widget.onChanged(Offset(d.dx / maxR, d.dy / maxR));
-  }
-
-  void _release() {
-    setState(() => _pos = Offset.zero);
-    widget.onChanged(Offset.zero);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanDown: (d) => _update(d.localPosition),
-      onPanUpdate: (d) => _update(d.localPosition),
-      onPanEnd: (_) => _release(),
-      onPanCancel: _release,
-      child: SizedBox(
-        width: _size,
-        height: _size,
-        child: Stack(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.06),
-                border: Border.all(color: Colors.white24),
-              ),
-            ),
-            Positioned(
-              left: (_size - _knob) / 2 + _pos.dx,
-              top: (_size - _knob) / 2 + _pos.dy,
-              child: Container(
-                width: _knob,
-                height: _knob,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF29B6F6).withValues(alpha: 0.55),
-                  border: Border.all(color: Colors.white70),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Press-and-hold button that reports its down state continuously.
-class _HoldButton extends StatefulWidget {
-  final IconData icon;
-  final ValueChanged<bool> onChanged;
-  const _HoldButton({required this.icon, required this.onChanged});
-
-  @override
-  State<_HoldButton> createState() => _HoldButtonState();
-}
-
-class _HoldButtonState extends State<_HoldButton> {
-  bool _down = false;
-
-  void _set(bool v) {
-    if (_down == v) return;
-    setState(() => _down = v);
-    widget.onChanged(v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (_) => _set(true),
-      onPointerUp: (_) => _set(false),
-      onPointerCancel: (_) => _set(false),
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: _down
-              ? const Color(0xFF29B6F6).withValues(alpha: 0.5)
-              : Colors.white.withValues(alpha: 0.08),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Icon(widget.icon, size: 26, color: Colors.white70),
-      ),
-    );
-  }
-}
-
 
 /// Heading rose: the needle points north, and the readout shows the
 /// camera's compass bearing and pitch.
