@@ -309,7 +309,7 @@ pub fn nowcast_view(
     )?)
 }
 
-/// Import a GRLevelX `.pal` color table. Returns the product family it
+/// Import a `.pal` color table. Returns the product family it
 /// applies to.
 pub fn install_palette(text: String) -> Result<String, String> {
     core::install_palette(text)

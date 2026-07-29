@@ -2,7 +2,7 @@
 
 [![build](https://github.com/RiotTheClanker/radar-app/actions/workflows/build.yml/badge.svg)](https://github.com/RiotTheClanker/radar-app/actions/workflows/build.yml)
 
-A free, open, RadarScope-class weather radar app for **Windows, Android, and
+A free, open, professional-grade weather radar app for **Windows, Android, and
 Debian Linux**.
 
 **No subscription. No accounts. No servers.** Radar data comes straight from
@@ -50,7 +50,7 @@ your device.
 - **Historical replay** back to 1991 — the whole app, including 3D and the
   nowcast, runs on the moment you pick
 - Distance/bearing measuring, PNG snapshots (2D and 3D)
-- GRLevelX `.pal` color table import
+- `.pal` color table import
 - Four basemaps: dark, OpenStreetMap, satellite, topographic
 
 ## Controls

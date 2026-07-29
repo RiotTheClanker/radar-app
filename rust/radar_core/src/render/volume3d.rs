@@ -2,7 +2,7 @@
 //!
 //! Emission-absorption volume rendering with the reflectivity palette and an
 //! orbiting perspective camera. Fast enough in release mode to re-render on
-//! gesture end (RadarScope-style interaction, no GPU dependencies).
+//! gesture end: drag to orbit, no GPU dependencies.
 
 use crate::process::grid3d::Grid3D;
 use crate::render::ColorTable;
