@@ -11,6 +11,11 @@ library;
 /// entry and the installer, which used to differ in all four.
 const appName = "Taa'a Yuku Radar";
 
+/// Abbreviation, for places with no room for the full name -- the Android
+/// launcher ellipsises anything much past ten characters. Mirrored in
+/// android/app/src/main/res/values/strings.xml as app_name_short.
+const appShortName = 'TY Radar';
+
 /// [appName] where a space or an apostrophe would be a nuisance: config and
 /// snapshot directories, and the User-Agent token.
 const appSlug = 'taa-yuku-radar';

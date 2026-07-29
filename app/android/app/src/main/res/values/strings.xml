@@ -5,4 +5,10 @@
          resource compiler wants that character escaped, and \' in a string
          resource is unambiguous where a bare ' in an attribute is not. -->
     <string name="app_name">Taa\'a Yuku Radar</string>
+
+    <!-- What the launcher puts under the icon. The full name is 16
+         characters and gets ellipsised there, so the activity carries this
+         instead; the application keeps app_name, which is what Settings and
+         the app info screen show. -->
+    <string name="app_name_short">TY Radar</string>
 </resources>
