@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -10,6 +11,45 @@ import 'package:flutter/services.dart';
 import '../data/basemap_tiles.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
+import 'fly_controls.dart';
+import 'toolbar.dart';
+
+/// Pixels the raymarcher may fill in one frame. This is what the old fixed
+/// 1100x740 render cost, so reshaping a frame to the screen is no more work.
+const double _pixelBudget = 1100 * 740;
+
+/// Render dimensions for a viewport of [view]: its aspect ratio at
+/// [_pixelBudget], rather than a fixed shape.
+///
+/// The raymarcher used to render a constant 1100x740 (3:2) that was then
+/// letterboxed to fit, which on a phone in landscape — nearer 2:1 — left the
+/// storm in a window with black bars either side. Rendering at the viewport's
+/// own aspect fills the screen for the same number of pixels.
+@visibleForTesting
+(int, int) volumeRenderSize(Size view) {
+  final aspect = (view.width <= 0 || view.height <= 0)
+      ? 1100 / 740
+      : view.width / view.height;
+  final h = math.sqrt(_pixelBudget / aspect);
+  return (
+    (h * aspect).round().clamp(256, 2600),
+    h.round().clamp(256, 2600),
+  );
+}
+
+/// Keys the fly camera consumes. Everything else is left alone so the rest
+/// of the app's shortcuts still work.
+final _flyKeys = <LogicalKeyboardKey>{
+  LogicalKeyboardKey.keyW,
+  LogicalKeyboardKey.keyA,
+  LogicalKeyboardKey.keyS,
+  LogicalKeyboardKey.keyD,
+  LogicalKeyboardKey.keyE,
+  LogicalKeyboardKey.keyQ,
+  LogicalKeyboardKey.space,
+  LogicalKeyboardKey.shiftLeft,
+  LogicalKeyboardKey.controlLeft,
+};
 
 /// Fields available as 3D volumes.
 class _VolField {
@@ -94,17 +134,72 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   double _lyaw = 35, _lpitch = 28;
   final double _lzoom = 1.4;
 
+  /// Size of the area the frame is displayed in. The raymarcher renders to
+  /// this shape so the result fills the screen rather than being letterboxed.
+  Size _viewSize = const Size(1100, 740);
+  int _renderW = 1100;
+  int _renderH = 740;
+
+  /// Whether the on-screen controls are showing. Hiding them leaves nothing
+  /// but the storm and a single button to bring them back.
+  bool _chrome = true;
+
+  /// Watches for the app leaving the foreground, which can swallow the
+  /// release half of whatever is being held.
+  late final AppLifecycleListener _lifecycle;
+
   @override
   void initState() {
     super.initState();
+    // The storm is the whole point of this screen, so take the full display
+    // and let the system bars come back on a swipe.
+    if (Platform.isAndroid || Platform.isIOS) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
+    _lifecycle = AppLifecycleListener(
+      onStateChange: (state) {
+        if (state != AppLifecycleState.resumed) _clearInputs();
+      },
+    );
     _open();
+  }
+
+  /// Forget every held input. Anything still down when the app is backgrounded
+  /// or the screen is torn down would otherwise keep driving the camera.
+  void _clearInputs() {
+    _keys.clear();
+    _stick = Offset.zero;
+    _vertInput = 0;
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
+    _clearInputs();
+    if (Platform.isAndroid || Platform.isIOS) {
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
+    }
     _ticker?.dispose();
     _frame?.dispose();
     super.dispose();
+  }
+
+  /// Records a new viewport size and asks for a frame that matches it.
+  void _noteViewSize(Size size, {required bool legacy}) {
+    if (size == _viewSize || size.isEmpty) return;
+    _viewSize = size;
+    // Called from build, so defer the re-render until the frame is done.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (legacy) {
+        _legacyRender();
+      } else {
+        _dirty = true;
+      }
+    });
   }
 
   Future<void> _open() async {
@@ -247,6 +342,9 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     if (_inFlight || !_gpu) return;
     _inFlight = true;
     try {
+      final (rw, rh) = volumeRenderSize(_viewSize);
+      _renderW = rw;
+      _renderH = rh;
       final f = await volume3DRenderFly(
         eyeX: _px,
         eyeY: _py,
@@ -261,8 +359,8 @@ class _Volume3DScreenState extends State<Volume3DScreen>
           _clipY.end,
           _clipZ.end,
         ],
-        width: 1100,
-        height: 740,
+        width: rw,
+        height: rh,
       );
       final img = await _toImage(f);
       if (!mounted) {
@@ -333,14 +431,15 @@ class _Volume3DScreenState extends State<Volume3DScreen>
 
   Future<void> _legacyRender() async {
     try {
+      final (rw, rh) = volumeRenderSize(_viewSize);
       final f = await renderVolume3D(
         data: widget.volumeBytes,
         yawDeg: _lyaw,
         pitchDeg: _lpitch,
         zoom: _lzoom,
         dbzMin: _threshold,
-        width: 1000,
-        height: 700,
+        width: rw,
+        height: rh,
       );
       if (!mounted) return;
       setState(() => _legacyPng = Uint8List.fromList(f.png));
@@ -352,7 +451,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   /// Project a world point into widget coordinates, or null when it is
   /// behind the camera or outside the rendered frame.
   Offset? _project(List<double> p, Size size) {
-    const imgW = 1100.0, imgH = 740.0;
+    final imgW = _renderW.toDouble(), imgH = _renderH.toDouble();
     final yaw = _yaw * math.pi / 180.0;
     final pitch = _pitch * math.pi / 180.0;
     final f = [
@@ -377,7 +476,8 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     final ix = ((a / c) / planeW + 0.5) * imgW;
     final iy = (0.5 - (b / c) / planeH) * imgH;
     if (ix < 0 || ix > imgW || iy < 0 || iy > imgH) return null;
-    final scale = math.min(size.width / imgW, size.height / imgH);
+    // Mirrors the BoxFit.cover the frame is drawn with.
+    final scale = math.max(size.width / imgW, size.height / imgH);
     return Offset(
       (size.width - imgW * scale) / 2 + ix * scale,
       (size.height - imgH * scale) / 2 + iy * scale,
@@ -410,88 +510,240 @@ class _Volume3DScreenState extends State<Volume3DScreen>
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
+    // No AppBar: the render runs edge to edge and the controls float on top,
+    // so landscape gets the whole display instead of a letterboxed strip.
     return Scaffold(
       backgroundColor: const Color(0xFF0A0D12),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF10141A),
-        titleSpacing: 8,
-        title: Text(
-          '${widget.siteId} · ${_field.label}'
-          '${_gpu ? '' : ' (CPU orbit)'}',
-          style: const TextStyle(fontSize: 15),
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Save snapshot',
-            onPressed: _saveSnapshot,
-            icon: const Icon(Icons.photo_camera, size: 19),
-          ),
-          IconButton(
-            tooltip: 'Reset view',
-            onPressed: () {
-              _resetCamera();
-              if (_gpu) {
-                setState(() {});
-              } else {
-                _legacyRender();
-              }
-            },
-            icon: const Icon(Icons.center_focus_strong, size: 20),
-          ),
-          IconButton(
-            tooltip: 'Slice',
-            onPressed: () => setState(() => _showSlicers = !_showSlicers),
-            icon: Icon(
-              Icons.content_cut,
-              size: 19,
-              color: _showSlicers ? Colors.cyanAccent : Colors.white70,
-            ),
-          ),
-          PopupMenuButton<_VolField>(
-            tooltip: 'Field',
-            icon: const Icon(Icons.layers, size: 20),
-            onSelected: (f) {
-              setState(() => _field = f);
-              _open();
-            },
-            itemBuilder: (context) => [
-              for (final f in _volFields)
-                CheckedPopupMenuItem(
-                  value: f,
-                  checked: f.moment == _field.moment,
-                  child: Text(f.label),
-                ),
-            ],
-          ),
-        ],
-      ),
       body: _opening
           ? const Center(child: CircularProgressIndicator())
-          : Column(
+          : Stack(
+              fit: StackFit.expand,
               children: [
-                Expanded(child: _gpu ? _flyView() : _legacyView()),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: Colors.orangeAccent,
-                        fontSize: 11,
-                      ),
+                _gpu ? _flyView() : _legacyView(),
+                if (_chrome) ...[
+                  Positioned(left: 0, right: 0, top: 0, child: _topOverlay()),
+                  Positioned(left: 0, right: 0, bottom: 0, child: _bottomOverlay()),
+                ] else
+                  Positioned(
+                    right: 8,
+                    top: topInset + 8,
+                    child: _iconBlob(
+                      icon: Icons.visibility,
+                      tooltip: 'Show controls',
+                      onPressed: () => setState(() => _chrome = true),
                     ),
                   ),
-                if (_showSlicers) _slicers(),
-                _bottomControls(),
               ],
             ),
+    );
+  }
+
+  /// Translucent bar over the top of the render, replacing the AppBar.
+  ///
+  /// The compass and the gesture hint live inside it rather than floating at
+  /// a fixed offset, so they still clear the buttons when the bar wraps onto
+  /// a second line on a narrow screen.
+  Widget _topOverlay() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xCC0A0D12), Color(0x000A0D12)],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(2, 0, 4, 0),
+              child: ToolBar(
+                status: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.arrow_back, size: 20),
+                  ),
+                  Text(
+                    '${widget.siteId} · ${_field.label}'
+                    '${_gpu ? '' : ' (CPU orbit)'}',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ],
+                actions: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Hide controls',
+                    onPressed: () => setState(() => _chrome = false),
+                    icon: const Icon(Icons.visibility_off, size: 19),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Save snapshot',
+                    onPressed: _saveSnapshot,
+                    icon: const Icon(Icons.photo_camera, size: 19),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Reset view',
+                    onPressed: () {
+                      _resetCamera();
+                      if (_gpu) {
+                        setState(() {});
+                      } else {
+                        _legacyRender();
+                      }
+                    },
+                    icon: const Icon(Icons.center_focus_strong, size: 20),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Slice',
+                    onPressed: () =>
+                        setState(() => _showSlicers = !_showSlicers),
+                    icon: Icon(
+                      Icons.content_cut,
+                      size: 19,
+                      color: _showSlicers ? Colors.cyanAccent : Colors.white70,
+                    ),
+                  ),
+                  PopupMenuButton<_VolField>(
+                    tooltip: 'Field',
+                    icon: const Icon(Icons.layers, size: 20),
+                    onSelected: (f) {
+                      setState(() => _field = f);
+                      _open();
+                    },
+                    itemBuilder: (context) => [
+                      for (final f in _volFields)
+                        CheckedPopupMenuItem(
+                          value: f,
+                          checked: f.moment == _field.moment,
+                          child: Text(f.label),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_gpu)
+                    const Expanded(
+                      child: IgnorePointer(
+                        child: Text(
+                          'drag look · 2-finger pan · pinch fly '
+                          '· stick move',
+                          style: TextStyle(fontSize: 11, color: Colors.white38),
+                        ),
+                      ),
+                    )
+                  else
+                    const Spacer(),
+                  IgnorePointer(child: _Compass(yaw: _yaw, pitch: _pitch)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Flight stick, altitude pad, slice sliders and the threshold slider, all
+  /// stacked bottom-up so they can never land on top of one another.
+  Widget _bottomOverlay() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Color(0xCC0A0D12), Color(0x000A0D12)],
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_gpu)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  FlyStick(onChanged: (v) => _stick = v),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      HoldButton(
+                        icon: Icons.keyboard_arrow_up,
+                        onChanged: (down) => _vertInput = down ? 1 : 0,
+                      ),
+                      const SizedBox(height: 10),
+                      HoldButton(
+                        icon: Icons.keyboard_arrow_down,
+                        onChanged: (down) => _vertInput = down ? -1 : 0,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.all(4),
+              child: Text(
+                _error!,
+                style: const TextStyle(
+                  color: Colors.orangeAccent,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          if (_showSlicers) _slicers(),
+          _bottomControls(),
+        ],
+      ),
+    );
+  }
+
+  /// Round translucent button used for the lone "show controls" affordance.
+  Widget _iconBlob({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.35),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: IconButton(
+        visualDensity: VisualDensity.compact,
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20, color: Colors.white70),
+      ),
     );
   }
 
   Widget _flyView() {
     return Focus(
       autofocus: true,
+      // A key held while focus moves elsewhere — a toolbar button, the field
+      // menu, another window — never delivers its key-up, and the camera
+      // would fly on by itself. Drop everything held on the way out.
+      onFocusChange: (hasFocus) {
+        if (!hasFocus) _keys.clear();
+      },
       onKeyEvent: (node, e) {
+        if (!_flyKeys.contains(e.logicalKey)) return KeyEventResult.ignored;
         if (e is KeyDownEvent) {
           _keys.add(e.logicalKey);
         } else if (e is KeyUpEvent) {
@@ -503,6 +755,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
         onPointerSignal: _onScroll,
         child: LayoutBuilder(builder: (context, constraints) {
           final size = Size(constraints.maxWidth, constraints.maxHeight);
+          _noteViewSize(size, legacy: false);
           final radarPin = _project(const [0.0, 0.0, 0.0], size);
           return Stack(
           fit: StackFit.expand,
@@ -514,7 +767,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                 color: const Color(0xFF0A0D12),
                 child: _frame == null
                     ? const Center(child: CircularProgressIndicator())
-                    : RawImage(image: _frame, fit: BoxFit.contain),
+                    : RawImage(image: _frame, fit: BoxFit.cover),
               ),
             ),
             // Radar site marker, projected with the render camera.
@@ -546,44 +799,6 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                   ),
                 ),
               ),
-            // Heading compass.
-            Positioned(
-              right: 14,
-              top: 12,
-              child: IgnorePointer(child: _Compass(yaw: _yaw, pitch: _pitch)),
-            ),
-            // Movement stick (bottom-left) and altitude pad (bottom-right).
-            Positioned(
-              left: 16,
-              bottom: 16,
-              child: _Stick(onChanged: (v) => _stick = v),
-            ),
-            Positioned(
-              right: 16,
-              bottom: 16,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _HoldButton(
-                    icon: Icons.keyboard_arrow_up,
-                    onChanged: (down) => _vertInput = down ? 1 : 0,
-                  ),
-                  const SizedBox(height: 10),
-                  _HoldButton(
-                    icon: Icons.keyboard_arrow_down,
-                    onChanged: (down) => _vertInput = down ? -1 : 0,
-                  ),
-                ],
-              ),
-            ),
-            const Positioned(
-              left: 12,
-              top: 8,
-              child: Text(
-                'drag look · 2-finger pan · pinch fly · stick move',
-                style: TextStyle(fontSize: 11, color: Colors.white38),
-              ),
-            ),
           ],
           );
         }),
@@ -592,22 +807,28 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   }
 
   Widget _legacyView() {
-    return GestureDetector(
-      onPanUpdate: (d) {
-        _lyaw += d.delta.dx * 0.4;
-        _lpitch = (_lpitch + d.delta.dy * 0.3).clamp(5.0, 85.0);
-      },
-      onPanEnd: (_) => _legacyRender(),
-      child: Center(
-        child: _legacyPng == null
-            ? const CircularProgressIndicator()
-            : Image.memory(
-                _legacyPng!,
-                gaplessPlayback: true,
-                fit: BoxFit.contain,
-              ),
-      ),
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      _noteViewSize(
+        Size(constraints.maxWidth, constraints.maxHeight),
+        legacy: true,
+      );
+      return GestureDetector(
+        onPanUpdate: (d) {
+          _lyaw += d.delta.dx * 0.4;
+          _lpitch = (_lpitch + d.delta.dy * 0.3).clamp(5.0, 85.0);
+        },
+        onPanEnd: (_) => _legacyRender(),
+        child: Center(
+          child: _legacyPng == null
+              ? const CircularProgressIndicator()
+              : Image.memory(
+                  _legacyPng!,
+                  gaplessPlayback: true,
+                  fit: BoxFit.cover,
+                ),
+        ),
+      );
+    });
   }
 
   Widget _slicers() {
@@ -686,116 +907,6 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     );
   }
 }
-
-/// Analog movement stick: drag from the center, springs back on release.
-class _Stick extends StatefulWidget {
-  final ValueChanged<Offset> onChanged;
-  const _Stick({required this.onChanged});
-
-  @override
-  State<_Stick> createState() => _StickState();
-}
-
-class _StickState extends State<_Stick> {
-  static const double _size = 108;
-  static const double _knob = 40;
-  Offset _pos = Offset.zero; // pixels from center
-
-  void _update(Offset local) {
-    const c = Offset(_size / 2, _size / 2);
-    var d = local - c;
-    const maxR = (_size - _knob) / 2;
-    if (d.distance > maxR) d = d / d.distance * maxR;
-    setState(() => _pos = d);
-    widget.onChanged(Offset(d.dx / maxR, d.dy / maxR));
-  }
-
-  void _release() {
-    setState(() => _pos = Offset.zero);
-    widget.onChanged(Offset.zero);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanDown: (d) => _update(d.localPosition),
-      onPanUpdate: (d) => _update(d.localPosition),
-      onPanEnd: (_) => _release(),
-      onPanCancel: _release,
-      child: SizedBox(
-        width: _size,
-        height: _size,
-        child: Stack(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.06),
-                border: Border.all(color: Colors.white24),
-              ),
-            ),
-            Positioned(
-              left: (_size - _knob) / 2 + _pos.dx,
-              top: (_size - _knob) / 2 + _pos.dy,
-              child: Container(
-                width: _knob,
-                height: _knob,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF29B6F6).withValues(alpha: 0.55),
-                  border: Border.all(color: Colors.white70),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Press-and-hold button that reports its down state continuously.
-class _HoldButton extends StatefulWidget {
-  final IconData icon;
-  final ValueChanged<bool> onChanged;
-  const _HoldButton({required this.icon, required this.onChanged});
-
-  @override
-  State<_HoldButton> createState() => _HoldButtonState();
-}
-
-class _HoldButtonState extends State<_HoldButton> {
-  bool _down = false;
-
-  void _set(bool v) {
-    if (_down == v) return;
-    setState(() => _down = v);
-    widget.onChanged(v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (_) => _set(true),
-      onPointerUp: (_) => _set(false),
-      onPointerCancel: (_) => _set(false),
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: _down
-              ? const Color(0xFF29B6F6).withValues(alpha: 0.5)
-              : Colors.white.withValues(alpha: 0.08),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Icon(widget.icon, size: 26, color: Colors.white70),
-      ),
-    );
-  }
-}
-
 
 /// Heading rose: the needle points north, and the readout shows the
 /// camera's compass bearing and pitch.

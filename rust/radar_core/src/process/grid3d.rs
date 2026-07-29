@@ -138,7 +138,22 @@ pub fn build_grid_encoded(
                         v0 + (v1 - v0) * t
                     }
                     None => {
-                        // Above the highest beam: fade out over ~1.5 km.
+                        // Above the highest cut nothing was sampled. Near the
+                        // radar that unsampled region is the cone of silence,
+                        // an inverted cone standing on the site: the top cut
+                        // climbs with range, so its underside opens upward.
+                        //
+                        // Fading the top cut's value out over ~1.5 km softens
+                        // echo tops, but it only disappears if `no_echo` is
+                        // itself below the display floor. That holds for dBZ
+                        // (-33 fades past a -30 floor) and not for the
+                        // center-offset fields: 0 m/s of velocity, 0 dB of
+                        // ZDR and a CC of 1 are all perfectly displayable, so
+                        // the fade paints a cone of invented readings on the
+                        // cone of silence. Leave those voxels empty.
+                        if enc.no_echo > enc.min_show {
+                            continue;
+                        }
                         let (ht, vt) = *col.last().unwrap();
                         let fade = 1.0 - ((h - ht) / 1500.0).clamp(0.0, 1.0);
                         if fade <= 0.0 {
@@ -195,4 +210,112 @@ pub fn build_grid_encoded(
         half_extent_m,
         top_m,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::level3::ValueDecoder;
+    use crate::sweep::{GateData, SweepRadial};
+
+    const NXY: usize = 64;
+    const NZ: usize = 32;
+    const HALF_EXTENT: f32 = 60_000.0;
+    const TOP: f32 = 20_000.0;
+
+    /// One full cut of a constant value at every gate and azimuth.
+    fn cut(elevation_deg: f32, raw: u8, decoder: ValueDecoder) -> Sweep {
+        let nbins = 400usize;
+        Sweep {
+            site_lat: 35.0,
+            site_lon: -97.0,
+            first_gate_m: 0.0,
+            gate_size_m: 250.0,
+            nbins: nbins as u32,
+            radials: (0..720)
+                .map(|i| SweepRadial {
+                    start_az_deg: i as f32 * 0.5,
+                    delta_az_deg: 0.5,
+                    data: GateData::U8(vec![raw; nbins]),
+                })
+                .collect(),
+            decoder,
+            timestamp: 0,
+            elevation_deg,
+            max_raw: 255,
+        }
+    }
+
+    /// A volume scanning from 0.5 up to 19.5 degrees, as NEXRAD does.
+    fn volume(raw: u8, decoder: ValueDecoder) -> Vec<Sweep> {
+        [0.5f32, 1.5, 2.4, 3.4, 4.3, 6.0, 9.9, 14.6, 19.5]
+            .iter()
+            .map(|&el| cut(el, raw, decoder))
+            .collect()
+    }
+
+    /// Grid indices for a column about 4.8 km from the radar, where the
+    /// 19.5 degree top cut sits near 1.7 km up.
+    const NEAR_X: usize = 34;
+    const NEAR_Y: usize = 32;
+
+    fn grid(raw: u8, decoder: ValueDecoder, enc: GridEncode) -> Grid3D {
+        build_grid_encoded(&volume(raw, decoder), NXY, NZ, HALF_EXTENT, TOP, enc).unwrap()
+    }
+
+    const VEL_ENC: GridEncode = GridEncode {
+        scale: 2.0,
+        offset: 128.0,
+        min_show: -999.0,
+        no_echo: 0.0,
+    };
+    const VEL_DECODER: ValueDecoder = ValueDecoder::ScaleOffset {
+        scale: 2.0,
+        offset: 128.0,
+    };
+    const DBZ_DECODER: ValueDecoder = ValueDecoder::ScaleOffset {
+        scale: 2.0,
+        offset: 66.0,
+    };
+
+    #[test]
+    fn velocity_leaves_the_cone_of_silence_empty() {
+        // raw 178 -> 25 m/s, a reading that would be plainly visible.
+        let g = grid(178, VEL_DECODER, VEL_ENC);
+        // This column is 4.8 km out, where the 19.5 degree cut tops out near
+        // 1.69 km, so z >= 3 (2.19 km and up) is all cone of silence. The
+        // first two levels of it are what used to be painted: they sit inside
+        // the 1.5 km fade, and higher levels fell outside it and were culled
+        // anyway. Check the whole column so the fade band is covered.
+        for gz in 3..NZ {
+            assert_eq!(
+                g.at(NEAR_X, NEAR_Y, gz),
+                0,
+                "z={gz} is inside the cone of silence and must stay empty",
+            );
+        }
+    }
+
+    #[test]
+    fn velocity_still_fills_the_scanned_region() {
+        let g = grid(178, VEL_DECODER, VEL_ENC);
+        // Just above the ground at the same column, well under the top cut.
+        assert_ne!(
+            g.at(NEAR_X, NEAR_Y, 1),
+            0,
+            "the scanned part of the column must still hold data",
+        );
+    }
+
+    #[test]
+    fn reflectivity_keeps_its_soft_echo_tops() {
+        // raw 146 -> 40 dBZ. dBZ fades toward -33, under its -30 floor, so
+        // the fade above the top cut disappears on its own and is kept.
+        let g = grid(146, DBZ_DECODER, ENCODE_DBZ);
+        assert_ne!(
+            g.at(NEAR_X, NEAR_Y, 3),
+            0,
+            "reflectivity should still fade out above the highest cut",
+        );
+    }
 }

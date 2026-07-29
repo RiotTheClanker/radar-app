@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Every data source is fetched over the network: NEXRAD Level 2/3 and
+         MRMS from NOAA's S3 buckets, warnings from api.weather.gov, SPC
+         outlooks and reports, GOES GLM, the Blitzortung websocket, and the
+         basemap tiles. Without this the debug build works (the debug and
+         profile manifests declare it for the Flutter tool) but release builds
+         come up with no network at all. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="radar_app"
         android:name="${applicationName}"

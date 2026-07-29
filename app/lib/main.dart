@@ -20,6 +20,7 @@ import 'data/locate.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
 import 'src/rust/frb_generated.dart';
+import 'ui/toolbar.dart';
 import 'ui/volume3d_screen.dart';
 
 Future<void> main() async {
@@ -1327,7 +1328,7 @@ class _RadarScreenState extends State<RadarScreen> {
                         _beamHeightM(km * 1000, c.elevationDeg) * 3.28084 /
                             1000.0;
                     return Container(
-                      margin: const EdgeInsets.only(bottom: 6),
+                      margin: const EdgeInsets.fromLTRB(8, 0, 8, 6),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 8,
@@ -1357,13 +1358,17 @@ class _RadarScreenState extends State<RadarScreen> {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          Text(
-                            '${km.toStringAsFixed(1)} km '
-                            '(${(km * 0.621371).toStringAsFixed(1)} mi)'
-                            '  ·  ${brg.round()}°'
-                            '  ·  ${kft.toStringAsFixed(1)} kft'
-                            '  @ ${c.elevationDeg.toStringAsFixed(1)}°',
-                            style: const TextStyle(fontSize: 12),
+                          // Flexible so the range/heading/height line wraps on
+                          // a narrow screen instead of running off the pill.
+                          Flexible(
+                            child: Text(
+                              '${km.toStringAsFixed(1)} km '
+                              '(${(km * 0.621371).toStringAsFixed(1)} mi)'
+                              '  ·  ${brg.round()}°'
+                              '  ·  ${kft.toStringAsFixed(1)} kft'
+                              '  @ ${c.elevationDeg.toStringAsFixed(1)}°',
+                              style: const TextStyle(fontSize: 12),
+                            ),
                           ),
                         ],
                       ),
@@ -1444,6 +1449,9 @@ class _RadarScreenState extends State<RadarScreen> {
     }
     final stale = age != null && age.inMinutes > 20;
 
+    // Status on the left, buttons on the right. [ToolBar] keeps them on one
+    // line when there is room and stacks them when there isn't — in portrait
+    // on a phone the buttons alone are wider than the screen.
     return Container(
       margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
@@ -1451,20 +1459,18 @@ class _RadarScreenState extends State<RadarScreen> {
         color: const Color(0xB310141A),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
-        children: [
+      child: ToolBar(
+        status: [
           Text(
             _product.isMrms ? 'CONUS' : _site.icao,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(width: 8),
           Text(
             '${_product.short}'
             '${frame != null && _product.hasTilts ? ' ${frame.meta.elevationDeg.toStringAsFixed(1)}°' : ''}',
             style: const TextStyle(fontSize: 12, color: Colors.white70),
           ),
-          if (_historyTime != null) ...[
-            const SizedBox(width: 8),
+          if (_historyTime != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -1479,9 +1485,7 @@ class _RadarScreenState extends State<RadarScreen> {
                 ),
               ),
             ),
-          ],
-          if (stale && _historyTime == null) ...[
-            const SizedBox(width: 8),
+          if (stale && _historyTime == null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -1496,8 +1500,8 @@ class _RadarScreenState extends State<RadarScreen> {
                 ),
               ),
             ),
-          ],
-          const Spacer(),
+        ],
+        actions: [
           if (_error != null)
             Tooltip(
               message: _error!,
@@ -1732,8 +1736,8 @@ class _RadarScreenState extends State<RadarScreen> {
         color: const Color(0xB310141A),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
-        children: [
+      child: ToolBar(
+        status: [
           if (_frames.length > 1)
             IconButton(
               visualDensity: VisualDensity.compact,
@@ -1772,9 +1776,9 @@ class _RadarScreenState extends State<RadarScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 6),
           Text(ts, style: const TextStyle(fontSize: 12)),
-          const Spacer(),
+        ],
+        actions: [
           if (_product.hasTilts) ...[
             SegmentedButton<int>(
               showSelectedIcon: false,

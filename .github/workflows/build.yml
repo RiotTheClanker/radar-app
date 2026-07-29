@@ -47,12 +47,19 @@ jobs:
         working-directory: app
       - run: flutter analyze
         working-directory: app
+      - run: flutter test
+        working-directory: app
       - run: flutter build linux --release
         working-directory: app
       - name: package
         run: |
-          V="${GITHUB_REF_NAME#v}"
-          case "$V" in [0-9]*) ;; *) V="0.1.0~dev+${GITHUB_SHA::7}" ;; esac
+          # Only a v* tag carries a real version. Anything else gets a dev
+          # version — including pull requests, where GITHUB_REF_NAME is the
+          # merge ref ("3/merge") and dpkg rejects the slash.
+          case "$GITHUB_REF" in
+            refs/tags/v*) V="${GITHUB_REF_NAME#v}" ;;
+            *) V="0.1.0~dev+${GITHUB_SHA::7}" ;;
+          esac
           ./packaging/build-deb.sh "$V"
       - uses: actions/upload-artifact@v4
         with:
@@ -78,8 +85,14 @@ jobs:
       - name: build installer
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $v = "${env:GITHUB_REF_NAME}" -replace '^v',''
-          if (-not $v -or $v -notmatch '^\d') { $v = "0.1.0" }
+          # As above: only a v* tag is a real version. On a pull request
+          # GITHUB_REF_NAME is "3/merge", and the slash would end up in
+          # OutputBaseFilename as a directory separator.
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = "${env:GITHUB_REF_NAME}" -replace '^v',''
+          } else {
+            $v = "0.1.0-dev+" + $env:GITHUB_SHA.Substring(0, 7)
+          }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { $iscc = "ISCC.exe" }
           & $iscc "/DAppVersion=$v" packaging\windows-installer.iss
