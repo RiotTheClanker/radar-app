@@ -22,16 +22,18 @@ const appSlug = 'taa-yuku-radar';
 
 /// Kept in step with `version:` in pubspec.yaml by a test — see
 /// test/identity_test.dart.
-const appVersion = '0.1.2';
+const appVersion = '0.1.3';
 
 /// Where to find us. Used as the contact in [userAgent].
 const appUrl = 'https://github.com/RiotTheClanker/radar-app';
 
-/// Reverse-DNS id, matching the Android applicationId, the Linux
-/// APPLICATION_ID and the Windows company field.
-const appId = 'dev.radarapp.radar_app';
+/// Reverse-DNS id. Matches the Android applicationId and namespace, the
+/// Linux APPLICATION_ID, and the StartupWMClass in the desktop entry -- the
+/// last of those is how the shell pairs a window with its launcher icon, so
+/// it has to move whenever this does.
+const appId = 'io.github.riottheclanker.taayuku';
 
-/// e.g. `taa-yuku-radar/0.1.2 (+https://github.com/RiotTheClanker/radar-app)`
+/// e.g. `taa-yuku-radar/0.1.3 (+https://github.com/RiotTheClanker/radar-app)`
 const userAgent = '$appSlug/$appVersion (+$appUrl)';
 
 /// Ready to splat into an `http` call's `headers:`.

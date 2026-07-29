@@ -61,7 +61,7 @@ Icon=radar-app
 Terminal=false
 Categories=Science;Education;
 Keywords=weather;radar;nexrad;storm;forecast;lightning;
-StartupWMClass=dev.radarapp.radar_app
+StartupWMClass=io.github.riottheclanker.taayuku
 DESKTOP
 
 fakeroot dpkg-deb --build "$STAGE/$PKG" >/dev/null

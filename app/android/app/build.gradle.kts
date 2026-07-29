@@ -20,7 +20,7 @@ val releaseKeystore = keystoreProperties.getProperty("storeFile")?.let { rootPro
 val hasReleaseKey = releaseKeystore != null && releaseKeystore.exists()
 
 android {
-    namespace = "dev.radarapp.radar_app"
+    namespace = "io.github.riottheclanker.taayuku"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -30,8 +30,10 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "dev.radarapp.radar_app"
+        // Changing this makes Android treat the result as a different app:
+        // it installs alongside the old one rather than over it. Fixed before
+        // the first signed release, after which it cannot move again.
+        applicationId = "io.github.riottheclanker.taayuku"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
