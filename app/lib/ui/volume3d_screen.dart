@@ -555,7 +555,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     );
   }
 
-  /// Save what's on screen to ~/Pictures/radar-app.
+  /// Save what's on screen to ~/Pictures/taa-yuku-radar.
   Future<void> _saveSnapshot() async {
     try {
       Uint8List? png;

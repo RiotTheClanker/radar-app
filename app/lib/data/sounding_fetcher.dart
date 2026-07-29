@@ -14,6 +14,7 @@ import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'identity.dart';
 
 /// GSD marks every missing value with this.
 const _missing = 99999;
@@ -73,7 +74,7 @@ class Sounding {
   SoundingLevel? get surface => levels.isEmpty ? null : levels.first;
 }
 
-const _ua = {'User-Agent': 'radar_app-dev (open source radar app)'};
+const _ua = userAgentHeader;
 
 /// Fetch the most recent observed sounding for a station.
 ///

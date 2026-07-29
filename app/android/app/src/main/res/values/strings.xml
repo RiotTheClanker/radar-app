@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The apostrophe in Taa'a is a glottal stop, part of the spelling. It
+         lives here rather than inline in AndroidManifest.xml because the
+         resource compiler wants that character escaped, and \' in a string
+         resource is unambiguous where a bare ' in an attribute is not. -->
+    <string name="app_name">Taa\'a Yuku Radar</string>
+</resources>

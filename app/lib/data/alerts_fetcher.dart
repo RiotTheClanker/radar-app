@@ -7,6 +7,7 @@ import 'dart:ui';
 
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'identity.dart';
 
 /// How urgent an alert is, which is also how it gets drawn.
 ///
@@ -97,7 +98,7 @@ AlertCategory categoryOf(String event) {
 
 /// NWS asks for a descriptive User-Agent; requests without one get blocked.
 const _headers = {
-  'User-Agent': 'radar_app-dev (open source radar app)',
+  ...userAgentHeader,
   'Accept': 'application/geo+json',
 };
 

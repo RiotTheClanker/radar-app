@@ -1,9 +1,14 @@
-# Radar
+# Taa'a Yuku Radar
+
+<img src="branding/icon.svg" width="96" align="right" alt="">
 
 [![build](https://github.com/RiotTheClanker/radar-app/actions/workflows/build.yml/badge.svg)](https://github.com/RiotTheClanker/radar-app/actions/workflows/build.yml)
 
 A free, open, professional-grade weather radar app for **Windows, Android, and
 Debian Linux**.
+
+The name is Yaqui (Yoeme): **taa'a**, the sun — close to **ta'a**, to know —
+and **yuku**, the rain. Used with the blessing of a Yaqui speaker.
 
 **No subscription. No accounts. No servers.** Radar data comes straight from
 free NOAA/NWS open-data sources, and every calculation — Level 2 decoding,
@@ -84,8 +89,9 @@ to IP geolocation otherwise, which is city-level and on mobile data resolves
 your carrier rather than you. Nothing is asked for at startup and the app
 works fine with location refused — it just opens on the default site.
 
-**Files** — drop `.pal` color tables in `~/.config/radar-app/palettes/`.
-Snapshots are written to `~/Pictures/radar-app/`.
+**Files** — drop `.pal` color tables in `~/.config/taa-yuku-radar/palettes/`.
+Snapshots are written to `~/Pictures/taa-yuku-radar/`. A palette directory
+left over from before the app was named is moved across on first run.
 
 ## Install
 
@@ -141,6 +147,20 @@ cd app && flutter build linux --release && cd ..
 | Decode, processing, rendering | Rust (`rust/radar_core/`) via `flutter_rust_bridge` |
 | 3D | wgpu raymarcher, with a CPU fallback |
 | Map | `flutter_map` + your choice of free basemap |
+| Icon | one SVG in `branding/`, rendered to every platform size |
+
+The app icon is drawn as geometry in `branding/make_icons.py` rather than
+kept as a folder of exported PNGs, so changing it means editing the sweep
+angle or the storm colors and re-running:
+
+```
+pip install pillow cairosvg
+python3 branding/make_icons.py
+```
+
+That rewrites the Android mipmaps (legacy, adaptive foreground, and the
+monochrome layer Android 13+ tints for themed icons), the Windows `.ico`, and
+the Linux hicolor tree the `.deb` installs.
 
 The Rust crate does the heavy lifting and has no server component: NEXRAD
 Level 2/3, MRMS GRIB2, and GOES GLM are all parsed with hand-written readers,

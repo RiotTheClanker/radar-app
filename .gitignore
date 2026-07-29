@@ -19,3 +19,6 @@ tools/testdata/
 
 # Packaged output
 dist/
+
+# Python bytecode from branding/make_icons.py
+__pycache__/

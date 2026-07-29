@@ -1,5 +1,5 @@
 name: radar_app
-description: "A new Flutter project."
+description: "Free, open weather radar. NEXRAD Level 2/3 decoded on your device."
 publish_to: 'none'
 version: 0.1.2+3
 
