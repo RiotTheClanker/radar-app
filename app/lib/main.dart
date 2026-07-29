@@ -20,6 +20,7 @@ import 'data/locate.dart';
 import 'data/nexrad_sites.g.dart';
 import 'src/rust/api/radar.dart';
 import 'src/rust/frb_generated.dart';
+import 'ui/color_key.dart';
 import 'ui/toolbar.dart';
 import 'ui/volume3d_screen.dart';
 
@@ -199,6 +200,13 @@ class _RadarScreenState extends State<RadarScreen> {
   List<StormReport> _reports = [];
   bool _showOutlook = false;
   bool _showReports = false;
+
+  /// Color key. Cached per product so switching back is instant, and rebuilt
+  /// when a palette is imported since that changes the colors on the map.
+  bool _showKey = true;
+  ColorScale? _keyScale;
+  String? _keyFor;
+  int _paletteGeneration = 0;
   Timer? _alertTimer;
   final LayerHitNotifier<WeatherAlert> _alertHit = ValueNotifier(null);
   final Map<String, Uint8List> _l2Cache = {};
@@ -254,9 +262,10 @@ class _RadarScreenState extends State<RadarScreen> {
   }
 
   Future<void> _startup() async {
-    // Find where we are (IP-based on desktop; GPS on mobile later) and tune
-    // to the nearest radar. Falls back to the default site silently.
-    final loc = await locate();
+    // Find where we are and tune to the nearest radar. GPS if permission is
+    // already granted, IP geolocation otherwise; no prompt here, that belongs
+    // to the "my location" button. Falls back to the default site silently.
+    final loc = await locate(askPermission: false);
     if (loc != null && mounted) {
       _myLocation = loc;
       final nearest = _nearestSite(loc);
@@ -352,6 +361,7 @@ class _RadarScreenState extends State<RadarScreen> {
       });
       // Sharpen for the current viewport right away.
       unawaited(_renderViewport());
+      unawaited(_loadColorKey(frames.isEmpty ? null : frames.last));
       if (_cursor) unawaited(_openCursorSession());
     } catch (e) {
       if (generation != _loadGeneration || !mounted) return;
@@ -584,6 +594,7 @@ class _RadarScreenState extends State<RadarScreen> {
         }
       }
       _futureFrame = null;
+      _paletteGeneration++;
       await _loadFrames();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -851,10 +862,21 @@ class _RadarScreenState extends State<RadarScreen> {
   }
 
   Future<void> _goToMyLocation() async {
-    _myLocation ??= await locate();
-    final loc = _myLocation;
-    if (loc == null) return;
-    _mapController.move(loc, 8);
+    // Always re-ask rather than reusing the startup fix: the button is what
+    // triggers the permission prompt, and a stale position is the thing the
+    // user is trying to correct.
+    final result = await locateDetailed();
+    final loc = result.position;
+    if (!mounted) return;
+    if (loc == null) {
+      // Silence here reads as a dead button, so say what went wrong.
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(result.message)));
+      return;
+    }
+    setState(() => _myLocation = loc);
+    _mapController.move(loc, result.precise ? 8 : 7);
     final nearest = _nearestSite(loc);
     if (nearest.icao != _site.icao) {
       _selectSite(nearest);
@@ -1424,6 +1446,20 @@ class _RadarScreenState extends State<RadarScreen> {
               ],
             ),
           ),
+          if (_showKey && _keyScale != null)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ColorKey(
+                    scale: _keyScale!,
+                    rangeFolded: _product.short.contains('VEL') ||
+                        _product.short.contains('SRM'),
+                  ),
+                ),
+              ),
+            ),
           if (_loading)
             const Align(
               alignment: Alignment.topCenter,
@@ -1435,6 +1471,28 @@ class _RadarScreenState extends State<RadarScreen> {
         ],
       ),
     );
+  }
+
+  /// Fetch the color scale for whatever is on screen. Keyed by product plus
+  /// palette generation so an imported `.pal` refreshes the key too.
+  Future<void> _loadColorKey(_Frame? frame) async {
+    final id = '${_product.short}|$_paletteGeneration';
+    if (_keyFor == id) return;
+    try {
+      final scale = await colorScale(
+        productCode: _product.isLevel2 || _product.isMrms
+            ? 0
+            : (frame?.meta.productCode ?? 0),
+        moment: _product.l2Moment ?? '',
+      );
+      if (!mounted) return;
+      setState(() {
+        _keyScale = scale;
+        _keyFor = id;
+      });
+    } catch (_) {
+      // The map is still readable without a key.
+    }
   }
 
   Widget _topBar(_Frame? frame) {
@@ -1647,6 +1705,8 @@ class _RadarScreenState extends State<RadarScreen> {
                     _measuring = !_measuring;
                     _measurePts.clear();
                   });
+                case 'key':
+                  setState(() => _showKey = !_showKey);
                 case 'palette_reset':
                   _applyPalette('');
                 default:
@@ -1674,6 +1734,11 @@ class _RadarScreenState extends State<RadarScreen> {
                   value: 'measure',
                   checked: _measuring,
                   child: const Text('Measure distance'),
+                ),
+                CheckedPopupMenuItem(
+                  value: 'key',
+                  checked: _showKey,
+                  child: const Text('Color key'),
                 ),
                 const PopupMenuItem(
                   value: 'snapshot',

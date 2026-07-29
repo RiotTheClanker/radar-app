@@ -30,6 +30,8 @@ your device.
 - GPU-raymarched storm volumes you can **fly through** (WASD + mouse, or an
   on-screen stick on touch)
 - Slice planes, a basemap draped on the ground, compass and radar pin
+- Optional **3D terrain** under the storm, and an optional shaded **cone of
+  silence** showing the column above the radar that no scan reaches
 - Reflectivity, storm-relative wind, ground-relative wind, ZDR, and CC as
   selectable 3D fields
 
@@ -50,14 +52,30 @@ your device.
 **Map** — drag to pan, pinch or scroll to zoom. Long-press for a one-shot
 value readout. Toolbar, left to right: lightning source, 3D volume, future
 radar, severe-weather layers, basemap, my location, aiming cursor, more
-(replay / measure / snapshot / color tables), reload.
+(replay / measure / color key / snapshot / color tables), reload.
+
+**Color key** — a scale down the right edge showing what the colors mean for
+whatever product is up, in that product's own units. It is built from the
+same table the renderer used, so an imported `.pal` changes the key too.
+Toggle it under the more menu.
 
 **3D view** — fills the screen, with the controls floating over the storm.
 Drag to look, two fingers to pan, pinch to fly. On desktop: `W` `A` `S` `D`
 to move, `Space` / `Shift` for altitude, `Ctrl` to speed up, scroll to dolly.
 On touch, use the on-screen stick and altitude pad. The scissors button
-reveals slice planes; the layers button switches the 3D field; the eye button
-hides the stick and every other control, leaving just the storm.
+reveals slice planes; the layers button switches the 3D field; the mountain
+button drapes the storm over real terrain; the bars button shades the cone of
+silence; the eye button hides the stick and every other control, leaving just
+the storm.
+
+Terrain is off by default — it is a second set of tiles to fetch, and it is
+not always wanted. Elevation comes from the free AWS Terrain Tiles dataset.
+
+**Location** — the app opens on the radar nearest you, and the my-location
+button re-centers there. It uses GPS when you grant permission and falls back
+to IP geolocation otherwise, which is city-level and on mobile data resolves
+your carrier rather than you. Nothing is asked for at startup and the app
+works fine with location refused — it just opens on the default site.
 
 **Files** — drop `.pal` color tables in `~/.config/radar-app/palettes/`.
 Snapshots are written to `~/Pictures/radar-app/`.
@@ -121,7 +139,8 @@ Debug tools live in `rust/radar_core/src/bin` and `examples/` — `l2dump`,
 
 NEXRAD Level 2/3 and MRMS (NOAA Open Data on AWS), api.weather.gov for
 warnings, SPC for outlooks and storm reports, GOES GLM for satellite
-lightning, and Blitzortung.org for ground-network lightning.
+lightning, Blitzortung.org for ground-network lightning, and AWS Terrain
+Tiles for 3D terrain elevation.
 
 ## License
 

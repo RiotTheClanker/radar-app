@@ -20,7 +20,13 @@ struct U {
     cmin: vec4f,
     cmax: vec4f,
     // g0.x: 1 when a basemap ground texture is bound
+    // g0.y: 1 when a terrain heightfield is bound
+    // g0.z: tallest terrain height in meters, before exaggeration
+    // g0.w: vertical exaggeration, matching the volume's
     g0: vec4f,
+    // g1.x: 1 when the cone of silence should be drawn
+    // g1.y: highest elevation the volume scanned, radians
+    g1: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: U;
@@ -29,6 +35,17 @@ struct U {
 @group(0) @binding(3) var pal: texture_2d<f32>;
 @group(0) @binding(4) var pal_samp: sampler;
 @group(0) @binding(5) var ground: texture_2d<f32>;
+@group(0) @binding(6) var terrain: texture_2d<f32>;
+
+/// Ground-plane texture coordinates for a world xy.
+fn ground_uv(p: vec2f, ex: f32) -> vec2f {
+    return vec2f((p.x + ex) / (2.0 * ex), 1.0 - (p.y + ex) / (2.0 * ex));
+}
+
+/// Terrain height at a world xy, exaggerated to match the volume's z axis.
+fn terrain_h(p: vec2f, ex: f32, zex: f32) -> f32 {
+    return textureSampleLevel(terrain, pal_samp, ground_uv(p, ex), 0.0).r * zex;
+}
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -59,17 +76,81 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let ex = u.p0.z;
     let top = u.p0.w;
 
-    // Basemap on the z=0 plane, so you can tell where you are. Sampled
+    // Basemap on the ground, so you can tell where you are. Sampled
     // independently of the clip box; the volume composites over it.
     var ground_col = vec4f(0.0);
-    if (u.g0.x > 0.5 && dir.z < -0.00001) {
+    // Distance to the ground, so the volume can stop at a hill in front of
+    // it rather than being drawn straight through.
+    var ground_t = -1.0;
+    if (u.g0.y > 0.5) {
+        // Terrain on: march the heightfield until the ray drops under the
+        // surface, then bisect the crossing so ridgelines stay crisp.
+        let zex = u.g0.w;
+        let maxh = u.g0.z * zex;
+        let bb = ray_box(u.eye.xyz, dir,
+                         vec3f(-ex, -ex, -1.0e7), vec3f(ex, ex, maxh + 1.0));
+        var t0 = max(bb.x, 0.0);
+        let tend = bb.y;
+        if (tend > t0) {
+            let tstep = (2.0 * ex) / 256.0;
+            var prev_t = t0;
+            let p0 = u.eye.xyz + dir * t0;
+            var prev_d = p0.z - terrain_h(p0.xy, ex, zex);
+            // Starting underground counts as an immediate hit.
+            var hit_t = select(-1.0, t0, prev_d < 0.0);
+            if (hit_t < 0.0) {
+                var tt = t0 + tstep;
+                for (var i = 0; i < 260; i++) {
+                    if (tt > tend) { break; }
+                    let p = u.eye.xyz + dir * tt;
+                    let d = p.z - terrain_h(p.xy, ex, zex);
+                    if (d < 0.0) {
+                        var a = prev_t;
+                        var b = tt;
+                        for (var k = 0; k < 8; k++) {
+                            let m = 0.5 * (a + b);
+                            let pm = u.eye.xyz + dir * m;
+                            if (pm.z - terrain_h(pm.xy, ex, zex) < 0.0) {
+                                b = m;
+                            } else {
+                                a = m;
+                            }
+                        }
+                        hit_t = b;
+                        break;
+                    }
+                    prev_d = d;
+                    prev_t = tt;
+                    tt += tstep;
+                }
+            }
+            if (hit_t >= 0.0) {
+                let hp = u.eye.xyz + dir * hit_t;
+                var col = textureSampleLevel(ground, pal_samp,
+                                             ground_uv(hp.xy, ex), 0.0);
+                if (u.g0.x < 0.5) { col = vec4f(0.34, 0.35, 0.33, 1.0); }
+                // Relief from the height gradient, so the shape reads even
+                // where the basemap is flat in color.
+                let e = (2.0 * ex) / 256.0;
+                let hx = terrain_h(hp.xy + vec2f(e, 0.0), ex, zex)
+                       - terrain_h(hp.xy - vec2f(e, 0.0), ex, zex);
+                let hy = terrain_h(hp.xy + vec2f(0.0, e), ex, zex)
+                       - terrain_h(hp.xy - vec2f(0.0, e), ex, zex);
+                let n = normalize(vec3f(-hx / (2.0 * e), -hy / (2.0 * e), 1.0));
+                let sun = normalize(vec3f(-0.45, -0.6, 0.66));
+                let shade = clamp(0.55 + 0.75 * max(dot(n, sun), 0.0), 0.45, 1.4);
+                ground_col = vec4f(col.rgb * shade, max(col.a, 0.85));
+                ground_t = hit_t;
+            }
+        }
+    } else if (u.g0.x > 0.5 && dir.z < -0.00001) {
         let tg = -u.eye.z / dir.z;
         if (tg > 0.0) {
             let gp = u.eye.xyz + dir * tg;
             if (abs(gp.x) <= ex && abs(gp.y) <= ex) {
-                let guv = vec2f((gp.x + ex) / (2.0 * ex),
-                                1.0 - (gp.y + ex) / (2.0 * ex));
-                ground_col = textureSampleLevel(ground, pal_samp, guv, 0.0);
+                ground_col = textureSampleLevel(ground, pal_samp,
+                                                ground_uv(gp.xy, ex), 0.0);
+                ground_t = tg;
             }
         }
     }
@@ -79,7 +160,9 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 
     let hit = ray_box(u.eye.xyz, dir, bmin, bmax);
     var t = max(hit.x, 0.0);
-    let t1 = hit.y;
+    // Stop at the ground: storm behind a ridge should be hidden by it.
+    var t1 = hit.y;
+    if (ground_t >= 0.0) { t1 = min(t1, ground_t); }
 
     var acc = vec3f(0.0);
     var alpha = 0.0;
@@ -97,6 +180,19 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
             let a = min(c.a * alpha_scale * step, 0.9) * (1.0 - alpha);
             acc += c.rgb * a;
             alpha += a;
+        }
+        // The cone of silence: the radar cannot tilt past its top cut, so
+        // nothing above that angle is ever sampled. Fill it with a thin haze
+        // so the shape of what the radar cannot see is visible. Heights are
+        // exaggerated in world space, so undo that before taking the angle.
+        if (u.g1.x > 0.5) {
+            let gr = length(p.xy);
+            let real_z = p.z / max(u.g0.w, 0.001);
+            if (gr > 1.0 && atan2(real_z, gr) > u.g1.y) {
+                let ca = min(0.000016 * step, 0.02) * (1.0 - alpha);
+                acc += vec3f(0.38, 0.74, 0.95) * ca;
+                alpha += ca;
+            }
         }
         t += step;
     }
@@ -120,6 +216,16 @@ pub struct GpuVolume {
     uniforms: wgpu::Buffer,
     ground_view: wgpu::TextureView,
     has_ground: bool,
+    terrain_view: wgpu::TextureView,
+    has_terrain: bool,
+    /// Tallest terrain height in meters, before exaggeration. Bounds the
+    /// heightfield march so rays above every hill exit straight away.
+    terrain_max_m: f32,
+    z_exaggeration: f32,
+    /// Highest elevation the volume scanned, degrees. Everything above this
+    /// angle is the cone of silence.
+    el_max_deg: f32,
+    show_cone: bool,
     pub ex: f32,
     pub top: f32,
 }
@@ -277,6 +383,16 @@ impl GpuVolume {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -311,6 +427,7 @@ impl GpuVolume {
         });
 
         let ground_view = make_ground_texture(&device, &queue, &[0, 0, 0, 0], 1, 1);
+        let terrain_view = make_terrain_texture(&device, &queue, &[0.0], 1, 1);
 
         let s = Self {
             device,
@@ -325,6 +442,12 @@ impl GpuVolume {
             uniforms,
             ground_view,
             has_ground: false,
+            terrain_view,
+            has_terrain: false,
+            terrain_max_m: 0.0,
+            z_exaggeration,
+            el_max_deg: 19.5,
+            show_cone: false,
             ex: grid.half_extent_m,
             top: grid.top_m * z_exaggeration,
         };
@@ -365,6 +488,36 @@ impl GpuVolume {
         self.has_ground = true;
     }
 
+    /// Upload a terrain heightfield covering the same extent as the ground
+    /// image, north-up, heights in meters above sea level. Replaces the flat
+    /// ground plane with a surface the ray actually collides with.
+    pub fn set_terrain(&mut self, heights: &[f32], width: u32, height: u32) {
+        if width == 0 || height == 0 || heights.len() < (width * height) as usize {
+            return;
+        }
+        self.terrain_max_m = heights.iter().copied().fold(0.0f32, f32::max);
+        self.terrain_view =
+            make_terrain_texture(&self.device, &self.queue, heights, width, height);
+        self.has_terrain = true;
+    }
+
+    /// Tell the renderer where the scanned cone ends, so it can draw what
+    /// lies above it.
+    pub fn set_beam_limits(&mut self, el_max_deg: f32) {
+        self.el_max_deg = el_max_deg;
+    }
+
+    /// Draw the cone of silence as a translucent haze.
+    pub fn set_show_cone(&mut self, show: bool) {
+        self.show_cone = show;
+    }
+
+    /// Go back to the flat ground plane.
+    pub fn clear_terrain(&mut self) {
+        self.has_terrain = false;
+        self.terrain_max_m = 0.0;
+    }
+
     pub fn render(&self, p: &FlyParams, width: u32, height: u32) -> Result<Vec<u8>, String> {
         let yaw = p.yaw_deg.to_radians();
         let pitch = p.pitch_deg.to_radians().clamp(-1.55, 1.55);
@@ -403,6 +556,11 @@ impl GpuVolume {
         u[24..27].copy_from_slice(&p.clip_min);
         u[28..31].copy_from_slice(&p.clip_max);
         u[32] = if self.has_ground { 1.0 } else { 0.0 };
+        u[33] = if self.has_terrain { 1.0 } else { 0.0 };
+        u[34] = self.terrain_max_m;
+        u[35] = self.z_exaggeration;
+        u[36] = if self.show_cone { 1.0 } else { 0.0 };
+        u[37] = self.el_max_deg.to_radians();
         self.queue
             .write_buffer(&self.uniforms, 0, bytemuck::cast_slice(&u));
 
@@ -433,6 +591,10 @@ impl GpuVolume {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::TextureView(&self.ground_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&self.terrain_view),
                 },
             ],
         });
@@ -532,6 +694,55 @@ impl GpuVolume {
     }
 }
 
+/// Single-channel float texture of heights in meters.
+fn make_terrain_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    heights: &[f32],
+    width: u32,
+    height: u32,
+) -> wgpu::TextureView {
+    let size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let halves: Vec<u16> = heights
+        .iter()
+        .map(|&h| half::f16::from_f32(h).to_bits())
+        .collect();
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("terrain"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        // r16float rather than r32float: 32-bit float textures are only
+        // filterable behind an optional feature that plenty of mobile GPUs
+        // do not have, and half precision is still ~4 m at 4 km, far finer
+        // than the ~1 km spacing of the heightfield itself.
+        format: wgpu::TextureFormat::R16Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        bytemuck::cast_slice(&halves),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 2),
+            rows_per_image: Some(height),
+        },
+        size,
+    );
+    tex.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
 fn make_ground_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -570,4 +781,125 @@ fn make_ground_texture(
         size,
     );
     tex.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Flat ground vs. a ridge, through the real shader.
+    ///
+    /// Needs a working graphics adapter, so this is a no-op on a machine
+    /// without one — including CI, which has no GPU and no software driver.
+    /// Locally, `mesa-vulkan-drivers` provides one.
+    #[test]
+    fn terrain_changes_what_is_drawn() {
+        let nxy = 32;
+        let nz = 16;
+        let grid = Grid3D {
+            nxy,
+            nz,
+            data: vec![0u8; nxy * nxy * nz],
+            half_extent_m: 120_000.0,
+            top_m: 16_000.0,
+        };
+        let pal = [[0u8; 4]; 256];
+        let Ok(mut gpu) = GpuVolume::new(&grid, &pal, 4.0) else {
+            eprintln!("no graphics adapter; skipping");
+            return;
+        };
+        gpu.set_ground(&vec![120u8; 64 * 64 * 4], 64, 64);
+
+        let params = FlyParams {
+            eye: [0.0, -200_000.0, 22_000.0],
+            yaw_deg: 0.0,
+            pitch_deg: -8.0,
+            fov_deg: 55.0,
+            clip_min: [0.0, 0.0, 0.0],
+            clip_max: [1.0, 1.0, 1.0],
+        };
+        let (w, h) = (160u32, 120u32);
+        let flat = gpu.render(&params, w, h).unwrap();
+
+        // A 3 km ridge across the middle.
+        let n = 64usize;
+        let mut heights = vec![0f32; n * n];
+        for ty in 0..n {
+            for tx in 0..n {
+                let fy = ty as f32 / n as f32 - 0.5;
+                heights[ty * n + tx] = 3000.0 * (-(fy * fy) / 0.01).exp();
+            }
+        }
+        gpu.set_terrain(&heights, n as u32, n as u32);
+        let hilly = gpu.render(&params, w, h).unwrap();
+
+        let changed = flat
+            .chunks(4)
+            .zip(hilly.chunks(4))
+            .filter(|(a, b)| a[0].abs_diff(b[0]) as u32 > 4)
+            .count();
+        assert!(
+            changed > (w * h) as usize / 20,
+            "a 3 km ridge should visibly change the frame, only {changed} pixels moved",
+        );
+
+        // And turning it off puts the flat plane back.
+        gpu.clear_terrain();
+        let again = gpu.render(&params, w, h).unwrap();
+        assert_eq!(flat, again, "clear_terrain must restore the flat ground");
+    }
+
+    /// The cone of silence haze, through the real shader. Same adapter
+    /// caveat as above: a no-op where there is no GPU.
+    #[test]
+    fn the_cone_of_silence_stands_on_the_radar() {
+        let nxy = 32;
+        let nz = 16;
+        let grid = Grid3D {
+            nxy,
+            nz,
+            data: vec![0u8; nxy * nxy * nz],
+            half_extent_m: 120_000.0,
+            top_m: 16_000.0,
+        };
+        let Ok(mut gpu) = GpuVolume::new(&grid, &[[0u8; 4]; 256], 4.0) else {
+            eprintln!("no graphics adapter; skipping");
+            return;
+        };
+        let params = FlyParams {
+            eye: [0.0, -200_000.0, 22_000.0],
+            yaw_deg: 0.0,
+            pitch_deg: -2.0,
+            fov_deg: 55.0,
+            clip_min: [0.0, 0.0, 0.0],
+            clip_max: [1.0, 1.0, 1.0],
+        };
+        let (w, h) = (160u32, 120u32);
+        let off = gpu.render(&params, w, h).unwrap();
+
+        gpu.set_beam_limits(19.5);
+        gpu.set_show_cone(true);
+        let on = gpu.render(&params, w, h).unwrap();
+        assert_ne!(off, on, "the cone should be visible once switched on");
+
+        // It stands over the radar, so the middle of the frame gains far more
+        // haze than the edges — the wrong way round would mean the angle test
+        // is inverted and it is the scanned region being shaded instead.
+        let lit = |x0: u32, x1: u32| -> u32 {
+            let mut sum = 0u32;
+            for y in 0..h / 2 {
+                for x in x0..x1 {
+                    let i = ((y * w + x) * 4) as usize;
+                    sum += (on[i + 2] as i32 - off[i + 2] as i32).max(0) as u32;
+                }
+            }
+            sum
+        };
+        let middle = lit(w / 2 - 12, w / 2 + 12);
+        let edge = lit(0, 24);
+        assert!(
+            middle > edge * 4,
+            "the cone belongs over the radar: middle {middle} vs edge {edge}",
+        );
+    }
 }

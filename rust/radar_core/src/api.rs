@@ -493,7 +493,15 @@ pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Vo
     let grid = build_grid_encoded(&cuts, 384, 40, 120_000.0, 16_000.0, grid_encode_for(&moment))
         .ok_or_else(|| format!("no {moment} cuts in volume"))?;
     let pal = palette_3d(&moment, threshold);
-    let gpu = crate::render::gpu3d::GpuVolume::new(&grid, &pal, Z_EXAG).ok();
+    // The top cut is where the cone of silence begins.
+    let el_max = cuts
+        .iter()
+        .map(|c| c.elevation_deg)
+        .fold(f32::MIN, f32::max);
+    let mut gpu = crate::render::gpu3d::GpuVolume::new(&grid, &pal, Z_EXAG).ok();
+    if let Some(g) = gpu.as_mut() {
+        g.set_beam_limits(el_max);
+    }
     let info = Volume3DInfo {
         gpu: gpu.is_some(),
         half_extent_m: grid.half_extent_m,
@@ -603,6 +611,33 @@ pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(),
     let s = guard.as_mut().ok_or("no 3D session")?;
     if let Some(gpu) = s.gpu.as_mut() {
         gpu.set_ground(&rgba, width, height);
+    }
+    Ok(())
+}
+
+/// Draw the cone of silence — the unsampled column above the radar's top cut
+/// — as a translucent haze, so you can see what the radar cannot.
+pub fn volume3d_show_cone(show: bool) -> Result<(), String> {
+    let mut guard = VOL3D.lock().unwrap();
+    let s = guard.as_mut().ok_or("no 3D session")?;
+    if let Some(gpu) = s.gpu.as_mut() {
+        gpu.set_show_cone(show);
+    }
+    Ok(())
+}
+
+/// Give the ground relief. `heights` is metres above sea level on a north-up
+/// grid covering the same extent as the basemap, row-major from the north
+/// edge. Pass an empty slice to go back to a flat plane.
+pub fn volume3d_set_terrain(heights: Vec<f32>, width: u32, height: u32) -> Result<(), String> {
+    let mut guard = VOL3D.lock().unwrap();
+    let s = guard.as_mut().ok_or("no 3D session")?;
+    if let Some(gpu) = s.gpu.as_mut() {
+        if heights.is_empty() {
+            gpu.clear_terrain();
+        } else {
+            gpu.set_terrain(&heights, width, height);
+        }
     }
     Ok(())
 }
@@ -770,4 +805,66 @@ pub fn inspect_site() -> Result<Vec<f64>, String> {
     let guard = INSPECT.lock().unwrap();
     let (sweep, _) = guard.as_ref().ok_or("no inspect session")?;
     Ok(vec![sweep.site_lat, sweep.site_lon])
+}
+
+/// One breakpoint of a product's color scale.
+pub struct ColorScaleStop {
+    pub value: f32,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+/// Everything the UI needs to draw a key for what the colors mean.
+pub struct ColorScale {
+    /// Breakpoints in ascending value order.
+    pub stops: Vec<ColorScaleStop>,
+    /// True when the renderer blends between stops, false when it steps.
+    /// The key should be drawn the same way or it will not match the map.
+    pub interpolate: bool,
+    pub unit: String,
+    /// Purple by convention, for bins that are range folded.
+    pub rf_r: u8,
+    pub rf_g: u8,
+    pub rf_b: u8,
+}
+
+/// The color scale a product is drawn with, so the key matches the map.
+///
+/// Pass `moment` for Level 2 and derived products, or leave it empty and pass
+/// the Level 3 `product_code` from the rendered frame. Both routes end at the
+/// same `ColorTable::default_for`, which is also where a user's imported
+/// `.pal` table takes over — so the key follows a custom palette too.
+pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, String> {
+    let (kind, unit) = if !moment.is_empty() {
+        let (kind, _, unit) = moment_meta(&moment);
+        (kind, unit)
+    } else {
+        match level3::products::product_info(product_code as i16) {
+            Some(info) => (info.kind, info.unit.to_string()),
+            // Code 0 is the MRMS mosaic, which renders as reflectivity.
+            None => (ProductKind::Reflectivity, "dBZ".to_string()),
+        }
+    };
+
+    let table = ColorTable::default_for(kind);
+    Ok(ColorScale {
+        stops: table
+            .stops
+            .iter()
+            .map(|s| ColorScaleStop {
+                value: s.value,
+                r: s.color[0],
+                g: s.color[1],
+                b: s.color[2],
+                a: s.color[3],
+            })
+            .collect(),
+        interpolate: table.interpolate,
+        unit,
+        rf_r: table.rf_color[0],
+        rf_g: table.rf_color[1],
+        rf_b: table.rf_color[2],
+    })
 }

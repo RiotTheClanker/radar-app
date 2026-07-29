@@ -343,3 +343,65 @@ pub fn inspect_sample(lat: f64, lon: f64) -> Result<SampleResult, String> {
 pub fn inspect_site() -> Result<Vec<f64>, String> {
     core::inspect_site()
 }
+
+/// One breakpoint of a product's color scale.
+pub struct ColorScaleStop {
+    pub value: f32,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+/// Everything the UI needs to draw a key for what the colors mean.
+pub struct ColorScale {
+    /// Breakpoints in ascending value order.
+    pub stops: Vec<ColorScaleStop>,
+    /// True when the renderer blends between stops, false when it steps. The
+    /// key must be drawn the same way or it will not match the map.
+    pub interpolate: bool,
+    pub unit: String,
+    /// Purple by convention, for bins that are range folded.
+    pub rf_r: u8,
+    pub rf_g: u8,
+    pub rf_b: u8,
+}
+
+/// The color scale a product is drawn with, so the key matches the map.
+///
+/// Pass `moment` for Level 2 and derived products, or leave it empty and pass
+/// the Level 3 `product_code` from the rendered frame.
+pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, String> {
+    let s = core::color_scale(product_code, moment)?;
+    Ok(ColorScale {
+        stops: s
+            .stops
+            .into_iter()
+            .map(|st| ColorScaleStop {
+                value: st.value,
+                r: st.r,
+                g: st.g,
+                b: st.b,
+                a: st.a,
+            })
+            .collect(),
+        interpolate: s.interpolate,
+        unit: s.unit,
+        rf_r: s.rf_r,
+        rf_g: s.rf_g,
+        rf_b: s.rf_b,
+    })
+}
+
+/// Give the 3D ground relief. `heights` is metres above sea level on a
+/// north-up grid covering the same extent as the basemap, row-major from the
+/// north edge. Pass an empty list to go back to a flat plane.
+pub fn volume3d_set_terrain(heights: Vec<f32>, width: u32, height: u32) -> Result<(), String> {
+    core::volume3d_set_terrain(heights, width, height)
+}
+
+/// Draw the cone of silence — the unsampled column above the radar's top cut
+/// — as a translucent haze, so you can see what the radar cannot.
+pub fn volume3d_show_cone(show: bool) -> Result<(), String> {
+    core::volume3d_show_cone(show)
+}

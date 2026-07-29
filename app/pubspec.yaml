@@ -1,7 +1,7 @@
 name: radar_app
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: ^3.12.2
@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
   flutter_map: ^8.3.1
   flutter_rust_bridge: 2.12.0
+  geolocator: ^14.0.3
   http: ^1.6.0
   intl: ^0.20.3
   latlong2: ^0.10.1

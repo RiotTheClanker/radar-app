@@ -1091,6 +1091,7 @@ dependencies = [
  "bytemuck",
  "bzip2",
  "flate2",
+ "half",
  "png",
  "pollster",
  "thiserror",
