@@ -254,9 +254,10 @@ class _RadarScreenState extends State<RadarScreen> {
   }
 
   Future<void> _startup() async {
-    // Find where we are (IP-based on desktop; GPS on mobile later) and tune
-    // to the nearest radar. Falls back to the default site silently.
-    final loc = await locate();
+    // Find where we are and tune to the nearest radar. GPS if permission is
+    // already granted, IP geolocation otherwise; no prompt here, that belongs
+    // to the "my location" button. Falls back to the default site silently.
+    final loc = await locate(askPermission: false);
     if (loc != null && mounted) {
       _myLocation = loc;
       final nearest = _nearestSite(loc);
@@ -851,10 +852,21 @@ class _RadarScreenState extends State<RadarScreen> {
   }
 
   Future<void> _goToMyLocation() async {
-    _myLocation ??= await locate();
-    final loc = _myLocation;
-    if (loc == null) return;
-    _mapController.move(loc, 8);
+    // Always re-ask rather than reusing the startup fix: the button is what
+    // triggers the permission prompt, and a stale position is the thing the
+    // user is trying to correct.
+    final result = await locateDetailed();
+    final loc = result.position;
+    if (!mounted) return;
+    if (loc == null) {
+      // Silence here reads as a dead button, so say what went wrong.
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(result.message)));
+      return;
+    }
+    setState(() => _myLocation = loc);
+    _mapController.move(loc, result.precise ? 8 : 7);
     final nearest = _nearestSite(loc);
     if (nearest.icao != _site.icao) {
       _selectSite(nearest);

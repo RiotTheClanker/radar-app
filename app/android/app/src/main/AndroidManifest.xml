@@ -6,6 +6,13 @@
          profile manifests declare it for the Flutter tool) but release builds
          come up with no network at all. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- "My location" centers the map and tunes to the nearest radar site.
+         Coarse is enough for that, but fine is requested too so a user who
+         grants it gets a position that is actually theirs rather than the
+         nearest cell tower. Both are optional: refusing falls back to
+         IP geolocation, and the app works without any location at all. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <application
         android:label="radar_app"
         android:name="${applicationName}"

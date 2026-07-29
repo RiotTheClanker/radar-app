@@ -59,6 +59,12 @@ On touch, use the on-screen stick and altitude pad. The scissors button
 reveals slice planes; the layers button switches the 3D field; the eye button
 hides the stick and every other control, leaving just the storm.
 
+**Location** — the app opens on the radar nearest you, and the my-location
+button re-centers there. It uses GPS when you grant permission and falls back
+to IP geolocation otherwise, which is city-level and on mobile data resolves
+your carrier rather than you. Nothing is asked for at startup and the app
+works fine with location refused — it just opens on the default site.
+
 **Files** — drop `.pal` color tables in `~/.config/radar-app/palettes/`.
 Snapshots are written to `~/Pictures/radar-app/`.
 
