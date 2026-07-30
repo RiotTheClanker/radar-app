@@ -140,13 +140,30 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Needed for RELEASE_NOTES.md — this job otherwise only ever handled
+      # artifacts, so without a checkout body_path would point at nothing and
+      # publish an empty body rather than failing.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
       - name: list what we got
         run: find artifacts -type f -printf '%p  %s bytes\n'
+      - name: release notes must be for this tag
+        run: |
+          want="$GITHUB_REF_NAME"
+          got="$(sed -n 's/^<!-- version: \(.*\) -->$/\1/p' RELEASE_NOTES.md | head -1)"
+          if [ "$got" != "$want" ]; then
+            echo "::error::RELEASE_NOTES.md is for '${got:-<missing marker>}'," \
+                 "but the tag is '$want'. Update RELEASE_NOTES.md and its" \
+                 "version marker before tagging."
+            exit 1
+          fi
+          echo "release notes are for $want"
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
+          body_path: RELEASE_NOTES.md
+          # Appended below body_path: our summary first, then the commit list.
           generate_release_notes: true
           fail_on_unmatched_files: false
