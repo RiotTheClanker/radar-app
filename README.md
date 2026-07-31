@@ -39,6 +39,12 @@ your device.
   silence** showing the column above the radar that no scan reaches
 - Reflectivity, storm-relative wind, ground-relative wind, ZDR, and CC as
   selectable 3D fields
+- **Hydrometeor classification**: a fuzzy-logic classifier over Z, ZDR and
+  correlation coefficient labels each voxel rain, heavy rain, big drops,
+  hail/rain, graupel, wet or dry snow, ice crystals, clutter or biological,
+  with the melting level found from the volume's own bright band. It uses no
+  KDP and no texture fields, so read it as storm structure rather than as the
+  operational product
 
 **Situational awareness**
 - Live NWS warnings, watches and advisories, each layer separate, tap for the

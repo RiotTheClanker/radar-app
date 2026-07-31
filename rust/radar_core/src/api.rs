@@ -415,7 +415,68 @@ fn grid_encode_for(moment: &str) -> GridEncode {
 }
 
 /// Palette + opacity transfer for the 3D view, keyed by moment + threshold.
+/// Grid the three dual-pol moments on a shared lattice and classify.
+///
+/// All three are required: classifying from one moment is guesswork, so a
+/// volume without ZDR or RHO (a legacy, non-dual-pol scan) is an error rather
+/// than a degraded picture.
+fn build_hca_grid(vol: &level2::Level2Volume) -> Result<Grid3D, String> {
+    use crate::process::hca;
+    const NXY: usize = 384;
+    const NZ: usize = 40;
+    const EXT: f32 = 120_000.0;
+    const TOP: f32 = 16_000.0;
+
+    let dec = |e: GridEncode| move |raw: u8| (raw as f32 - e.offset) / e.scale;
+    let mut grid_for = |m: &str| -> Result<(Grid3D, GridEncode), String> {
+        let cuts = vol.all_sweeps(m);
+        if cuts.is_empty() {
+            return Err(format!(
+                "this volume has no {m}, so it cannot be classified \
+                 (dual-pol moments are needed)"
+            ));
+        }
+        let enc = grid_encode_for(m);
+        let g = build_grid_encoded(&cuts, NXY, NZ, EXT, TOP, enc)
+            .ok_or_else(|| format!("no usable {m} cuts in volume"))?;
+        Ok((g, enc))
+    };
+
+    let (z, ez) = grid_for("REF")?;
+    let (zdr, ezdr) = grid_for("ZDR")?;
+    let (rho, erho) = grid_for("RHO")?;
+
+    let melt = hca::detect_melting_level(&z, &rho, dec(ez), dec(erho));
+    Ok(hca::build_grid_hca(
+        &z,
+        &zdr,
+        &rho,
+        dec(ez),
+        dec(ezdr),
+        dec(erho),
+        melt,
+    ))
+}
+
 fn palette_3d(moment: &str, threshold: f32) -> [[u8; 4]; 256] {
+    if moment == "HCA" {
+        // Discrete classes, so the table is a lookup rather than a ramp and
+        // the threshold slider has nothing continuous to filter. It hides the
+        // two non-meteorological classes instead, which is what one actually
+        // wants to turn off.
+        let mut pal = [[0u8; 4]; 256];
+        let hide_nuisance = threshold > 10.0;
+        for c in crate::process::hca::Class::ALL {
+            use crate::process::hca::Class;
+            let quiet = matches!(c, Class::GroundClutter | Class::Biological);
+            if quiet && hide_nuisance {
+                continue;
+            }
+            let [r, g, b] = c.color();
+            pal[c as usize] = [r, g, b, if quiet { 90 } else { 150 }];
+        }
+        return pal;
+    }
     let enc = grid_encode_for(moment);
     let kind = match moment {
         "VEL" | "SRM" => ProductKind::Velocity,
@@ -482,6 +543,9 @@ pub struct Volume3DInfo {
 pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Volume3DInfo, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
     let cuts = match moment.as_str() {
+        // Classification needs three moments at once; `cuts` is only used
+        // below for the cone-of-silence limit, so reflectivity stands in.
+        "HCA" => vol.all_sweeps("REF"),
         "SRM" => vol
             .all_sweeps("VEL")
             .iter()
@@ -490,15 +554,20 @@ pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Vo
         m @ ("VEL" | "ZDR" | "RHO") => vol.all_sweeps(m),
         _ => vol.all_sweeps("REF"),
     };
-    let grid = build_grid_encoded(&cuts, 384, 40, 120_000.0, 16_000.0, grid_encode_for(&moment))
-        .ok_or_else(|| format!("no {moment} cuts in volume"))?;
+    let categorical = moment == "HCA";
+    let grid = if categorical {
+        build_hca_grid(&vol)?
+    } else {
+        build_grid_encoded(&cuts, 384, 40, 120_000.0, 16_000.0, grid_encode_for(&moment))
+            .ok_or_else(|| format!("no {moment} cuts in volume"))?
+    };
     let pal = palette_3d(&moment, threshold);
     // The top cut is where the cone of silence begins.
     let el_max = cuts
         .iter()
         .map(|c| c.elevation_deg)
         .fold(f32::MIN, f32::max);
-    let mut gpu = crate::render::gpu3d::GpuVolume::new(&grid, &pal, Z_EXAG).ok();
+    let mut gpu = crate::render::gpu3d::GpuVolume::new(&grid, &pal, Z_EXAG, categorical).ok();
     if let Some(g) = gpu.as_mut() {
         g.set_beam_limits(el_max);
     }

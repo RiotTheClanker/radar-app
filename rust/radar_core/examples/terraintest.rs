@@ -31,7 +31,7 @@ fn main() {
         *p = [255, (i / 2) as u8, 40, 200];
     }
 
-    let mut gpu = match GpuVolume::new(&grid, &pal, 4.0) {
+    let mut gpu = match GpuVolume::new(&grid, &pal, 4.0, false) {
         Ok(g) => g,
         Err(e) => {
             println!("NO GPU: {e}");

@@ -1,4 +1,4 @@
-<!-- version: v0.1.3 -->
+<!-- version: v0.1.4 -->
 <!--
   The notes for the NEXT release. CI reads this file at tag time and refuses
   to publish if the version marker above does not match the tag, so update
@@ -6,62 +6,26 @@
   GitHub's generated commit list is appended below whatever is written here.
 -->
 
-The app has a name and a face.
+### 3D view
 
-**Taa'a Yuku Radar** — Yaqui (Yoeme): *taa'a*, the sun, close to *ta'a*, to
-know; and *yuku*, the rain. Used with the blessing of a Yaqui speaker.
+**Hydrometeor classification.** A new 3D field labels every voxel by what the
+radar is most likely looking at — rain, heavy rain, big drops, hail mixed with
+rain, graupel, wet and dry snow, ice crystals, ground clutter or biological
+scatterers — using a fuzzy-logic classifier over reflectivity, differential
+reflectivity and correlation coefficient. The melting level is found from the
+volume's own bright band rather than assumed, so the ice/liquid boundary
+follows the day's atmosphere. A legend sits beside the render, and the
+threshold slider switches between all classes and weather only.
 
-Until now the app answered to four different names depending on where you
-looked — `radar_app` on the Android launcher, `Radar` in the desktop entry,
-`RadarApp` in the Windows install path, and "A new Flutter project." in its
-own metadata — while wearing the stock Flutter logo on every platform. All of
-that is gone.
+It runs without KDP or the texture fields the operational NEXRAD algorithm
+uses, so heavy rain and hail lean harder on Z and ZDR than they should, and
+clutter with a high correlation coefficient can still be called weather. Good
+for reading storm structure; not a substitute for the operational product.
 
-### What's new
-
-- **The name**, everywhere one is shown: launcher, window titles, installer,
-  desktop entry. The Android launcher shows **TY Radar**, since the full name
-  is too long to sit under an icon without being cut off.
-- **An icon of its own** — a radar sweep over range rings with a storm cell in
-  the reflectivity scale. Drawn once as geometry and rendered to every target:
-  Android densities, an adaptive icon, a monochrome layer for Android 13+
-  themed icons, a multi-size Windows `.ico`, and the Linux hicolor set. The
-  `.deb` now ships its own icon instead of borrowing `weather-storm` from your
-  icon theme, which was missing on many systems and left a blank in the
-  launcher.
-- **A proper application ID**, `io.github.riottheclanker.taayuku`, replacing
-  the Flutter template placeholder. Done now because it can never change once
-  a signed release ships.
-- **A polite User-Agent.** Requests to NOAA and the tile servers now identify
-  the app, its version, and where to reach the author, which is what those
-  services ask for.
-
-### ⚠️ Upgrading on Android
-
-The application ID changed, and Android treats that as a **different app**.
-This APK installs *alongside* 0.1.2 rather than replacing it, so you will see
-two icons.
-
-**Uninstall the old one** — it is the one still labelled `radar_app`. The new
-one reads **TY Radar**.
-
-This is a one-time move, done deliberately before any signed release, because
-after that the ID is fixed permanently.
-
-### Install
-
-- **Debian / Ubuntu** — `sudo apt install ./radar-app_0.1.3_amd64.deb`
-- **Windows** — run `radar-app-0.1.3-windows-setup.exe`
-- **Android** — take the APK matching your device's ABI; `arm64-v8a` for
-  essentially anything modern
-
-### Still true
-
-Nothing is code-signed yet, so Windows shows an "unknown publisher" warning
-and Android asks about installing from an unknown source. Android release
-builds still use a debug key that CI regenerates each run, so in-place
-upgrades between builds fail and need an uninstall first. Stable signing is
-next.
-
-Linux and Android `arm64-v8a` are tested on real hardware. The Windows build
-comes out of CI and has not been smoke-tested.
+**Fixed: the 3D view invented readings at the edge of the data** (#9). The
+volume is a texture of palette indices, and the sampler filtered them, so
+where data met empty space the index slid through the middle of the table.
+Half way from 0 m/s to empty was a fully opaque −32 m/s that nothing measured
+— which is what drew the cone standing on the radar site in velocity, ZDR and
+CC. Reflectivity was never affected, because its low values are already
+transparent. Value and coverage are now filtered separately.

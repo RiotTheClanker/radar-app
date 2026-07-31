@@ -2,6 +2,7 @@
 
 use crate::sweep::Sweep;
 
+#[derive(Clone)]
 pub struct Grid3D {
     /// x (east), y (north) voxels per side; z levels.
     pub nxy: usize,
