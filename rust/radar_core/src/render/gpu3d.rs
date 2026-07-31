@@ -174,12 +174,27 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
         if (t >= t1 || alpha >= 0.97) { break; }
         let p = u.eye.xyz + dir * t;
         let tc = vec3f((p.x + ex) / (2.0 * ex), (p.y + ex) / (2.0 * ex), p.z / top);
-        let raw = textureSampleLevel(vol, vol_samp, tc, 0.0).r;
-        let c = textureSampleLevel(pal, pal_samp, vec2f(raw * 0.99609375 + 0.001953125, 0.5), 0.0);
-        if (c.a > 0.0) {
-            let a = min(c.a * alpha_scale * step, 0.9) * (1.0 - alpha);
-            acc += c.rgb * a;
-            alpha += a;
+        // .r is the palette index, .g is coverage: 1 where the radar
+        // actually sampled, 0 where it did not. They have to be filtered
+        // separately. Interpolating the index alone across the edge of the
+        // data sweeps it through the whole palette, and for the fields whose
+        // zero sits mid-table that invents readings -- half way from 0 m/s
+        // (index 128) to empty (index 0) is index 64, a fully opaque -32 m/s
+        // that nothing measured. Reflectivity escapes it only because its
+        // low indices are transparent anyway.
+        //
+        // The index is dilated one voxel into empty space when uploaded, so
+        // it stays put across the boundary and coverage alone fades out.
+        let s = textureSampleLevel(vol, vol_samp, tc, 0.0);
+        let cov = s.g;
+        if (cov > 0.004) {
+            let c = textureSampleLevel(pal, pal_samp,
+                vec2f(s.r * 0.99609375 + 0.001953125, 0.5), 0.0);
+            if (c.a > 0.0) {
+                let a = min(c.a * cov * alpha_scale * step, 0.9) * (1.0 - alpha);
+                acc += c.rgb * a;
+                alpha += a;
+            }
         }
         // The cone of silence: the radar cannot tilt past its top cut, so
         // nothing above that angle is ever sampled. Fill it with a thin haze
@@ -202,6 +217,70 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     return vec4f(acc + ground_col.rgb * ga, alpha + ga);
 }
 "#;
+
+/// Interleave the grid into (index, coverage) pairs for an `Rg8Unorm`
+/// texture, dilating the index one voxel into empty space.
+///
+/// The hardware filters the two channels independently, which is the point:
+/// coverage carries "did the radar see anything here", so the index no longer
+/// has to encode absence by being zero. Without the dilation the index would
+/// still slide toward 0 across the boundary even though coverage fades it
+/// out, and a partly-faded false colour is still a false colour.
+///
+/// One voxel is enough — trilinear filtering never reaches past immediate
+/// neighbours, so beyond the dilated shell coverage is 0 on both sides of
+/// every interpolation and nothing is drawn.
+fn pack_coverage(grid: &Grid3D) -> Vec<u8> {
+    let (nxy, nz) = (grid.nxy, grid.nz);
+    let mut out = vec![0u8; nxy * nxy * nz * 2];
+    let at = |x: usize, y: usize, z: usize| grid.data[(z * nxy + y) * nxy + x];
+    for z in 0..nz {
+        for y in 0..nxy {
+            for x in 0..nxy {
+                let i = (z * nxy + y) * nxy + x;
+                let v = grid.data[i];
+                if v != 0 {
+                    out[i * 2] = v;
+                    out[i * 2 + 1] = 255;
+                    continue;
+                }
+                // Empty: borrow a neighbour's index so the value field stays
+                // flat across the edge. Coverage stays 0, so this voxel
+                // contributes nothing itself.
+                // All 26 neighbours, not just the 6 faces: trilinear
+                // filtering interpolates over the 8 corners of a cell, so a
+                // diagonal neighbour is just as able to drag the index down
+                // as an adjacent one.
+                let mut sum = 0u32;
+                let mut n = 0u32;
+                for dz in -1i32..=1 {
+                    for dy in -1i32..=1 {
+                        for dx in -1i32..=1 {
+                            let (sx, sy, sz) =
+                                (x as i32 + dx, y as i32 + dy, z as i32 + dz);
+                            if sx < 0
+                                || sy < 0
+                                || sz < 0
+                                || sx >= nxy as i32
+                                || sy >= nxy as i32
+                                || sz >= nz as i32
+                            {
+                                continue;
+                            }
+                            let vv = at(sx as usize, sy as usize, sz as usize);
+                            if vv != 0 {
+                                sum += vv as u32;
+                                n += 1;
+                            }
+                        }
+                    }
+                }
+                out[i * 2] = if n > 0 { (sum / n) as u8 } else { 0 };
+            }
+        }
+    }
+    out
+}
 
 pub struct GpuVolume {
     device: wgpu::Device,
@@ -265,7 +344,7 @@ impl GpuVolume {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::R8Unorm,
+            format: wgpu::TextureFormat::Rg8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -276,10 +355,10 @@ impl GpuVolume {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &grid.data,
+            &pack_coverage(grid),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(grid.nxy as u32),
+                bytes_per_row: Some(grid.nxy as u32 * 2),
                 rows_per_image: Some(grid.nxy as u32),
             },
             size,
@@ -786,6 +865,96 @@ fn make_ground_texture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn slab_grid(nxy: usize, nz: usize, fill: u8) -> Grid3D {
+        let mut data = vec![0u8; nxy * nxy * nz];
+        for z in 4..10 {
+            for y in 10..22 {
+                for x in 10..22 {
+                    data[(z * nxy + y) * nxy + x] = fill;
+                }
+            }
+        }
+        Grid3D {
+            nxy,
+            nz,
+            data,
+            half_extent_m: 120_000.0,
+            top_m: 16_000.0,
+        }
+    }
+
+    #[test]
+    fn coverage_marks_absence_and_dilates_the_index() {
+        let nxy = 8;
+        let nz = 4;
+        let mut data = vec![0u8; nxy * nxy * nz];
+        let i = (1 * nxy + 4) * nxy + 4; // one lit voxel, well inside
+        data[i] = 200;
+        let grid = Grid3D {
+            nxy,
+            nz,
+            data,
+            half_extent_m: 1000.0,
+            top_m: 1000.0,
+        };
+        let packed = pack_coverage(&grid);
+
+        // The voxel itself: its own index, fully covered.
+        assert_eq!((packed[i * 2], packed[i * 2 + 1]), (200, 255));
+
+        // Its neighbour: index borrowed so the value field is flat across
+        // the boundary, but coverage 0 so it draws nothing on its own.
+        let n = (1 * nxy + 4) * nxy + 5;
+        assert_eq!((packed[n * 2], packed[n * 2 + 1]), (200, 0));
+
+        // Two voxels out is beyond anything trilinear filtering can reach.
+        let far = (1 * nxy + 4) * nxy + 6;
+        assert_eq!((packed[far * 2], packed[far * 2 + 1]), (0, 0));
+    }
+
+    /// Issue #9. The volume holds palette *indices*, and the sampler filters
+    /// them. Where data meets empty space the index used to slide from the
+    /// real value down to 0, straight through the middle of the table.
+    ///
+    /// Here the only real data is index 128 and the palette makes 128
+    /// invisible — as a velocity palette does, since 0 m/s is below any
+    /// useful threshold. Indices between are bright red. So every red pixel
+    /// is a reading nothing measured, and the correct output is an empty
+    /// frame. Before the fix this drew a red shell around the slab.
+    #[test]
+    fn no_false_colour_where_data_meets_empty_space() {
+        let grid = slab_grid(32, 16, 128);
+        let mut pal = [[0u8; 4]; 256];
+        for p in pal.iter_mut().take(120).skip(20) {
+            *p = [255, 0, 0, 255];
+        }
+        pal[128] = [0, 0, 0, 0];
+
+        let Ok(mut gpu) = GpuVolume::new(&grid, &pal, 4.0) else {
+            eprintln!("no graphics adapter; skipping");
+            return;
+        };
+        let params = FlyParams {
+            eye: [0.0, -204_000.0, 22_400.0],
+            yaw_deg: 0.0,
+            pitch_deg: -8.0,
+            fov_deg: 55.0,
+            clip_min: [0.0, 0.0, 0.0],
+            clip_max: [1.0, 1.0, 1.0],
+        };
+        let (w, h) = (240u32, 160u32);
+        let px = gpu.render(&params, w, h).unwrap();
+
+        let bogus = px
+            .chunks(4)
+            .filter(|p| p[3] > 8 && p[0] as i32 - p[2] as i32 > 40)
+            .count();
+        assert_eq!(
+            bogus, 0,
+            "{bogus} pixels of invented colour at the edge of the data"
+        );
+    }
 
     /// Flat ground vs. a ridge, through the real shader.
     ///
