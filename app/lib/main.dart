@@ -1201,12 +1201,13 @@ class _RadarScreenState extends State<RadarScreen> {
               onMapEvent: (_) {
                 _maybeSwitchMosaic();
                 _viewDebounce?.cancel();
+                // Only the radar image depends on the viewport. Storm
+                // tracks are positioned by azimuth and range from the site,
+                // so panning and zooming cannot change where they are — and
+                // refetching on every gesture would be network for nothing.
                 _viewDebounce = Timer(
                   const Duration(milliseconds: 350),
-                  () {
-                    unawaited(_renderViewport());
-                    unawaited(_updateTracks());
-                  },
+                  _renderViewport,
                 );
               },
               backgroundColor: const Color(0xFF10141A),
