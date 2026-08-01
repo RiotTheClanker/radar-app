@@ -11,7 +11,19 @@ import '../data/hydrometeor.dart';
 
 class HydroLegend extends StatelessWidget {
   final List<HydrometeorClass> classes;
-  const HydroLegend({super.key, required this.classes});
+
+  /// Class ids the filter is currently hiding. They stay listed, greyed and
+  /// struck through, because the useful thing to know while dragging the
+  /// filter is what you are cutting away — a class that simply vanished from
+  /// the key would leave you guessing whether it was filtered out or never
+  /// there.
+  final Set<int> hidden;
+
+  const HydroLegend({
+    super.key,
+    required this.classes,
+    this.hidden = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -36,16 +48,24 @@ class HydroLegend extends StatelessWidget {
                     width: 11,
                     height: 11,
                     decoration: BoxDecoration(
-                      color: c.color,
+                      color: hidden.contains(c.id)
+                          ? c.color.withValues(alpha: 0.25)
+                          : c.color,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                   const SizedBox(width: 7),
                   Text(
                     c.label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color: Colors.white,
+                      color: hidden.contains(c.id)
+                          ? Colors.white38
+                          : Colors.white,
+                      decoration: hidden.contains(c.id)
+                          ? TextDecoration.lineThrough
+                          : null,
+                      decorationColor: Colors.white38,
                       height: 1.1,
                     ),
                   ),

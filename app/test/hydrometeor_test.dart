@@ -76,6 +76,50 @@ void main() {
     }
   });
 
+  test('the filter order matches Class::BY_SEVERITY in the Rust source', () {
+    // The 3D filter cuts along this ordering, and the legend greys out what
+    // it has cut. If the two lists disagree the key crosses out one class
+    // while the renderer hides a different one — a legend that lies is worse
+    // than none, so read the ordering the renderer actually uses.
+    final body = RegExp(r'BY_SEVERITY: \[Class; \d+\] = \[(.*?)\];', dotAll: true)
+        .firstMatch(src)!
+        .group(1)!;
+    final variants = [
+      for (final m in RegExp(r'Class::(\w+)').allMatches(body)) m.group(1)!,
+    ];
+    expect(variants.length, hydrometeorBySeverity.length);
+
+    final labelSrc = src.substring(src.indexOf('fn label(self)'));
+    final labels = <String, String>{
+      for (final m in RegExp(r'Class::(\w+) => "([^"]*)"').allMatches(labelSrc))
+        m.group(1)!: m.group(2)!,
+    };
+    expect(
+      [for (final v in variants) labels[v]],
+      [for (final c in hydrometeorBySeverity) c.label],
+      reason: 'the legend orders the classes differently from BY_SEVERITY',
+    );
+  });
+
+  test('the filter order is the full class list, just rearranged', () {
+    expect(
+      hydrometeorBySeverity.map((c) => c.id).toSet(),
+      hydrometeorClasses.map((c) => c.id).toSet(),
+      reason: 'a class is missing from, or invented in, the filter ordering',
+    );
+    for (final c in hydrometeorBySeverity) {
+      final byId = hydrometeorClasses.firstWhere((o) => o.id == c.id);
+      expect(c.label, byId.label, reason: 'class ${c.id} label');
+      expect(c.color, byId.color, reason: 'class ${c.id} colour');
+    }
+    expect(
+      hydrometeorBySeverity.map((c) => c.id).toList(),
+      isNot(hydrometeorClasses.map((c) => c.id).toList()),
+      reason: 'severity order is meant to differ from id order; if the enum '
+          'was renumbered this list is now redundant',
+    );
+  });
+
   test('the NWS legend matches the table the map is drawn with', () {
     // A legend showing our 3D palette against NOAA's product would name every
     // class wrongly, which is worse than no legend: it misleads rather than

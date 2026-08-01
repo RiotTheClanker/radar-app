@@ -460,20 +460,21 @@ pub fn build_hca_grid(vol: &level2::Level2Volume) -> Result<Grid3D, String> {
 
 fn palette_3d(moment: &str, threshold: f32) -> [[u8; 4]; 256] {
     if moment == "HCA" {
+        use crate::process::hca::Class;
         // Discrete classes, so the table is a lookup rather than a ramp and
-        // the threshold slider has nothing continuous to filter. It hides the
-        // two non-meteorological classes instead, which is what one actually
-        // wants to turn off.
+        // there is no continuous floor to raise. `threshold` is a cutoff into
+        // the severity ordering instead: 0 shows everything, and each step up
+        // drops the lightest class still showing, ending on hail alone. The
+        // caller passes a rank, not a value in any unit.
+        let cutoff = threshold.round().clamp(0.0, (Class::BY_SEVERITY.len() - 1) as f32) as usize;
         let mut pal = [[0u8; 4]; 256];
-        let hide_nuisance = threshold > 10.0;
-        for c in crate::process::hca::Class::ALL {
-            use crate::process::hca::Class;
-            let quiet = matches!(c, Class::GroundClutter | Class::Biological);
-            if quiet && hide_nuisance {
+        for (rank, c) in Class::BY_SEVERITY.iter().enumerate() {
+            if rank < cutoff {
                 continue;
             }
+            let quiet = matches!(c, Class::GroundClutter | Class::Biological);
             let [r, g, b] = c.color();
-            pal[c as usize] = [r, g, b, if quiet { 90 } else { 150 }];
+            pal[*c as usize] = [r, g, b, if quiet { 90 } else { 150 }];
         }
         return pal;
     }
@@ -1053,3 +1054,68 @@ pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, Stri
     })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::process::hca::Class;
+
+    fn visible(cutoff: f32) -> Vec<Class> {
+        let pal = palette_3d("HCA", cutoff);
+        Class::BY_SEVERITY
+            .iter()
+            .copied()
+            .filter(|c| pal[*c as usize][3] > 0)
+            .collect()
+    }
+
+    /// The filter walks the severity ordering, so each step up drops exactly
+    /// the lightest class still showing. It used to be a single switch that
+    /// hid clutter and biological together and nothing else.
+    #[test]
+    fn each_step_drops_one_class_from_the_bottom() {
+        for cutoff in 0..Class::BY_SEVERITY.len() {
+            assert_eq!(
+                visible(cutoff as f32),
+                Class::BY_SEVERITY[cutoff..].to_vec(),
+                "cutoff {cutoff}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_last_step_leaves_hail_alone() {
+        assert_eq!(visible(9.0), vec![Class::HailRain]);
+    }
+
+    /// Rain before heavy rain before graupel before hail: the order a storm
+    /// is read in, not the order the palette indices happen to run.
+    #[test]
+    fn convective_classes_outrank_rain() {
+        let rank = |c: Class| Class::BY_SEVERITY.iter().position(|&x| x == c).unwrap();
+        assert!(rank(Class::LightRain) < rank(Class::HeavyRain));
+        assert!(rank(Class::HeavyRain) < rank(Class::Graupel));
+        assert!(rank(Class::Graupel) < rank(Class::HailRain));
+        // Every non-meteorological class sorts below every hydrometeor.
+        assert!(rank(Class::Biological) < rank(Class::IceCrystals));
+        assert!(rank(Class::GroundClutter) < rank(Class::Biological));
+    }
+
+    /// A slider that overruns its range must not black the volume out or
+    /// panic on the index.
+    #[test]
+    fn out_of_range_cutoffs_clamp() {
+        assert_eq!(visible(-5.0), Class::BY_SEVERITY.to_vec());
+        assert_eq!(visible(99.0), vec![Class::HailRain]);
+    }
+
+    /// Every class in the ordering is a class that exists, exactly once.
+    #[test]
+    fn the_ordering_is_a_permutation_of_the_classes() {
+        let mut a = Class::BY_SEVERITY.to_vec();
+        let mut b = Class::ALL.to_vec();
+        a.sort_by_key(|c| *c as u8);
+        b.sort_by_key(|c| *c as u8);
+        assert_eq!(a, b);
+    }
+}

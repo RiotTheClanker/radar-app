@@ -36,9 +36,30 @@ It sits down the right edge, the same place it does on the 2D map, and is
 built from the same table the renderer painted with, so an imported `.pal`
 changes it too.
 
-One thing it does not show: the opacity slider makes weak values transparent
-in 3D, and the key still lists them. It says what a colour means, not what is
-currently visible.
+One thing it does not show for the continuous fields: the opacity slider
+makes weak values transparent in 3D, and the key still lists them. It says
+what a colour means, not what is currently visible. The classified field is
+the exception — see below.
+
+### Filtering hydrometeors by how much weather they are
+
+The 3D filter used to be a switch on the classified field: everything, or
+everything except clutter and biological. It is a step per class now, and it
+walks up by intensity — rain, big drops, heavy rain, graupel, hail — so you
+can strip a volume back to just the graupel and hail and see where the
+updrafts are.
+
+Note this is the order a storm is read in, not the order the classes are
+numbered in. Graupel sits above heavy rain because graupel means an updraft.
+
+The key crosses out the classes the filter is hiding rather than dropping
+them from the list, so you can see what you have cut. Classes stay listed
+either way — one that simply vanished would leave you unable to tell
+"filtered out" from "never there".
+
+There is no light-rain step, because there is no light-rain class: the
+classifier follows the NWS's own scheme, which has rain and heavy rain and
+nothing between them.
 
 ### Storm tracks
 

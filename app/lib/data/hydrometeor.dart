@@ -29,6 +29,28 @@ const hydrometeorClasses = <HydrometeorClass>[
   HydrometeorClass(10, 'Hail / rain', Color(0xFFE63C3C)),
 ];
 
+/// The same classes in ascending order of how much weather they are, which is
+/// the order the 3D filter cuts in: each step up drops the lightest class
+/// still showing, ending on hail alone.
+///
+/// Not id order. The ids are palette indices, grouped so the frozen classes
+/// sit together, and that puts graupel below rain — graupel means an updraft,
+/// so it belongs above heavy rain here. `Class::BY_SEVERITY` in `hca.rs` is
+/// the ordering the renderer actually filters with and
+/// `test/hydrometeor_test` checks this against it.
+const hydrometeorBySeverity = <HydrometeorClass>[
+  HydrometeorClass(1, 'Ground clutter', Color(0xFF787878)),
+  HydrometeorClass(2, 'Biological', Color(0xFF966EB4)),
+  HydrometeorClass(3, 'Ice crystals', Color(0xFFB4E6FF)),
+  HydrometeorClass(4, 'Dry snow', Color(0xFF6EBEFF)),
+  HydrometeorClass(5, 'Wet snow', Color(0xFF4678DC)),
+  HydrometeorClass(7, 'Rain', Color(0xFF3CC85A)),
+  HydrometeorClass(9, 'Big drops', Color(0xFFE6E646)),
+  HydrometeorClass(8, 'Heavy rain', Color(0xFF148232)),
+  HydrometeorClass(6, 'Graupel', Color(0xFFFFBE5A)),
+  HydrometeorClass(10, 'Hail / rain', Color(0xFFE63C3C)),
+];
+
 /// The NWS's own classes, for the Level 3 product shown on the 2D map.
 ///
 /// A separate table from [hydrometeorClasses] on purpose: the same classes,

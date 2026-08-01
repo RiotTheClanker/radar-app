@@ -75,6 +75,27 @@ impl Class {
         Class::HailRain,
     ];
 
+    /// The classes in ascending order of how much weather they represent,
+    /// for the 3D filter: raising it drops the lightest class still showing,
+    /// so the last thing left is hail.
+    ///
+    /// Deliberately not [`ALL`](Self::ALL) order. The discriminants are
+    /// palette indices, chosen so the frozen classes sit together, and that
+    /// puts graupel below rain — which is not how anyone reads a storm.
+    /// Graupel means an updraft, so it ranks above heavy rain here.
+    pub const BY_SEVERITY: [Class; 10] = [
+        Class::GroundClutter,
+        Class::Biological,
+        Class::IceCrystals,
+        Class::DrySnow,
+        Class::WetSnow,
+        Class::LightRain,
+        Class::BigDrops,
+        Class::HeavyRain,
+        Class::Graupel,
+        Class::HailRain,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             Class::None => "",

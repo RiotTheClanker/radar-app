@@ -80,21 +80,41 @@ List<String> get volumeFieldMoments => [for (final f in _volFields) f.moment];
 /// values are class ids, a colour scale everywhere else. Null when the scale
 /// has not arrived yet — the render is still usable without one.
 ///
+/// [hcaCutoff] is the classified field's filter position, so the key can grey
+/// out the classes it is hiding.
+///
 /// Pure and separate from [build] because it did not used to be. Picking the
 /// key was two nested conditions inline, and an edit left the outer one
 /// testing the classified field as well, so the colour-scale branch could
 /// never run: hydrometeors had a legend and nothing else did. Nothing failed,
 /// because nothing could reach the branch to check it.
 @visibleForTesting
-Widget? volumeKey(String moment, ColorScale? scale) {
+Widget? volumeKey(String moment, ColorScale? scale, {int hcaCutoff = 0}) {
   if (moment == 'HCA') {
-    return const HydroLegend(classes: hydrometeorClasses);
+    // Heaviest at the top, so the filter visibly eats the list from the
+    // bottom up as it is dragged.
+    return HydroLegend(
+      classes: hydrometeorBySeverity.reversed.toList(),
+      hidden: {
+        for (final c in hydrometeorBySeverity.take(hcaCutoff)) c.id,
+      },
+    );
   }
   if (scale == null) return null;
   return ColorKey(
     scale: scale,
     rangeFolded: moment == 'VEL' || moment == 'SRM',
   );
+}
+
+/// Label for the classified field's filter at [cutoff].
+@visibleForTesting
+String hcaFilterLabel(int cutoff) {
+  if (cutoff <= 0) return 'all classes';
+  if (cutoff >= hydrometeorBySeverity.length - 1) {
+    return '${hydrometeorBySeverity.last.label} only';
+  }
+  return '${hydrometeorBySeverity[cutoff].label} and above';
 }
 
 /// Free-fly 3D storm view.
@@ -123,6 +143,15 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     with SingleTickerProviderStateMixin {
   _VolField _field = _volFields[0];
   double _threshold = 10;
+
+  /// The classified field's filter, kept apart from [_threshold] because it
+  /// is not a value in any unit: it is a position in the severity ordering,
+  /// and 0-9 rather than 0-50. Sharing one number would carry "9" into
+  /// reflectivity as 9 dBZ on the way back out.
+  double _hcaCutoff = 0;
+
+  /// What the renderer's filter is set to for the field on screen.
+  double get _filter => _field.moment == 'HCA' ? _hcaCutoff : _threshold;
 
   /// Colour scale for the current field, so the render can be read as values
   /// rather than guessed at. Classified fields use a class list instead.
@@ -280,7 +309,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
       final info = await volume3DOpen(
         data: widget.volumeBytes,
         moment: _field.moment,
-        threshold: _threshold,
+        threshold: _filter,
       );
       if (!mounted) return;
       unawaited(_loadKey());
@@ -657,7 +686,9 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                   // the bottom overlay in the stack, so the altitude pad
                   // still takes the touches where the two meet on a short
                   // screen.
-                  if (volumeKey(_field.moment, _keyScale) case final key?)
+                  if (volumeKey(_field.moment, _keyScale,
+                          hcaCutoff: _hcaCutoff.round())
+                      case final key?)
                     SafeArea(
                       child: Align(
                         alignment: Alignment.centerRight,
@@ -1035,6 +1066,18 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     );
   }
 
+  /// Push the filter to the renderer once the drag ends. Sent as the field's
+  /// own quantity -- a class rank for the classified field, a value in the
+  /// field's units for the rest -- which is what the palette expects.
+  Future<void> _applyFilter(double _) async {
+    if (_gpu) {
+      await volume3DSetThreshold(threshold: _filter);
+      _dirty = true;
+    } else {
+      _legacyRender();
+    }
+  }
+
   Widget _bottomControls() {
     return SafeArea(
       top: false,
@@ -1044,32 +1087,32 @@ class _Volume3DScreenState extends State<Volume3DScreen>
           children: [
             const SizedBox(width: 12),
             const Icon(Icons.filter_alt, size: 16, color: Colors.white54),
+            // Classes are discrete, so the classified field gets one stop per
+            // class rather than a continuous floor: each step up drops the
+            // lightest class still showing, ending on hail alone.
             Expanded(
-              child: Slider(
-                value: _threshold,
-                min: 0,
-                max: 50,
-                divisions: 25,
-                label: switch (_field.moment) {
-                  'REF' => '≥ ${_threshold.round()} dBZ',
-                  // Classes are discrete, so there is no continuous floor to
-                  // raise. The slider hides clutter and biological returns
-                  // instead, which is the filtering this field actually wants.
-                  'HCA' => _threshold > 10
-                      ? 'weather only'
-                      : 'all classes',
-                  _ => 'floor ${_threshold.round()}',
-                },
-                onChanged: (v) => setState(() => _threshold = v),
-                onChangeEnd: (v) async {
-                  if (_gpu) {
-                    await volume3DSetThreshold(threshold: v);
-                    _dirty = true;
-                  } else {
-                    _legacyRender();
-                  }
-                },
-              ),
+              child: _field.moment == 'HCA'
+                  ? Slider(
+                      value: _hcaCutoff,
+                      min: 0,
+                      max: (hydrometeorBySeverity.length - 1).toDouble(),
+                      divisions: hydrometeorBySeverity.length - 1,
+                      label: hcaFilterLabel(_hcaCutoff.round()),
+                      onChanged: (v) => setState(() => _hcaCutoff = v),
+                      onChangeEnd: _applyFilter,
+                    )
+                  : Slider(
+                      value: _threshold,
+                      min: 0,
+                      max: 50,
+                      divisions: 25,
+                      label: switch (_field.moment) {
+                        'REF' => '≥ ${_threshold.round()} dBZ',
+                        _ => 'floor ${_threshold.round()}',
+                      },
+                      onChanged: (v) => setState(() => _threshold = v),
+                      onChangeEnd: _applyFilter,
+                    ),
             ),
             const SizedBox(width: 8),
           ],

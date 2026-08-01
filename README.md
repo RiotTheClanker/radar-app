@@ -42,9 +42,11 @@ your device.
 - **Hydrometeor classification**: a fuzzy-logic classifier over Z, ZDR and
   correlation coefficient labels each voxel rain, heavy rain, big drops,
   hail/rain, graupel, wet or dry snow, ice crystals, clutter or biological,
-  with the melting level found from the volume's own bright band. It uses no
-  KDP and no texture fields, so read it as storm structure rather than as the
-  operational product
+  with the melting level found from the volume's own bright band. The filter
+  slider steps through the classes by intensity — rain, big drops, heavy
+  rain, graupel, hail — so you can strip a volume back to the updrafts. It
+  uses no KDP and no texture fields, so read it as storm structure rather
+  than as the operational product
 
 **Situational awareness**
 - Live NWS warnings, watches and advisories, each layer separate, tap for the
@@ -87,7 +89,10 @@ button drapes the storm over real terrain; the bars button shades the cone of
 silence; the eye button hides the stick and every other control, leaving just
 the storm. A key for whichever field is up sits down the right edge, the same
 place it does on the map — a colour scale in that field's own units, or a
-list of classes for hydrometeor classification.
+list of classes for hydrometeor classification. The slider along the bottom
+filters: a floor in the field's own units for the continuous fields, and one
+step per class, heaviest last, for hydrometeor classification. The key
+crosses out the classes it is hiding.
 
 Terrain is off by default — it is a second set of tiles to fetch, and it is
 not always wanted. Elevation comes from the free AWS Terrain Tiles dataset.
