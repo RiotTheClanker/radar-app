@@ -29,11 +29,12 @@ own, which are not the ones our 3D classifier uses — a legend drawn with the
 wrong palette would name every class incorrectly, so a test checks it against
 the table the map is actually painted with.
 
-The 3D view now has a key for **every** field, not just the classified one,
-in the bottom-left corner: a colour scale in that field's own units for
-reflectivity, wind, ZDR and correlation coefficient, and the class list for
-hydrometeor classification. It is built from the same table the renderer
-painted with, so an imported `.pal` changes it too.
+The 3D view now has a key for **every** field, not just the classified one:
+a colour scale in that field's own units for reflectivity, wind, ZDR and
+correlation coefficient, and the class list for hydrometeor classification.
+It sits down the right edge, the same place it does on the 2D map, and is
+built from the same table the renderer painted with, so an imported `.pal`
+changes it too.
 
 One thing it does not show: the opacity slider makes weak values transparent
 in 3D, and the key still lists them. It says what a colour means, not what is

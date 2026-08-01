@@ -72,6 +72,31 @@ const _volFields = [
   _VolField('HCA', 'Hydrometeors'),
 ];
 
+/// The moments the field menu offers, for tests.
+@visibleForTesting
+List<String> get volumeFieldMoments => [for (final f in _volFields) f.moment];
+
+/// The key that belongs beside the render for [moment]: a class list where the
+/// values are class ids, a colour scale everywhere else. Null when the scale
+/// has not arrived yet — the render is still usable without one.
+///
+/// Pure and separate from [build] because it did not used to be. Picking the
+/// key was two nested conditions inline, and an edit left the outer one
+/// testing the classified field as well, so the colour-scale branch could
+/// never run: hydrometeors had a legend and nothing else did. Nothing failed,
+/// because nothing could reach the branch to check it.
+@visibleForTesting
+Widget? volumeKey(String moment, ColorScale? scale) {
+  if (moment == 'HCA') {
+    return const HydroLegend(classes: hydrometeorClasses);
+  }
+  if (scale == null) return null;
+  return ColorKey(
+    scale: scale,
+    rangeFolded: moment == 'VEL' || moment == 'SRM',
+  );
+}
+
 /// Free-fly 3D storm view.
 ///
 /// Touch: one finger looks, two fingers pan, pinch flies forward/back, and
@@ -627,27 +652,21 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                 _gpu ? _flyView() : _legacyView(),
                 if (_chrome) ...[
                   Positioned(left: 0, right: 0, top: 0, child: _topOverlay()),
-                  // Classified colours mean nothing without a key, so the
-                  // legend is not optional chrome for this field.
-                  if (_field.moment == 'HCA')
-                    // Same corner for every field: a class list where the
-                    // values are class ids, a colour scale everywhere else.
-                    if (_field.moment == 'HCA')
-                      const Positioned(
-                        left: 8,
-                        bottom: 96,
-                        child: HydroLegend(classes: hydrometeorClasses),
-                      )
-                    else if (_keyScale != null)
-                      Positioned(
-                        left: 8,
-                        bottom: 96,
-                        child: ColorKey(
-                          scale: _keyScale!,
-                          rangeFolded: _field.moment == 'VEL' ||
-                              _field.moment == 'SRM',
+                  // Right edge, vertically centred: where the key sits on the
+                  // 2D map, so it is in the same place in both views. Below
+                  // the bottom overlay in the stack, so the altitude pad
+                  // still takes the touches where the two meet on a short
+                  // screen.
+                  if (volumeKey(_field.moment, _keyScale) case final key?)
+                    SafeArea(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: key,
                         ),
                       ),
+                    ),
                   Positioned(left: 0, right: 0, bottom: 0, child: _bottomOverlay()),
                 ] else
                   Positioned(
