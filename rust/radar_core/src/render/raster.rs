@@ -235,8 +235,27 @@ pub fn rasterize_latlon_view(
 }
 
 /// Build a 0.1°-resolution azimuth -> radial-index lookup table.
+/// Map each 0.1-degree azimuth slot to the radial that covers it.
+///
+/// Each radial claims `delta_az_deg` worth of slots from where it starts.
+/// That tiles perfectly for Level 3, whose radials are exactly one degree
+/// apart on whole degrees. Level 2 super-resolution radials are nominally
+/// half a degree apart but their reported start azimuths drift, so radial n
+/// covers 10.0-10.5 while radial n+1 starts at 10.57 and the slot between
+/// belongs to nobody. Every unclaimed slot is a thin black spoke through the
+/// echo, radiating from the site -- issue #28.
+///
+/// Unclaimed slots are therefore given to whichever neighbouring radial is
+/// angularly nearer, but only across small gaps. A radar that genuinely did
+/// not look somewhere -- sector blanking, a failed transmit -- leaves a wide
+/// hole, and smearing a radial across it would invent coverage. Two degrees
+/// is far more than any drift and far less than any real outage.
 fn azimuth_lut(sweep: &Sweep) -> Vec<i32> {
-    let mut lut = vec![-1i32; 3600];
+    const SLOTS: usize = 3600;
+    /// Widest gap to close: two degrees, in 0.1-degree slots.
+    const MAX_FILL: i32 = 20;
+
+    let mut lut = vec![-1i32; SLOTS];
     for (idx, rad) in sweep.radials.iter().enumerate() {
         let start = (rad.start_az_deg * 10.0).round() as i32;
         let steps = (rad.delta_az_deg * 10.0).round().max(1.0) as i32;
@@ -245,6 +264,7 @@ fn azimuth_lut(sweep: &Sweep) -> Vec<i32> {
             lut[a as usize] = idx as i32;
         }
     }
+    fill_azimuth_gaps(&mut lut, MAX_FILL);
     lut
 }
 
@@ -370,4 +390,145 @@ pub fn rasterize_sweep_view(
         east,
         west,
     })
+}
+
+/// Give unclaimed azimuth slots to whichever neighbouring radial is nearer,
+/// across gaps no wider than `max_fill` slots.
+///
+/// Radials claim slots by their reported width, which tiles perfectly for
+/// Level 3 but not for Level 2: super-resolution start azimuths drift, so
+/// slivers between consecutive radials belong to nobody. In a 2D raster those
+/// slivers are black spokes radiating from the site; in the 3D grid they are
+/// empty columns. Issue #28.
+///
+/// The width limit is what separates drift from absence. A radar that
+/// genuinely did not look somewhere leaves a wide hole, and stretching a
+/// radial across it would invent coverage.
+pub(crate) fn fill_azimuth_gaps(lut: &mut [i32], max_fill: i32) {
+    let n = lut.len();
+    if n == 0 || lut.iter().all(|&v| v < 0) {
+        return;
+    }
+    // How far, and to which radial, walking each way around the circle. Two
+    // passes so a gap straddling due north is measured correctly.
+    let scan = |rev: bool| {
+        let mut who = vec![-1i32; n];
+        let mut far = vec![i32::MAX; n];
+        let (mut last, mut d) = (-1i32, i32::MAX);
+        for pass in 0..2 {
+            for i in 0..n {
+                let a = if rev { n - 1 - i } else { i };
+                if lut[a] >= 0 {
+                    last = lut[a];
+                    d = 0;
+                } else if d != i32::MAX {
+                    d += 1;
+                }
+                if pass == 1 {
+                    who[a] = last;
+                    far[a] = d;
+                }
+            }
+        }
+        (who, far)
+    };
+    let (fwd, fwd_d) = scan(false);
+    let (bwd, bwd_d) = scan(true);
+
+    for a in 0..n {
+        if lut[a] >= 0 {
+            continue;
+        }
+        let (near, dist) = if fwd_d[a] <= bwd_d[a] {
+            (fwd[a], fwd_d[a])
+        } else {
+            (bwd[a], bwd_d[a])
+        };
+        if near >= 0 && dist <= max_fill {
+            lut[a] = near;
+        }
+    }
+}
+
+#[cfg(test)]
+mod lut_tests {
+    use super::*;
+    use crate::level3::ValueDecoder;
+    use crate::sweep::{GateData, SweepRadial};
+
+    /// Radials at the given start azimuths, each claiming `delta` degrees.
+    fn sweep_with(starts: &[f32], delta: f32) -> Sweep {
+        Sweep {
+            site_lat: 35.0,
+            site_lon: -97.0,
+            first_gate_m: 2125.0,
+            gate_size_m: 250.0,
+            nbins: 4,
+            radials: starts
+                .iter()
+                .map(|&a| SweepRadial {
+                    start_az_deg: a,
+                    delta_az_deg: delta,
+                    data: GateData::U8(vec![100u8; 4]),
+                })
+                .collect(),
+            decoder: ValueDecoder::ScaleOffset {
+                scale: 2.0,
+                offset: 66.0,
+            },
+            timestamp: 0,
+            elevation_deg: 0.5,
+            max_raw: 255,
+        }
+    }
+
+    /// Issue #28. Super-resolution start azimuths drift, so consecutive
+    /// radials do not tile: this is the pattern that left black spokes.
+    #[test]
+    fn drifting_half_degree_radials_leave_no_holes() {
+        let starts: Vec<f32> = (0..720)
+            .map(|i| {
+                let base = i as f32 * 0.5;
+                // A small wobble, as the real reported azimuths have.
+                base + if i % 3 == 0 { 0.07 } else { 0.0 }
+            })
+            .collect();
+        let lut = azimuth_lut(&sweep_with(&starts, 0.5));
+        let holes = lut.iter().filter(|&&v| v < 0).count();
+        assert_eq!(holes, 0, "{holes} azimuth slots would draw as spokes");
+    }
+
+    #[test]
+    fn perfectly_tiled_level3_radials_are_untouched() {
+        let starts: Vec<f32> = (0..360).map(|i| i as f32).collect();
+        let lut = azimuth_lut(&sweep_with(&starts, 1.0));
+        assert!(lut.iter().all(|&v| v >= 0));
+        // Slot 105 is 10.5 degrees, which belongs to the radial starting at 10.
+        assert_eq!(lut[105], 10);
+    }
+
+    #[test]
+    fn a_real_missing_sector_stays_missing() {
+        // Radials covering only 0-90 degrees: the rest is not drift, it is
+        // data the radar never produced, and filling it would invent
+        // coverage across three quarters of the sweep.
+        let starts: Vec<f32> = (0..180).map(|i| i as f32 * 0.5).collect();
+        let lut = azimuth_lut(&sweep_with(&starts, 0.5));
+        assert!(lut[0..900].iter().all(|&v| v >= 0), "the scanned arc is filled");
+        assert_eq!(lut[1800], -1, "due south was never scanned");
+        assert_eq!(lut[2700], -1, "due west was never scanned");
+    }
+
+    #[test]
+    fn a_gap_across_due_north_is_closed() {
+        // The wrap point is where a one-directional fill would fail.
+        let starts: Vec<f32> = (0..720)
+            .map(|i| i as f32 * 0.5)
+            .filter(|&a| !(a >= 359.5 || a < 0.5))
+            .collect();
+        let lut = azimuth_lut(&sweep_with(&starts, 0.5));
+        assert!(lut[3595] >= 0, "just before north");
+        assert!(lut[0] >= 0, "due north itself");
+        assert!(lut[3] >= 0, "just after north");
+    }
 }

@@ -73,6 +73,9 @@ pub fn build_grid_encoded(
                     lut[(((start + s) % 720 + 720) % 720) as usize] = i as i32;
                 }
             }
+            // Same drift as the 2D raster: unclaimed slots would be empty
+            // columns through the volume. Four slots is two degrees here.
+            crate::render::raster::fill_azimuth_gaps(&mut lut, 4);
             lut
         })
         .collect();
