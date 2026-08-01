@@ -192,6 +192,14 @@ class _RadarScreenState extends State<RadarScreen> {
 
   List<_Frame> _frames = [];
   int _frameIndex = 0;
+
+  /// Storm tracks. Its own overlay, drawn over whatever product is up, so it
+  /// works the same on velocity or CC as on reflectivity. The cells are
+  /// always found in reflectivity — that is where storms are visible — which
+  /// is why this keeps its own pair of frames rather than using [_frames].
+  bool _tracks = false;
+  List<StormTrack> _stormTracks = [];
+  bool _tracksBusy = false;
   bool _playing = false;
   Timer? _animTimer;
   bool _loading = false;
@@ -391,6 +399,7 @@ class _RadarScreenState extends State<RadarScreen> {
       });
       // Sharpen for the current viewport right away.
       unawaited(_renderViewport());
+      unawaited(_updateTracks());
       unawaited(_loadColorKey(frames.isEmpty ? null : frames.last));
       if (_cursor) unawaited(_openCursorSession());
     } catch (e) {
@@ -399,6 +408,128 @@ class _RadarScreenState extends State<RadarScreen> {
         _loading = false;
         _error = e.toString();
       });
+    }
+  }
+
+  /// Detail for one storm cell.
+  void _showTrackSheet(StormTrack s) {
+    final dir = ((s.bearingDeg / 22.5).round() % 16);
+    const pts = [
+      'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+      'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW',
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF10141A),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Storm cell · ${s.maxDbz.round()} dBZ',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                s.tracked
+                    ? 'Moving toward ${pts[dir]} '
+                        '(${s.bearingDeg.round()}°) at '
+                        '${(s.speedMs * 1.94384).round()} kt'
+                    : 'First scan this cell has appeared in, so it has no '
+                        'motion yet. Tracks appear once it is seen twice.',
+                style: const TextStyle(color: Colors.white70, height: 1.35),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Area above 40 dBZ: ${s.areaKm2.round()} km²',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              if (s.tracked) ...[
+                const SizedBox(height: 10),
+                const Text(
+                  'Projection assumes it keeps its current speed and '
+                  'direction. Storms turn, split and decay; treat the far end '
+                  'of the track as a hint, not a forecast.',
+                  style: TextStyle(
+                    color: Colors.white38,
+                    fontSize: 12,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Recompute storm tracks for the current view.
+  ///
+  /// Cells come from base reflectivity regardless of what is being displayed:
+  /// a storm is a reflectivity object, and there is nothing to segment in a
+  /// velocity or correlation-coefficient field. When reflectivity is already
+  /// on screen its frames are reused; otherwise two scans are fetched just
+  /// for this.
+  Future<void> _updateTracks() async {
+    if (!_tracks || _tracksBusy) return;
+    final box = _viewBox();
+    if (box == null) return;
+    _tracksBusy = true;
+    try {
+      Uint8List prev;
+      Uint8List latest;
+      String source;
+      if (_product.isMrms && _frames.length >= 2) {
+        prev = _frames[_frames.length - 2].raw;
+        latest = _frames.last.raw;
+        source = 'MRMS';
+      } else if (_product == _l3Products[0] && _frames.length >= 2) {
+        prev = _frames[_frames.length - 2].raw;
+        latest = _frames.last.raw;
+        source = 'L3';
+      } else {
+        // Viewing something else: fetch reflectivity on the side.
+        final keys = await listRecentKeys(
+          _site.shortId,
+          _l3Products[0].code(0),
+          count: 2,
+          before: _historyTime,
+        );
+        if (keys.length < 2) return;
+        final bytes = await Future.wait(
+          keys.map((k) async => Uint8List.fromList(await fetchObject(k))),
+        );
+        prev = bytes[0];
+        latest = bytes[1];
+        source = 'L3';
+      }
+      final tracks = await stormTracks(
+        prev: prev,
+        latest: latest,
+        source: source,
+        north: box.n,
+        south: box.s,
+        east: box.e,
+        west: box.w,
+        width: box.width,
+        height: box.height,
+        thresholdDbz: 40,
+      );
+      if (!mounted || !_tracks) return;
+      setState(() => _stormTracks = tracks);
+    } catch (_) {
+      // Tracks are an extra: a failure here must not disturb the radar.
+      if (mounted && _tracks) setState(() => _stormTracks = []);
+    } finally {
+      _tracksBusy = false;
     }
   }
 
@@ -1088,7 +1219,10 @@ class _RadarScreenState extends State<RadarScreen> {
                 _viewDebounce?.cancel();
                 _viewDebounce = Timer(
                   const Duration(milliseconds: 350),
-                  _renderViewport,
+                  () {
+                    unawaited(_renderViewport());
+                    unawaited(_updateTracks());
+                  },
                 );
               },
               backgroundColor: const Color(0xFF10141A),
@@ -1281,6 +1415,81 @@ class _RadarScreenState extends State<RadarScreen> {
                     ),
                   ],
                 ),
+              if (_tracks) ...[
+                // Projected path, then the cell itself on top of it.
+                PolylineLayer(
+                  polylines: [
+                    for (final s in _stormTracks)
+                      if (s.forecast.isNotEmpty)
+                        Polyline(
+                          points: [
+                            LatLng(s.lat, s.lon),
+                            for (final f in s.forecast) LatLng(f.lat, f.lon),
+                          ],
+                          color: Colors.white.withValues(alpha: 0.85),
+                          strokeWidth: 2,
+                        ),
+                  ],
+                ),
+                MarkerLayer(
+                  markers: [
+                    for (final s in _stormTracks) ...[
+                      for (final f in s.forecast)
+                        Marker(
+                          point: LatLng(f.lat, f.lon),
+                          width: 30,
+                          height: 14,
+                          child: Text(
+                            '${f.minutes.round()}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(blurRadius: 3, color: Colors.black),
+                              ],
+                            ),
+                          ),
+                        ),
+                      Marker(
+                        point: LatLng(s.lat, s.lon),
+                        width: 108,
+                        height: 34,
+                        child: GestureDetector(
+                          onTap: () => _showTrackSheet(s),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                s.tracked
+                                    ? Icons.change_history
+                                    : Icons.circle_outlined,
+                                size: 14,
+                                color: s.maxDbz >= 55
+                                    ? Colors.redAccent
+                                    : Colors.amberAccent,
+                              ),
+                              Text(
+                                s.tracked
+                                    ? '${s.maxDbz.round()} dBZ · '
+                                        '${(s.speedMs * 1.94384).round()} kt'
+                                    : '${s.maxDbz.round()} dBZ · new',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white,
+                                  shadows: [
+                                    Shadow(blurRadius: 3, color: Colors.black),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
               MarkerLayer(
                 markers: [
                   for (final s in nexradSites)
@@ -1677,6 +1886,22 @@ class _RadarScreenState extends State<RadarScreen> {
               Icons.fast_forward,
               size: 20,
               color: _future ? Colors.lightGreenAccent : Colors.white38,
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Storm tracks',
+            onPressed: () {
+              setState(() {
+                _tracks = !_tracks;
+                if (!_tracks) _stormTracks = [];
+              });
+              if (_tracks) unawaited(_updateTracks());
+            },
+            icon: Icon(
+              Icons.timeline,
+              size: 20,
+              color: _tracks ? Colors.lightGreenAccent : Colors.white38,
             ),
           ),
           PopupMenuButton<String>(

@@ -229,7 +229,33 @@ Future<RadarFrame> nowcastView({
   height: height,
 );
 
-/// Import a GRLevelX `.pal` color table. Returns the product family it
+/// Identify storm cells in the latest scan and derive their motion from the
+/// previous one. Same two frames and view box as the nowcast.
+Future<List<StormTrack>> stormTracks({
+  required List<int> prev,
+  required List<int> latest,
+  required String source,
+  required double north,
+  required double south,
+  required double east,
+  required double west,
+  required int width,
+  required int height,
+  required double thresholdDbz,
+}) => RustLib.instance.api.crateApiRadarStormTracks(
+  prev: prev,
+  latest: latest,
+  source: source,
+  north: north,
+  south: south,
+  east: east,
+  west: west,
+  width: width,
+  height: height,
+  thresholdDbz: thresholdDbz,
+);
+
+/// Import a `.pal` color table. Returns the product family it
 /// applies to.
 Future<String> installPalette({required String text}) =>
     RustLib.instance.api.crateApiRadarInstallPalette(text: text);
@@ -546,6 +572,85 @@ class SampleResult {
           beamHeightM == other.beamHeightM &&
           azimuthDeg == other.azimuthDeg &&
           elevationDeg == other.elevationDeg;
+}
+
+/// A storm cell with its motion, when it could be matched to the previous
+/// scan.
+class StormTrack {
+  final double lat;
+  final double lon;
+  final double maxDbz;
+  final double areaKm2;
+
+  /// False for a cell seen for the first time; the motion fields are then
+  /// meaningless and `forecast` is empty.
+  final bool tracked;
+  final double speedMs;
+
+  /// Degrees clockwise from north, the way it is heading.
+  final double bearingDeg;
+  final List<TrackPoint> forecast;
+
+  const StormTrack({
+    required this.lat,
+    required this.lon,
+    required this.maxDbz,
+    required this.areaKm2,
+    required this.tracked,
+    required this.speedMs,
+    required this.bearingDeg,
+    required this.forecast,
+  });
+
+  @override
+  int get hashCode =>
+      lat.hashCode ^
+      lon.hashCode ^
+      maxDbz.hashCode ^
+      areaKm2.hashCode ^
+      tracked.hashCode ^
+      speedMs.hashCode ^
+      bearingDeg.hashCode ^
+      forecast.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StormTrack &&
+          runtimeType == other.runtimeType &&
+          lat == other.lat &&
+          lon == other.lon &&
+          maxDbz == other.maxDbz &&
+          areaKm2 == other.areaKm2 &&
+          tracked == other.tracked &&
+          speedMs == other.speedMs &&
+          bearingDeg == other.bearingDeg &&
+          forecast == other.forecast;
+}
+
+/// One projected position along a storm's forecast path.
+class TrackPoint {
+  final double minutes;
+  final double lat;
+  final double lon;
+
+  const TrackPoint({
+    required this.minutes,
+    required this.lat,
+    required this.lon,
+  });
+
+  @override
+  int get hashCode => minutes.hashCode ^ lat.hashCode ^ lon.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackPoint &&
+          runtimeType == other.runtimeType &&
+          minutes == other.minutes &&
+          lat == other.lat &&
+          lon == other.lon;
 }
 
 /// A rendered 3D volume frame.

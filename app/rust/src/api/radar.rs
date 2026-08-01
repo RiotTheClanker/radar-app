@@ -309,6 +309,69 @@ pub fn nowcast_view(
     )?)
 }
 
+/// One projected position along a storm's forecast path.
+pub struct TrackPoint {
+    pub minutes: f32,
+    pub lat: f64,
+    pub lon: f64,
+}
+
+/// A storm cell with its motion, when it could be matched to the previous
+/// scan.
+pub struct StormTrack {
+    pub lat: f64,
+    pub lon: f64,
+    pub max_dbz: f32,
+    pub area_km2: f32,
+    /// False for a cell seen for the first time; the motion fields are then
+    /// meaningless and `forecast` is empty.
+    pub tracked: bool,
+    pub speed_ms: f32,
+    /// Degrees clockwise from north, the way it is heading.
+    pub bearing_deg: f32,
+    pub forecast: Vec<TrackPoint>,
+}
+
+/// Identify storm cells in the latest scan and derive their motion from the
+/// previous one. Same two frames and view box as the nowcast.
+pub fn storm_tracks(
+    prev: Vec<u8>,
+    latest: Vec<u8>,
+    source: String,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+    threshold_dbz: f32,
+) -> Result<Vec<StormTrack>, String> {
+    Ok(core::storm_tracks(
+        prev, latest, source, north, south, east, west, width, height,
+        threshold_dbz,
+    )?
+    .into_iter()
+    .map(|s| StormTrack {
+        lat: s.lat,
+        lon: s.lon,
+        max_dbz: s.max_dbz,
+        area_km2: s.area_km2,
+        tracked: s.tracked,
+        speed_ms: s.speed_ms,
+        bearing_deg: s.bearing_deg,
+        forecast: s
+            .forecast
+            .into_iter()
+            .map(|p| TrackPoint {
+                minutes: p.minutes,
+                lat: p.lat,
+                lon: p.lon,
+            })
+            .collect(),
+    })
+    .collect())
+}
+
 /// Import a `.pal` color table. Returns the product family it
 /// applies to.
 pub fn install_palette(text: String) -> Result<String, String> {

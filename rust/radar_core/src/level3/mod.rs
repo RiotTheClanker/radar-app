@@ -98,6 +98,13 @@ pub struct Level3File {
     pub elevation_angle_deg: f32,
     pub info: Option<&'static ProductInfo>,
     pub radial: Option<RadialDataArray>,
+    /// Text of the Tabular Alphanumeric Block, pages joined by blank lines.
+    ///
+    /// The graphic products carry their real payload here rather than in the
+    /// symbology: STI's storm table, the mesocyclone and TVS tables. It is
+    /// plain fixed-column text, which is far less work than the SCIT
+    /// symbology packets and carries the same numbers.
+    pub tabular: Option<String>,
 }
 
 impl Level3File {
@@ -226,6 +233,69 @@ fn find_header_offset(buf: &[u8]) -> Result<usize> {
     Err(RadarError::NoHeader)
 }
 
+/// Pull the text out of a Tabular Alphanumeric Block.
+///
+/// Layout after the offset: block divider (-1), block id (3), block length,
+/// then a verbatim copy of the message header and product description block
+/// (120 bytes), then a page count, then per page a run of length-prefixed
+/// lines terminated by -1.
+///
+/// Best-effort: a malformed or absent block gives None rather than failing
+/// the whole product, since every other product parses fine without it.
+fn read_tabular(msg: &[u8], off: usize) -> Option<String> {
+    let raw = msg.get(off..)?;
+    // Compressed products keep the offsets in uncompressed coordinates, so a
+    // block that does not start with the divider is worth one attempt at
+    // inflating the tail first.
+    let owned;
+    let b: &[u8] = if raw.len() >= 2 && i16::from_be_bytes([raw[0], raw[1]]) == -1 {
+        raw
+    } else {
+        owned = decompress_symbology(msg).ok()?;
+        owned.get(off..)?
+    };
+
+    let hw = |i: usize| -> Option<i16> {
+        Some(i16::from_be_bytes([*b.get(i)?, *b.get(i + 1)?]))
+    };
+    if hw(0)? != -1 || hw(2)? != 3 {
+        return None;
+    }
+    // 8 bytes of block header, then the repeated message header and product
+    // description block, then a divider before the page count. Real products
+    // carry that divider; treat it as optional so a variant without one still
+    // reads rather than silently yielding nothing.
+    let mut i = 8 + 120;
+    if hw(i)? == -1 {
+        i += 2;
+    }
+    let pages = hw(i)?;
+    i += 2;
+    if !(1..=512).contains(&pages) {
+        return None;
+    }
+    let mut out = String::new();
+    for _ in 0..pages {
+        loop {
+            let n = hw(i)?;
+            i += 2;
+            if n == -1 {
+                break;
+            }
+            let n = n as usize;
+            if n > 256 {
+                return None;
+            }
+            let line = b.get(i..i + n)?;
+            i += n;
+            out.push_str(&String::from_utf8_lossy(line));
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    Some(out)
+}
+
 fn decompress_symbology(raw: &[u8]) -> Result<Vec<u8>> {
     use std::io::Read;
     if raw.len() >= 3 && &raw[0..3] == b"BZh" {
@@ -302,6 +372,12 @@ pub fn parse(buf: &[u8]) -> Result<Level3File> {
     // Elevation-based products carry elevation*10 in parameter 3.
     let elevation_angle_deg = p3 as f32 / 10.0;
 
+    let tabular = if _tab_off_hw > 0 {
+        read_tabular(msg, (_tab_off_hw as usize) * 2)
+    } else {
+        None
+    };
+
     let mut radial = None;
     if sym_off_hw > 0 {
         let sym_start = (sym_off_hw as usize) * 2;
@@ -324,6 +400,7 @@ pub fn parse(buf: &[u8]) -> Result<Level3File> {
         elevation_angle_deg,
         info,
         radial,
+        tabular,
     })
 }
 

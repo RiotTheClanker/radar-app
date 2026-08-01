@@ -70,6 +70,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<StormTrack> dco_decode_list_storm_track(dynamic raw);
+
+  @protected
+  List<TrackPoint> dco_decode_list_track_point(dynamic raw);
+
+  @protected
   double? dco_decode_opt_box_autoadd_f_32(dynamic raw);
 
   @protected
@@ -80,6 +86,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SampleResult dco_decode_sample_result(dynamic raw);
+
+  @protected
+  StormTrack dco_decode_storm_track(dynamic raw);
+
+  @protected
+  TrackPoint dco_decode_track_point(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -147,6 +159,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<StormTrack> sse_decode_list_storm_track(SseDeserializer deserializer);
+
+  @protected
+  List<TrackPoint> sse_decode_list_track_point(SseDeserializer deserializer);
+
+  @protected
   double? sse_decode_opt_box_autoadd_f_32(SseDeserializer deserializer);
 
   @protected
@@ -157,6 +175,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SampleResult sse_decode_sample_result(SseDeserializer deserializer);
+
+  @protected
+  StormTrack sse_decode_storm_track(SseDeserializer deserializer);
+
+  @protected
+  TrackPoint sse_decode_track_point(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -240,6 +264,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_storm_track(
+    List<StormTrack> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_track_point(
+    List<TrackPoint> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_f_32(double? self, SseSerializer serializer);
 
   @protected
@@ -250,6 +286,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_sample_result(SampleResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_storm_track(StormTrack self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_track_point(TrackPoint self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
