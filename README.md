@@ -85,7 +85,9 @@ On touch, use the on-screen stick and altitude pad. The scissors button
 reveals slice planes; the layers button switches the 3D field; the mountain
 button drapes the storm over real terrain; the bars button shades the cone of
 silence; the eye button hides the stick and every other control, leaving just
-the storm.
+the storm. A key sits in the bottom-left corner for whichever field is up —
+a colour scale in that field's own units, or a list of classes for
+hydrometeor classification.
 
 Terrain is off by default — it is a second set of tiles to fetch, and it is
 not always wanted. Elevation comes from the free AWS Terrain Tiles dataset.

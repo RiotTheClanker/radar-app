@@ -14,6 +14,7 @@ import '../data/hydrometeor.dart';
 import '../data/terrain_tiles.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
+import 'color_key.dart';
 import 'fly_controls.dart';
 import 'hydro_legend.dart';
 import 'toolbar.dart';
@@ -98,6 +99,11 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   _VolField _field = _volFields[0];
   double _threshold = 10;
 
+  /// Colour scale for the current field, so the render can be read as values
+  /// rather than guessed at. Classified fields use a class list instead.
+  ColorScale? _keyScale;
+  String? _keyFor;
+
   // Session
   bool _opening = true;
   bool _gpu = false;
@@ -179,6 +185,29 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     _open();
   }
 
+  /// Fetch the colour scale for the current field.
+  ///
+  /// The same call the 2D map uses, so the key is built from the table the
+  /// renderer actually painted with -- including an imported `.pal`.
+  Future<void> _loadKey() async {
+    if (_field.moment == 'HCA') {
+      if (mounted) setState(() => _keyFor = 'HCA');
+      return;
+    }
+    if (_keyFor == _field.moment) return;
+    try {
+      final s = await colorScale(productCode: 0, moment: _field.moment);
+      if (!mounted) return;
+      setState(() {
+        _keyScale = s;
+        _keyFor = _field.moment;
+      });
+    } catch (_) {
+      // The render is still usable without a key.
+      if (mounted) setState(() => _keyScale = null);
+    }
+  }
+
   /// Forget every held input. Anything still down when the app is backgrounded
   /// or the screen is torn down would otherwise keep driving the camera.
   void _clearInputs() {
@@ -229,6 +258,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
         threshold: _threshold,
       );
       if (!mounted) return;
+      unawaited(_loadKey());
       _gpu = info.gpu;
       _ex = info.halfExtentM;
       _top = info.topM;
@@ -600,7 +630,24 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                   // Classified colours mean nothing without a key, so the
                   // legend is not optional chrome for this field.
                   if (_field.moment == 'HCA')
-                    Positioned(left: 8, bottom: 96, child: const HydroLegend(classes: hydrometeorClasses)),
+                    // Same corner for every field: a class list where the
+                    // values are class ids, a colour scale everywhere else.
+                    if (_field.moment == 'HCA')
+                      const Positioned(
+                        left: 8,
+                        bottom: 96,
+                        child: HydroLegend(classes: hydrometeorClasses),
+                      )
+                    else if (_keyScale != null)
+                      Positioned(
+                        left: 8,
+                        bottom: 96,
+                        child: ColorKey(
+                          scale: _keyScale!,
+                          rangeFolded: _field.moment == 'VEL' ||
+                              _field.moment == 'SRM',
+                        ),
+                      ),
                   Positioned(left: 0, right: 0, bottom: 0, child: _bottomOverlay()),
                 ] else
                   Positioned(
