@@ -20,6 +20,17 @@ Slivers now go to whichever neighbouring radial is nearer, but only across
 gaps under two degrees, so a sector the radar genuinely did not scan stays
 empty instead of being filled with invented coverage.
 
+### Color key
+
+Hydrometeor classification now gets a list of its classes down the side of
+the map, where the color scale usually goes, since a scale labelled with
+class ids is not something you can read a value off. The colors are the NWS's
+own, which are not the ones our 3D classifier uses — a legend drawn with the
+wrong palette would name every class incorrectly, so a test checks it against
+the table the map is actually painted with.
+
+The 3D view's legend is now the same widget.
+
 ### Storm tracks
 
 The NWS's own storm cells, from the Level 3 STI product: each cell's id and

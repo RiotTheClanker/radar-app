@@ -15,6 +15,7 @@ import '../data/terrain_tiles.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
 import 'fly_controls.dart';
+import 'hydro_legend.dart';
 import 'toolbar.dart';
 
 /// Pixels the raymarcher may fill in one frame. This is what the old fixed
@@ -599,7 +600,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                   // Classified colours mean nothing without a key, so the
                   // legend is not optional chrome for this field.
                   if (_field.moment == 'HCA')
-                    Positioned(left: 8, bottom: 96, child: _hcaLegend()),
+                    Positioned(left: 8, bottom: 96, child: const HydroLegend(classes: hydrometeorClasses)),
                   Positioned(left: 0, right: 0, bottom: 0, child: _bottomOverlay()),
                 ] else
                   Positioned(
@@ -613,52 +614,6 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                   ),
               ],
             ),
-    );
-  }
-
-  /// Key for the hydrometeor classes. Compact enough to leave the storm
-  /// visible; the classifier's own caveats live in the issue and the README,
-  /// not on screen.
-  Widget _hcaLegend() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xCC0A0D12),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final c in hydrometeorClasses)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 1.5),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 11,
-                    height: 11,
-                    decoration: BoxDecoration(
-                      color: c.color,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    c.label,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.white,
-                      height: 1.1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
     );
   }
 

@@ -8,6 +8,8 @@ import 'package:radar_app/data/hydrometeor.dart';
 /// legend — it mislabels rather than omits. So read the Rust source and check.
 void main() {
   final src = File('../rust/radar_core/src/process/hca.rs').readAsStringSync();
+  final table =
+      File('../rust/radar_core/src/render/color_table.rs').readAsStringSync();
 
   test('rust source is where we think it is', () {
     expect(src, contains('pub enum Class'),
@@ -70,6 +72,40 @@ void main() {
         ],
         rgb,
         reason: '$variant colour differs between hca.rs and the legend',
+      );
+    }
+  });
+
+  test('the NWS legend matches the table the map is drawn with', () {
+    // A legend showing our 3D palette against NOAA's product would name every
+    // class wrongly, which is worse than no legend: it misleads rather than
+    // omits. These colours must be the ones hydro_class_default paints with.
+    final body = RegExp(r'fn hydro_class_default.*?\n    \}', dotAll: true)
+        .firstMatch(table)!
+        .group(0)!;
+    final stops = <int, List<int>>{};
+    for (final m in RegExp(r'\((\d+)\.0, \[(\d+), (\d+), (\d+)\]\)')
+        .allMatches(body)) {
+      stops[int.parse(m.group(1)!)] = [
+        int.parse(m.group(2)!),
+        int.parse(m.group(3)!),
+        int.parse(m.group(4)!),
+      ];
+    }
+    expect(stops.length, nwsHydrometeorClasses.length,
+        reason: 'a class was added or removed in hydro_class_default');
+
+    for (final c in nwsHydrometeorClasses) {
+      final rgb = stops[c.id];
+      expect(rgb, isNotNull, reason: 'no stop at code ${c.id} for "${c.label}"');
+      expect(
+        [
+          (c.color.r * 255).round(),
+          (c.color.g * 255).round(),
+          (c.color.b * 255).round(),
+        ],
+        rgb,
+        reason: '${c.label} (code ${c.id}) differs from hydro_class_default',
       );
     }
   });

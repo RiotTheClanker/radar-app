@@ -75,7 +75,8 @@ basemap, my location, aiming cursor, more
 **Color key** — a scale down the right edge showing what the colors mean for
 whatever product is up, in that product's own units. It is built from the
 same table the renderer used, so an imported `.pal` changes the key too.
-Toggle it under the more menu.
+Hydrometeor classification gets a list of classes there instead, since its
+values are class ids rather than a quantity. Toggle it under the more menu.
 
 **3D view** — fills the screen, with the controls floating over the storm.
 Drag to look, two fingers to pan, pinch to fly. On desktop: `W` `A` `S` `D`

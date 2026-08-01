@@ -22,9 +22,11 @@ import 'src/rust/api/radar.dart';
 import 'src/rust/frb_generated.dart';
 import 'data/sounding_fetcher.dart';
 import 'ui/color_key.dart';
+import 'ui/hydro_legend.dart';
 import 'ui/sounding_screen.dart';
 import 'ui/toolbar.dart';
 import 'ui/volume3d_screen.dart';
+import 'data/hydrometeor.dart';
 import 'data/identity.dart';
 
 Future<void> main() async {
@@ -1816,17 +1818,24 @@ class _RadarScreenState extends State<RadarScreen> {
               ],
             ),
           ),
-          if (_showKey && _keyScale != null)
+          // Same edge, same toggle. A classified field gets a list of
+          // classes rather than a colour scale: the scale would be labelled
+          // with class ids, which are not a quantity and mean nothing to
+          // read off. The colours are the NWS's own, not our 3D
+          // classifier's, because this is their product on screen.
+          if (_showKey && (_product.short == 'HCA' || _keyScale != null))
             SafeArea(
               child: Align(
                 alignment: Alignment.centerRight,
                 child: Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: ColorKey(
-                    scale: _keyScale!,
-                    rangeFolded: _product.short.contains('VEL') ||
-                        _product.short.contains('SRM'),
-                  ),
+                  child: _product.short == 'HCA'
+                      ? const HydroLegend(classes: nwsHydrometeorClasses)
+                      : ColorKey(
+                          scale: _keyScale!,
+                          rangeFolded: _product.short.contains('VEL') ||
+                              _product.short.contains('SRM'),
+                        ),
                 ),
               ),
             ),
