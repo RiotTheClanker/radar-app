@@ -6,6 +6,21 @@
   GitHub's generated commit list is appended below whatever is written here.
 -->
 
+### Storm tracks
+
+The NWS's own storm cells, from the Level 3 STI product: each cell's id and
+position, how fast and which way it is moving, its forecast track out to an
+hour, and the NWS's own estimate of how wrong that track is likely to be.
+
+It is its own overlay, so it draws over velocity, ZDR or correlation
+coefficient exactly as over reflectivity. Tap a cell for detail. A cell the
+NWS has no movement solution for yet is drawn hollow and marked new rather
+than given an invented arrow.
+
+These are NOAA's numbers, not ours. Their SCIT runs across seven reflectivity
+thresholds with full vertical integration, which no single-threshold reading
+of one 2D field on device could match.
+
 ### 3D view
 
 **Hydrometeor classification.** A new 3D field labels every voxel by what the

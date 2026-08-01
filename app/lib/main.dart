@@ -413,7 +413,7 @@ class _RadarScreenState extends State<RadarScreen> {
 
   /// Detail for one storm cell.
   void _showTrackSheet(StormTrack s) {
-    final dir = ((s.bearingDeg / 22.5).round() % 16);
+    final dir = ((s.headingDeg / 22.5).round() % 16);
     const pts = [
       'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
       'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW',
@@ -429,7 +429,7 @@ class _RadarScreenState extends State<RadarScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Storm cell · ${s.maxDbz.round()} dBZ',
+                'Storm cell ${s.id}',
                 style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
@@ -440,23 +440,24 @@ class _RadarScreenState extends State<RadarScreen> {
               Text(
                 s.tracked
                     ? 'Moving toward ${pts[dir]} '
-                        '(${s.bearingDeg.round()}°) at '
-                        '${(s.speedMs * 1.94384).round()} kt'
-                    : 'First scan this cell has appeared in, so it has no '
-                        'motion yet. Tracks appear once it is seen twice.',
+                        '(${s.headingDeg.round()}°) at '
+                        '${s.speedKt.round()} kt'
+                    : 'The NWS has no movement solution for this cell yet, '
+                        'so it has no track.',
                 style: const TextStyle(color: Colors.white70, height: 1.35),
               ),
               const SizedBox(height: 6),
-              Text(
-                'Area above 40 dBZ: ${s.areaKm2.round()} km²',
-                style: const TextStyle(color: Colors.white70),
-              ),
+              if (s.tracked && s.errorNm > 0)
+                Text(
+                  'NWS forecast track error: ${s.errorNm} NM',
+                  style: const TextStyle(color: Colors.white70),
+                ),
               if (s.tracked) ...[
                 const SizedBox(height: 10),
                 const Text(
-                  'Projection assumes it keeps its current speed and '
-                  'direction. Storms turn, split and decay; treat the far end '
-                  'of the track as a hint, not a forecast.',
+                  'Positions are the NWS forecast, which assumes the cell '
+                  'keeps its current speed and direction. Storms turn, split '
+                  'and decay; treat the far end of the track as a hint.',
                   style: TextStyle(
                     color: Colors.white38,
                     fontSize: 12,
@@ -471,62 +472,36 @@ class _RadarScreenState extends State<RadarScreen> {
     );
   }
 
-  /// Recompute storm tracks for the current view.
+  /// Fetch NOAA's storm tracks for this site.
   ///
-  /// Cells come from base reflectivity regardless of what is being displayed:
-  /// a storm is a reflectivity object, and there is nothing to segment in a
-  /// velocity or correlation-coefficient field. When reflectivity is already
-  /// on screen its frames are reused; otherwise two scans are fetched just
-  /// for this.
+  /// These come from the NWS's own SCIT, published as Level 3 STI, rather
+  /// than being worked out here: it runs across seven reflectivity thresholds
+  /// with full vertical integration and gives a forecast error estimate, none
+  /// of which is reachable from one 2D field on device.
+  ///
+  /// Independent of the displayed product, so the overlay works the same over
+  /// velocity or CC as over reflectivity.
   Future<void> _updateTracks() async {
     if (!_tracks || _tracksBusy) return;
-    final box = _viewBox();
-    if (box == null) return;
     _tracksBusy = true;
     try {
-      Uint8List prev;
-      Uint8List latest;
-      String source;
-      if (_product.isMrms && _frames.length >= 2) {
-        prev = _frames[_frames.length - 2].raw;
-        latest = _frames.last.raw;
-        source = 'MRMS';
-      } else if (_product == _l3Products[0] && _frames.length >= 2) {
-        prev = _frames[_frames.length - 2].raw;
-        latest = _frames.last.raw;
-        source = 'L3';
-      } else {
-        // Viewing something else: fetch reflectivity on the side.
-        final keys = await listRecentKeys(
-          _site.shortId,
-          _l3Products[0].code(0),
-          count: 2,
-          before: _historyTime,
-        );
-        if (keys.length < 2) return;
-        final bytes = await Future.wait(
-          keys.map((k) async => Uint8List.fromList(await fetchObject(k))),
-        );
-        prev = bytes[0];
-        latest = bytes[1];
-        source = 'L3';
-      }
-      final tracks = await stormTracks(
-        prev: prev,
-        latest: latest,
-        source: source,
-        north: box.n,
-        south: box.s,
-        east: box.e,
-        west: box.w,
-        width: box.width,
-        height: box.height,
-        thresholdDbz: 40,
+      final keys = await listRecentKeys(
+        _site.shortId,
+        'NST',
+        count: 1,
+        before: _historyTime,
       );
+      if (keys.isEmpty) {
+        if (mounted && _tracks) setState(() => _stormTracks = []);
+        return;
+      }
+      final bytes = Uint8List.fromList(await fetchObject(keys.last));
+      final tracks = await stormTracks(data: bytes);
       if (!mounted || !_tracks) return;
       setState(() => _stormTracks = tracks);
     } catch (_) {
-      // Tracks are an extra: a failure here must not disturb the radar.
+      // Tracks are an extra: a failure here must not disturb the radar. A
+      // site with no storms publishes no cells, which is not an error.
       if (mounted && _tracks) setState(() => _stormTracks = []);
     } finally {
       _tracksBusy = false;
@@ -1110,11 +1085,20 @@ class _RadarScreenState extends State<RadarScreen> {
     );
   }
 
-  /// Open the 3D volume view on the latest Level 2 volume for this site.
+  /// Open the 3D volume view on the Level 2 volume for this site, at the
+  /// moment currently being shown.
+  ///
+  /// `before` matters: without it replay showed the chosen time on the map
+  /// while 3D silently jumped to now, which is worse than not replaying at
+  /// all because nothing on screen says the two disagree.
   Future<void> _open3D() async {
     setState(() => _loading = true);
     try {
-      final keys = await listRecentVolumes(_site.icao, count: 1);
+      final keys = await listRecentVolumes(
+        _site.icao,
+        count: 1,
+        before: _historyTime,
+      );
       if (keys.isEmpty) throw Exception('no volume for ${_site.icao}');
       final bytes = _l2Cache[keys.last] ?? await fetchVolume(keys.last);
       _l2Cache[keys.last] = bytes;
@@ -1217,12 +1201,13 @@ class _RadarScreenState extends State<RadarScreen> {
               onMapEvent: (_) {
                 _maybeSwitchMosaic();
                 _viewDebounce?.cancel();
+                // Only the radar image depends on the viewport. Storm
+                // tracks are positioned by azimuth and range from the site,
+                // so panning and zooming cannot change where they are — and
+                // refetching on every gesture would be network for nothing.
                 _viewDebounce = Timer(
                   const Duration(milliseconds: 350),
-                  () {
-                    unawaited(_renderViewport());
-                    unawaited(_updateTracks());
-                  },
+                  _renderViewport,
                 );
               },
               backgroundColor: const Color(0xFF10141A),
@@ -1465,15 +1450,12 @@ class _RadarScreenState extends State<RadarScreen> {
                                     ? Icons.change_history
                                     : Icons.circle_outlined,
                                 size: 14,
-                                color: s.maxDbz >= 55
-                                    ? Colors.redAccent
-                                    : Colors.amberAccent,
+                                color: Colors.amberAccent,
                               ),
                               Text(
                                 s.tracked
-                                    ? '${s.maxDbz.round()} dBZ · '
-                                        '${(s.speedMs * 1.94384).round()} kt'
-                                    : '${s.maxDbz.round()} dBZ · new',
+                                    ? '${s.id} · ${s.speedKt.round()} kt'
+                                    : '${s.id} · new',
                                 style: const TextStyle(
                                   fontSize: 10,
                                   color: Colors.white,

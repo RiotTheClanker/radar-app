@@ -195,18 +195,7 @@ abstract class RustLibApi extends BaseApi {
     required double lon,
   });
 
-  Future<List<StormTrack>> crateApiRadarStormTracks({
-    required List<int> prev,
-    required List<int> latest,
-    required String source,
-    required double north,
-    required double south,
-    required double east,
-    required double west,
-    required int width,
-    required int height,
-    required double thresholdDbz,
-  });
+  Future<List<StormTrack>> crateApiRadarStormTracks({required List<int> data});
 
   Future<Float64List> crateApiRadarVolume3DGroundBounds();
 
@@ -1014,32 +1003,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
-  Future<List<StormTrack>> crateApiRadarStormTracks({
-    required List<int> prev,
-    required List<int> latest,
-    required String source,
-    required double north,
-    required double south,
-    required double east,
-    required double west,
-    required int width,
-    required int height,
-    required double thresholdDbz,
-  }) {
+  Future<List<StormTrack>> crateApiRadarStormTracks({required List<int> data}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_list_prim_u_8_loose(prev, serializer);
-          sse_encode_list_prim_u_8_loose(latest, serializer);
-          sse_encode_String(source, serializer);
-          sse_encode_f_64(north, serializer);
-          sse_encode_f_64(south, serializer);
-          sse_encode_f_64(east, serializer);
-          sse_encode_f_64(west, serializer);
-          sse_encode_u_32(width, serializer);
-          sse_encode_u_32(height, serializer);
-          sse_encode_f_32(thresholdDbz, serializer);
+          sse_encode_list_prim_u_8_loose(data, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1052,38 +1021,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiRadarStormTracksConstMeta,
-        argValues: [
-          prev,
-          latest,
-          source,
-          north,
-          south,
-          east,
-          west,
-          width,
-          height,
-          thresholdDbz,
-        ],
+        argValues: [data],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiRadarStormTracksConstMeta => const TaskConstMeta(
-    debugName: "storm_tracks",
-    argNames: [
-      "prev",
-      "latest",
-      "source",
-      "north",
-      "south",
-      "east",
-      "west",
-      "width",
-      "height",
-      "thresholdDbz",
-    ],
-  );
+  TaskConstMeta get kCrateApiRadarStormTracksConstMeta =>
+      const TaskConstMeta(debugName: "storm_tracks", argNames: ["data"]);
 
   @override
   Future<Float64List> crateApiRadarVolume3DGroundBounds() {
@@ -1539,14 +1484,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 8)
       throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return StormTrack(
-      lat: dco_decode_f_64(arr[0]),
-      lon: dco_decode_f_64(arr[1]),
-      maxDbz: dco_decode_f_32(arr[2]),
-      areaKm2: dco_decode_f_32(arr[3]),
-      tracked: dco_decode_bool(arr[4]),
-      speedMs: dco_decode_f_32(arr[5]),
-      bearingDeg: dco_decode_f_32(arr[6]),
-      forecast: dco_decode_list_track_point(arr[7]),
+      id: dco_decode_String(arr[0]),
+      lat: dco_decode_f_64(arr[1]),
+      lon: dco_decode_f_64(arr[2]),
+      tracked: dco_decode_bool(arr[3]),
+      speedKt: dco_decode_f_32(arr[4]),
+      headingDeg: dco_decode_f_32(arr[5]),
+      forecast: dco_decode_list_track_point(arr[6]),
+      errorNm: dco_decode_f_32(arr[7]),
     );
   }
 
@@ -1850,23 +1795,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   StormTrack sse_decode_storm_track(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
     var var_lat = sse_decode_f_64(deserializer);
     var var_lon = sse_decode_f_64(deserializer);
-    var var_maxDbz = sse_decode_f_32(deserializer);
-    var var_areaKm2 = sse_decode_f_32(deserializer);
     var var_tracked = sse_decode_bool(deserializer);
-    var var_speedMs = sse_decode_f_32(deserializer);
-    var var_bearingDeg = sse_decode_f_32(deserializer);
+    var var_speedKt = sse_decode_f_32(deserializer);
+    var var_headingDeg = sse_decode_f_32(deserializer);
     var var_forecast = sse_decode_list_track_point(deserializer);
+    var var_errorNm = sse_decode_f_32(deserializer);
     return StormTrack(
+      id: var_id,
       lat: var_lat,
       lon: var_lon,
-      maxDbz: var_maxDbz,
-      areaKm2: var_areaKm2,
       tracked: var_tracked,
-      speedMs: var_speedMs,
-      bearingDeg: var_bearingDeg,
+      speedKt: var_speedKt,
+      headingDeg: var_headingDeg,
       forecast: var_forecast,
+      errorNm: var_errorNm,
     );
   }
 
@@ -2141,14 +2086,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_storm_track(StormTrack self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
     sse_encode_f_64(self.lat, serializer);
     sse_encode_f_64(self.lon, serializer);
-    sse_encode_f_32(self.maxDbz, serializer);
-    sse_encode_f_32(self.areaKm2, serializer);
     sse_encode_bool(self.tracked, serializer);
-    sse_encode_f_32(self.speedMs, serializer);
-    sse_encode_f_32(self.bearingDeg, serializer);
+    sse_encode_f_32(self.speedKt, serializer);
+    sse_encode_f_32(self.headingDeg, serializer);
     sse_encode_list_track_point(self.forecast, serializer);
+    sse_encode_f_32(self.errorNm, serializer);
   }
 
   @protected
