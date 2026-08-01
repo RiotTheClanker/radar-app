@@ -1110,11 +1110,20 @@ class _RadarScreenState extends State<RadarScreen> {
     );
   }
 
-  /// Open the 3D volume view on the latest Level 2 volume for this site.
+  /// Open the 3D volume view on the Level 2 volume for this site, at the
+  /// moment currently being shown.
+  ///
+  /// `before` matters: without it replay showed the chosen time on the map
+  /// while 3D silently jumped to now, which is worse than not replaying at
+  /// all because nothing on screen says the two disagree.
   Future<void> _open3D() async {
     setState(() => _loading = true);
     try {
-      final keys = await listRecentVolumes(_site.icao, count: 1);
+      final keys = await listRecentVolumes(
+        _site.icao,
+        count: 1,
+        before: _historyTime,
+      );
       if (keys.isEmpty) throw Exception('no volume for ${_site.icao}');
       final bytes = _l2Cache[keys.last] ?? await fetchVolume(keys.last);
       _l2Cache[keys.last] = bytes;
