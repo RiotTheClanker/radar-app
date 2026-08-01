@@ -157,7 +157,7 @@ Package a `.deb`:
 
 ```
 cd app && flutter build linux --release && cd ..
-./packaging/build-deb.sh 0.1.3
+./packaging/build-deb.sh 0.1.4
 ```
 
 ## Architecture
