@@ -233,6 +233,11 @@ Future<RadarFrame> nowcastView({
 Future<List<StormTrack>> stormTracks({required List<int> data}) =>
     RustLib.instance.api.crateApiRadarStormTracks(data: data);
 
+/// Read mesocyclone detections from a Level 3 MD product (key `xxx_NMD_`).
+/// An empty list means nothing was detected, not an error.
+Future<List<MesoHit>> mesocyclones({required List<int> data}) =>
+    RustLib.instance.api.crateApiRadarMesocyclones(data: data);
+
 /// Import a `.pal` color table. Returns the product family it
 /// applies to.
 Future<String> installPalette({required String text}) =>
@@ -398,6 +403,69 @@ class GlmResult {
           timestamp == other.timestamp &&
           lats == other.lats &&
           lons == other.lons;
+}
+
+/// One mesocyclone as the NWS's algorithm reports it.
+class MesoHit {
+  final String id;
+  final double lat;
+  final double lon;
+
+  /// Strength rank as printed; the NWS treats 5 and above as significant.
+  final String rank;
+
+  /// The storm cell this belongs to, matching the storm track ids.
+  final String stormId;
+  final double maxRvKt;
+
+  /// The tornado vortex signature algorithm fired on this circulation.
+  final bool tvs;
+
+  /// Mesocyclone Strength Index, -1 when absent.
+  final int msi;
+
+  /// Motion as the product prints it, e.g. "025/8" — see the engine for why
+  /// this is not an angle.
+  final String motion;
+
+  const MesoHit({
+    required this.id,
+    required this.lat,
+    required this.lon,
+    required this.rank,
+    required this.stormId,
+    required this.maxRvKt,
+    required this.tvs,
+    required this.msi,
+    required this.motion,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      lat.hashCode ^
+      lon.hashCode ^
+      rank.hashCode ^
+      stormId.hashCode ^
+      maxRvKt.hashCode ^
+      tvs.hashCode ^
+      msi.hashCode ^
+      motion.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MesoHit &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          lat == other.lat &&
+          lon == other.lon &&
+          rank == other.rank &&
+          stormId == other.stormId &&
+          maxRvKt == other.maxRvKt &&
+          tvs == other.tvs &&
+          msi == other.msi &&
+          motion == other.motion;
 }
 
 /// A ready-to-display radar frame: RGBA pixels plus the geographic bounds the

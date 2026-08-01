@@ -357,6 +357,44 @@ pub fn storm_tracks(data: Vec<u8>) -> Result<Vec<StormTrack>, String> {
         .collect())
 }
 
+/// One mesocyclone as the NWS's algorithm reports it.
+pub struct MesoHit {
+    pub id: String,
+    pub lat: f64,
+    pub lon: f64,
+    /// Strength rank as printed; the NWS treats 5 and above as significant.
+    pub rank: String,
+    /// The storm cell this belongs to, matching the storm track ids.
+    pub storm_id: String,
+    pub max_rv_kt: f32,
+    /// The tornado vortex signature algorithm fired on this circulation.
+    pub tvs: bool,
+    /// Mesocyclone Strength Index, -1 when absent.
+    pub msi: i32,
+    /// Motion as the product prints it, e.g. "025/8" — see the engine for why
+    /// this is not an angle.
+    pub motion: String,
+}
+
+/// Read mesocyclone detections from a Level 3 MD product (key `xxx_NMD_`).
+/// An empty list means nothing was detected, not an error.
+pub fn mesocyclones(data: Vec<u8>) -> Result<Vec<MesoHit>, String> {
+    Ok(core::mesocyclones(data)?
+        .into_iter()
+        .map(|m| MesoHit {
+            id: m.id,
+            lat: m.lat,
+            lon: m.lon,
+            rank: m.rank,
+            storm_id: m.storm_id,
+            max_rv_kt: m.max_rv_kt,
+            tvs: m.tvs,
+            msi: m.msi,
+            motion: m.motion,
+        })
+        .collect())
+}
+
 /// Import a `.pal` color table. Returns the product family it
 /// applies to.
 pub fn install_palette(text: String) -> Result<String, String> {

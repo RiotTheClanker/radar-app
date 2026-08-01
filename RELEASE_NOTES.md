@@ -21,6 +21,17 @@ These are NOAA's numbers, not ours. Their SCIT runs across seven reflectivity
 thresholds with full vertical integration, which no single-threshold reading
 of one 2D field on device could match.
 
+### Rotation and tornado signatures
+
+Mesocyclone detections ride along with the storm tracks overlay, from the
+NWS's own Mesocyclone Detection Algorithm: where the rotation is, how strong,
+its peak rotational velocity, and which storm cell it belongs to. A
+circulation the tornado vortex signature algorithm has fired on is marked
+separately and in red.
+
+A radar signature is not a confirmed tornado and is not a warning. Follow
+official NWS warnings.
+
 ### 3D view
 
 **Hydrometeor classification.** A new 3D field labels every voxel by what the

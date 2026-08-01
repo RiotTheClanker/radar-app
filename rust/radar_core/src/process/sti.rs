@@ -76,17 +76,18 @@ fn az_ran_to_latlon(site_lat: f64, site_lon: f64, az_deg: f64, ran_nm: f64) -> (
     (lat, site_lon + dlon)
 }
 
-/// The product right-aligns each half of a pair, so `188/ 73` arrives with a
+/// The products right-align each half of a pair, so `188/ 73` arrives with a
 /// space inside it and splitting the line on whitespace would tear it in two.
-/// Drop spaces that directly follow a slash, and the fields line up.
-fn squash(line: &str) -> String {
+/// The same happens to bounded values in the mesocyclone table: `< 2`, `>10`.
+/// Drop spaces directly following `/`, `<` or `>` and the fields line up.
+pub(crate) fn squash(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
-    let mut after_slash = false;
+    let mut glue = false;
     for c in line.chars() {
-        if after_slash && c == ' ' {
+        if glue && c == ' ' {
             continue;
         }
-        after_slash = c == '/';
+        glue = matches!(c, '/' | '<' | '>');
         out.push(c);
     }
     out

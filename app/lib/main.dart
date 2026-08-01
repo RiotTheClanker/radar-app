@@ -199,6 +199,7 @@ class _RadarScreenState extends State<RadarScreen> {
   /// is why this keeps its own pair of frames rather than using [_frames].
   bool _tracks = false;
   List<StormTrack> _stormTracks = [];
+  List<MesoHit> _mesos = [];
   bool _tracksBusy = false;
   bool _playing = false;
   Timer? _animTimer;
@@ -411,6 +412,71 @@ class _RadarScreenState extends State<RadarScreen> {
     }
   }
 
+  /// Detail for one mesocyclone.
+  void _showMesoSheet(MesoHit m) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF10141A),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                m.tvs
+                    ? 'Tornado vortex signature'
+                    : 'Mesocyclone · rank ${m.rank}',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: m.tvs ? Colors.redAccent : Colors.pinkAccent,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Circulation ${m.id}'
+                '${m.stormId.isEmpty ? '' : ' · storm ${m.stormId}'}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Peak rotational velocity ${m.maxRvKt.round()} kt'
+                '${m.msi >= 0 ? '  ·  strength index ${m.msi}' : ''}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              if (m.motion.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Motion ${m.motion} (deg/kt, as the product reports it)',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Text(
+                m.tvs
+                    ? 'The NWS tornado vortex signature algorithm fired on '
+                        'this circulation. That is a radar signature, not a '
+                        'confirmed tornado, and it is not a warning — always '
+                        'follow official NWS warnings.'
+                    : 'Detected by the NWS Mesocyclone Detection Algorithm, '
+                        'which requires rotation to persist through depth and '
+                        'between volumes. Rank 5 and above is treated as '
+                        'significant.',
+                style: const TextStyle(
+                  color: Colors.white38,
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Detail for one storm cell.
   void _showTrackSheet(StormTrack s) {
     final dir = ((s.headingDeg / 22.5).round() % 16);
@@ -497,12 +563,42 @@ class _RadarScreenState extends State<RadarScreen> {
       }
       final bytes = Uint8List.fromList(await fetchObject(keys.last));
       final tracks = await stormTracks(data: bytes);
+
+      // Mesocyclones ride along: same overlay, same product family, and the
+      // circulation table carries the storm id so the two tie together. A
+      // volume with no rotation publishes an empty product, which is an
+      // answer rather than a failure.
+      var circs = <MesoHit>[];
+      try {
+        final mdKeys = await listRecentKeys(
+          _site.shortId,
+          'NMD',
+          count: 1,
+          before: _historyTime,
+        );
+        if (mdKeys.isNotEmpty) {
+          circs = await mesocyclones(
+            data: Uint8List.fromList(await fetchObject(mdKeys.last)),
+          );
+        }
+      } catch (_) {
+        // Tracks are still worth showing without rotation data.
+      }
+
       if (!mounted || !_tracks) return;
-      setState(() => _stormTracks = tracks);
+      setState(() {
+        _stormTracks = tracks;
+        _mesos = circs;
+      });
     } catch (_) {
       // Tracks are an extra: a failure here must not disturb the radar. A
       // site with no storms publishes no cells, which is not an error.
-      if (mounted && _tracks) setState(() => _stormTracks = []);
+      if (mounted && _tracks) {
+        setState(() {
+          _stormTracks = [];
+          _mesos = [];
+        });
+      }
     } finally {
       _tracksBusy = false;
     }
@@ -1472,6 +1568,47 @@ class _RadarScreenState extends State<RadarScreen> {
                   ],
                 ),
               ],
+              if (_tracks)
+                MarkerLayer(
+                  markers: [
+                    for (final m in _mesos)
+                      Marker(
+                        point: LatLng(m.lat, m.lon),
+                        width: 74,
+                        height: 40,
+                        child: GestureDetector(
+                          onTap: () => _showMesoSheet(m),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                m.tvs
+                                    ? Icons.warning
+                                    : Icons.rotate_right,
+                                size: 20,
+                                color: m.tvs
+                                    ? Colors.redAccent
+                                    : Colors.pinkAccent,
+                              ),
+                              Text(
+                                m.tvs ? 'TVS' : 'MESO ${m.rank}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: m.tvs
+                                      ? Colors.redAccent
+                                      : Colors.pinkAccent,
+                                  shadows: const [
+                                    Shadow(blurRadius: 3, color: Colors.black),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               MarkerLayer(
                 markers: [
                   for (final s in nexradSites)
@@ -1876,7 +2013,10 @@ class _RadarScreenState extends State<RadarScreen> {
             onPressed: () {
               setState(() {
                 _tracks = !_tracks;
-                if (!_tracks) _stormTracks = [];
+                if (!_tracks) {
+                  _stormTracks = [];
+                  _mesos = [];
+                }
               });
               if (_tracks) unawaited(_updateTracks());
             },

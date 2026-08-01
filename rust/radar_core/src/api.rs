@@ -883,6 +883,57 @@ pub fn storm_tracks(data: Vec<u8>) -> Result<Vec<StormTrack>, String> {
     )
 }
 
+/// One mesocyclone as the NWS's algorithm reports it.
+pub struct MesoHit {
+    pub id: String,
+    pub lat: f64,
+    pub lon: f64,
+    /// Strength rank as printed, 1-9 with a trailing L for low-topped.
+    /// The NWS treats 5 and above as significant.
+    pub rank: String,
+    /// The storm cell this belongs to, matching the storm track ids.
+    pub storm_id: String,
+    /// Peak rotational velocity, knots.
+    pub max_rv_kt: f32,
+    /// The tornado vortex signature algorithm fired on this circulation.
+    pub tvs: bool,
+    /// Mesocyclone Strength Index, -1 when absent.
+    pub msi: i32,
+    /// Motion exactly as the product prints it, e.g. "025/8". Deliberately a
+    /// string: the table does not say whether the bearing is the direction of
+    /// travel or the direction it came from, and the storm table quotes the
+    /// latter. Rendering it as an arrow without knowing would risk pointing
+    /// every one of them backwards.
+    pub motion: String,
+}
+
+/// Read mesocyclone detections from a Level 3 MD product (code 141).
+///
+/// On a quiet volume the product is a 150-byte shell with no tabular block,
+/// which is not an error: it means nothing was detected.
+pub fn mesocyclones(data: Vec<u8>) -> Result<Vec<MesoHit>, String> {
+    let f = level3::parse(&data).map_err(|e| e.to_string())?;
+    let Some(tab) = f.tabular.as_deref() else {
+        return Ok(Vec::new());
+    };
+    Ok(crate::process::mda::parse(tab, f.site_lat, f.site_lon)
+        .into_iter()
+        .map(|m| MesoHit {
+            id: m.id,
+            lat: m.lat,
+            lon: m.lon,
+            rank: m.rank,
+            storm_id: m.storm_id,
+            max_rv_kt: m.max_rv_kt,
+            tvs: m.tvs,
+            msi: m.msi.unwrap_or(-1),
+            motion: m
+                .motion
+                .map_or(String::new(), |(d, s)| format!("{d:03.0}/{s:.0}")),
+        })
+        .collect())
+}
+
 /// Import a `.pal` color table; it replaces the built-in palette
 /// for whichever product family the file declares. Returns that family.
 pub fn install_palette(text: String) -> Result<String, String> {
