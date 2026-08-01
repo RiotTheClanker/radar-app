@@ -19,9 +19,23 @@
 //!     operational classifier would.
 //!   * **Texture fields** — SD(Z) and SD(PHIDP), the local standard
 //!     deviations, which is how the real algorithm separates ground clutter
-//!     and biological scatterers from weather. We approximate that with
-//!     correlation coefficient and a height ceiling, which is weaker: clutter
-//!     with a high RHO can still be called weather.
+//!     and biological scatterers from weather. Correlation coefficient plus a
+//!     height band above ground stands in for them, which turns out to be
+//!     enough for insects and not enough for clutter: measured against the
+//!     NWS, biological returns match around 80% of the time and clutter
+//!     around 12%.
+//!
+//! Scored against the NWS's own classification at the four tilts it publishes
+//! (see [`crate::process::hca_grade`]), over ten sites spanning Florida to
+//! Washington: **78.9% mean agreement**, ranging 66% to 95%.
+//!
+//! The membership functions were tuned against four of those sites, chosen
+//! because they were the worst performers. The six never used for tuning
+//! average **83.6%**, higher than the tuned four at 72%, which is the
+//! evidence that these are not merely fitted numbers. Sites disagreeing most
+//! are those dominated by widespread stratiform ice, where separating dry
+//! snow from ice crystals needs discrimination the three moments here cannot
+//! provide.
 //!
 //! So: useful for reading storm structure, not a substitute for the
 //! operational product.
@@ -58,6 +72,30 @@ impl Class {
         Class::LightRain,
         Class::HeavyRain,
         Class::BigDrops,
+        Class::HailRain,
+    ];
+
+    /// The classes in ascending order of how much weather they represent,
+    /// which is the order the key lists them in — heaviest at the top, the
+    /// way a storm is read.
+    ///
+    /// Deliberately not [`ALL`](Self::ALL) order. The discriminants are
+    /// palette indices, chosen so the frozen classes sit together, and that
+    /// puts graupel below rain — which is not how anyone reads a storm.
+    /// Graupel means an updraft, so it ranks above heavy rain here.
+    ///
+    /// This is a reading order, not a filter: the filter is per class, since
+    /// no single ordering makes every useful combination reachable.
+    pub const BY_SEVERITY: [Class; 10] = [
+        Class::GroundClutter,
+        Class::Biological,
+        Class::IceCrystals,
+        Class::DrySnow,
+        Class::WetSnow,
+        Class::LightRain,
+        Class::BigDrops,
+        Class::HeavyRain,
+        Class::Graupel,
         Class::HailRain,
     ];
 
@@ -116,7 +154,14 @@ struct Mbf {
     z: [f32; 4],
     zdr: [f32; 4],
     rho: [f32; 4],
+    /// Height band relative to the melting level, metres, negative below.
     dh: [f32; 4],
+    /// Height band above ground instead, for the classes that are not
+    /// hydrometeors. Clutter and insects care where the ground is, not where
+    /// the freezing level is: tying them to the melting level put biological
+    /// returns out of reach on any night with a high freezing level, and the
+    /// classifier called two thirds of a clear-air volume rain.
+    agl: Option<[f32; 4]>,
 }
 
 /// Z carries the most information about amount, ZDR about shape, RHO about
@@ -124,36 +169,49 @@ struct Mbf {
 /// multiplies rather than joining the weighted sum.
 const W_Z: f32 = 1.0;
 const W_ZDR: f32 = 0.8;
-const W_RHO: f32 = 0.6;
+const W_RHO: f32 = 1.8;
 
 fn mbf(c: Class) -> Mbf {
     match c {
         // Low RHO, no height, near the ground. Real clutter also has a rough
         // PHIDP texture, which we cannot see.
         Class::GroundClutter => Mbf {
-            z: [10.0, 20.0, 70.0, 80.0],
-            zdr: [-6.0, -3.0, 3.0, 6.0],
-            rho: [0.40, 0.50, 0.85, 0.92],
-            dh: [-9000.0, -9000.0, -4000.0, -2500.0],
+            // Clutter is a strong return from a stationary hard target: high
+            // Z, ZDR near zero or negative, and the worst correlation
+            // coefficient of anything on the scope. The loose bands this had
+            // before overlapped biological returns almost entirely, and the
+            // classifier called 46000 insect gates clutter.
+            z: [20.0, 30.0, 70.0, 80.0],
+            zdr: [-8.0, -5.0, 0.5, 1.5],
+            rho: [0.20, 0.35, 0.75, 0.85],
+            dh: [-9000.0, -9000.0, 9000.0, 9000.0],
+            agl: Some([0.0, 0.0, 300.0, 900.0]),
         },
         // Birds and insects: weak, very high ZDR, poor RHO.
         Class::Biological => Mbf {
-            z: [0.0, 5.0, 25.0, 35.0],
-            zdr: [1.0, 3.0, 8.0, 12.0],
+            z: [0.0, 5.0, 35.0, 45.0],
+            zdr: [0.4, 1.5, 8.0, 12.0],
             rho: [0.30, 0.50, 0.83, 0.90],
-            dh: [-9000.0, -9000.0, -3000.0, -1500.0],
+            dh: [-9000.0, -9000.0, 9000.0, 9000.0],
+            // Insects and birds fill the boundary layer and thin out above
+            // it; nothing about that follows the freezing level.
+            agl: Some([0.0, 0.0, 2500.0, 4500.0]),
         },
         Class::IceCrystals => Mbf {
             z: [-10.0, -5.0, 20.0, 28.0],
             zdr: [0.3, 0.8, 3.5, 5.0],
             rho: [0.95, 0.98, 1.0, 1.0],
+            
             dh: [200.0, 800.0, 9000.0, 9000.0],
+            agl: None,
         },
         Class::DrySnow => Mbf {
             z: [-5.0, 5.0, 30.0, 38.0],
             zdr: [-0.5, -0.1, 0.6, 1.2],
             rho: [0.95, 0.97, 1.0, 1.0],
+            
             dh: [200.0, 700.0, 9000.0, 9000.0],
+            agl: None,
         },
         // The bright band: melting aggregates look big and wet, so ZDR jumps
         // and RHO dips. Tightly tied to the melting level.
@@ -161,62 +219,80 @@ fn mbf(c: Class) -> Mbf {
             z: [20.0, 27.0, 45.0, 52.0],
             zdr: [0.5, 1.0, 3.0, 4.5],
             rho: [0.80, 0.86, 0.95, 0.975],
+            
             dh: [-900.0, -400.0, 400.0, 900.0],
+            agl: None,
         },
         // Rimed ice: strong return but nearly spherical, so ZDR near zero.
         Class::Graupel => Mbf {
             z: [25.0, 33.0, 52.0, 58.0],
             zdr: [-0.5, -0.1, 1.0, 1.8],
             rho: [0.94, 0.97, 1.0, 1.0],
+            
             dh: [-2500.0, -1000.0, 5000.0, 8000.0],
+            agl: None,
         },
         Class::LightRain => Mbf {
             z: [5.0, 12.0, 40.0, 47.0],
             zdr: [0.1, 0.3, 1.8, 2.8],
             rho: [0.95, 0.97, 1.0, 1.0],
+            
             dh: [-9000.0, -9000.0, -300.0, 300.0],
+            agl: None,
         },
         Class::HeavyRain => Mbf {
             z: [40.0, 45.0, 55.0, 62.0],
             zdr: [0.5, 1.0, 3.0, 4.5],
             rho: [0.93, 0.96, 1.0, 1.0],
+            
             dh: [-9000.0, -9000.0, -300.0, 300.0],
+            agl: None,
         },
         // Large oblate drops: modest Z for a very large ZDR.
         Class::BigDrops => Mbf {
             z: [18.0, 25.0, 45.0, 52.0],
             zdr: [2.2, 3.0, 5.5, 7.0],
             rho: [0.92, 0.95, 1.0, 1.0],
+            
             dh: [-9000.0, -9000.0, -300.0, 300.0],
+            agl: None,
         },
         // Hail tumbles, so it has no preferred orientation: ZDR collapses
         // toward zero while Z stays very high. Mixed phase drops RHO.
         Class::HailRain => Mbf {
             z: [48.0, 55.0, 75.0, 80.0],
             zdr: [-1.5, -0.5, 1.2, 2.5],
-            rho: [0.85, 0.90, 0.97, 1.0],
+            rho: [0.88, 0.93, 0.98, 1.0],
+            
             dh: [-9000.0, -9000.0, 2000.0, 4500.0],
+            agl: None,
         },
         Class::None => Mbf {
             z: [0.0; 4],
             zdr: [0.0; 4],
             rho: [0.0; 4],
             dh: [0.0; 4],
+            agl: None,
         },
     }
 }
 
 /// Classify one voxel.
 ///
-/// `dh` is height above the melting level in metres. Returns [`Class::None`]
+/// `dh_m` is height above the melting level; `h_m` is height above the radar.
+/// Most classes gate on the first, clutter and biological on the second.
+/// Returns [`Class::None`]
 /// when nothing scores meaningfully, which keeps voxels of noise out of the
 /// render rather than forcing them into the nearest class.
-pub fn classify(z_dbz: f32, zdr_db: f32, rho: f32, dh_m: f32) -> Class {
+pub fn classify(z_dbz: f32, zdr_db: f32, rho: f32, dh_m: f32, h_m: f32) -> Class {
     let mut best = Class::None;
     let mut best_score = 0.18; // floor: below this, call it unclassified
     for c in Class::ALL {
         let m = mbf(c);
-        let gate = trap(dh_m, m.dh[0], m.dh[1], m.dh[2], m.dh[3]);
+        let gate = match m.agl {
+            Some(a) => trap(h_m, a[0], a[1], a[2], a[3]),
+            None => trap(dh_m, m.dh[0], m.dh[1], m.dh[2], m.dh[3]),
+        };
         if gate <= 0.0 {
             continue;
         }
@@ -239,16 +315,33 @@ pub fn classify(z_dbz: f32, zdr_db: f32, rho: f32, dh_m: f32) -> Class {
 /// echoes.
 pub const DEFAULT_MELTING_LEVEL_M: f32 = 3200.0;
 
+/// The melting level is never this low in any situation this classifier is
+/// useful for, and below it the correlation-coefficient dip is far more
+/// likely to be insects than melting snow.
+pub const MIN_MELTING_LEVEL_M: f32 = 1000.0;
+
 /// Find the melting level from the volume itself.
 ///
 /// Melting aggregates are wet, large and irregular, so the layer shows up as
-/// a dip in correlation coefficient — the one signature that is hard to
-/// confuse with anything else. For each height we take the mean RHO over
-/// voxels with enough reflectivity to be weather, and pick the lowest.
+/// a dip in correlation coefficient. For each height we take the mean RHO
+/// over voxels with enough reflectivity to be weather, and look for the dip.
 ///
-/// Returns [`DEFAULT_MELTING_LEVEL_M`] when no layer is convincing enough,
-/// which is the honest answer for a volume of dry snow or of pure warm rain:
-/// there is no bright band in either.
+/// Two conditions keep it from finding a dip that is not a bright band, both
+/// learned from real data rather than reasoned out. Overnight the boundary
+/// layer fills with insects and birds, whose correlation coefficient is far
+/// worse than any melting snow, and a plain minimum locks onto them: on a
+/// LBB volume at 3am local this returned 200 m, put the melting level at the
+/// ground, and made the classifier call the entire volume ice.
+///
+///   * The candidate must be above [`MIN_MELTING_LEVEL_M`]. Biological
+///     returns hug the ground; a real melting layer does not.
+///   * It must be a genuine local minimum, cleaner above *and* below. A bug
+///     layer sits at the bottom of a profile that only improves with height,
+///     so it never satisfies this.
+///
+/// Returns [`DEFAULT_MELTING_LEVEL_M`] when nothing convincing is found,
+/// which is the honest answer for a volume of dry snow, of pure warm rain, or
+/// of insects.
 pub fn detect_melting_level(
     z: &Grid3D,
     rho: &Grid3D,
@@ -257,28 +350,40 @@ pub fn detect_melting_level(
 ) -> f32 {
     let dz = z.top_m / z.nz as f32;
     let per = z.nxy * z.nxy;
-    let mut best_h = DEFAULT_MELTING_LEVEL_M;
-    let mut best_rho = 0.97; // must dip below this to count as a bright band
+
+    // Mean RHO per level, over voxels bright enough to be weather.
+    let mut prof: Vec<Option<f32>> = Vec::with_capacity(z.nz);
     for gz in 0..z.nz {
         let (mut sum, mut n) = (0.0f64, 0u32);
         for i in gz * per..(gz + 1) * per {
-            if z.data[i] == 0 || rho.data[i] == 0 {
-                continue;
-            }
-            if dec_z(z.data[i]) < 20.0 {
+            if z.data[i] == 0 || rho.data[i] == 0 || dec_z(z.data[i]) < 20.0 {
                 continue;
             }
             sum += dec_rho(rho.data[i]) as f64;
             n += 1;
         }
         // Too few samples at this height to trust the mean.
-        if n < 64 {
+        prof.push((n >= 64).then(|| (sum / n as f64) as f32));
+    }
+
+    let mut best_h = DEFAULT_MELTING_LEVEL_M;
+    let mut best_rho = 0.97; // must dip below this to count at all
+    for gz in 1..z.nz.saturating_sub(1) {
+        let h = (gz as f32 + 0.5) * dz;
+        if h < MIN_MELTING_LEVEL_M {
             continue;
         }
-        let mean = (sum / n as f64) as f32;
+        let (Some(mean), Some(below), Some(above)) = (prof[gz], prof[gz - 1], prof[gz + 1])
+        else {
+            continue;
+        };
+        // A bright band is a layer, not a floor: cleaner on both sides.
+        if mean >= below || mean >= above {
+            continue;
+        }
         if mean < best_rho {
             best_rho = mean;
-            best_h = (gz as f32 + 0.5) * dz;
+            best_h = h;
         }
     }
     best_h
@@ -319,6 +424,7 @@ pub fn build_grid_hca(
             dec_zdr(rzdr),
             dec_rho(rrho),
             h - melting_level_m,
+            h,
         );
         data[i] = c as u8;
     }
@@ -341,19 +447,19 @@ mod tests {
     #[test]
     fn recognises_the_classic_signatures() {
         // Heavy rain: high Z, moderately oblate drops, clean RHO, below melt.
-        assert_eq!(classify(50.0, 1.8, 0.99, -2000.0), Class::HeavyRain);
+        assert_eq!(classify(50.0, 1.8, 0.99, -2000.0, 1200.0), Class::HeavyRain);
         // Hail mixed with rain: very high Z, ZDR collapsed by tumbling.
-        assert_eq!(classify(62.0, 0.2, 0.93, -1500.0), Class::HailRain);
+        assert_eq!(classify(62.0, 0.2, 0.93, -1500.0, 1700.0), Class::HailRain);
         // Dry snow above the melting level.
-        assert_eq!(classify(20.0, 0.2, 0.99, 2500.0), Class::DrySnow);
+        assert_eq!(classify(20.0, 0.2, 0.99, 2500.0, 5700.0), Class::DrySnow);
         // Bright band: ZDR up, RHO down, right at the melting level.
-        assert_eq!(classify(35.0, 2.0, 0.90, 0.0), Class::WetSnow);
+        assert_eq!(classify(35.0, 2.0, 0.90, 0.0, 3200.0), Class::WetSnow);
         // Insects: weak, hugely oblate, incoherent, near the ground.
-        assert_eq!(classify(15.0, 6.0, 0.65, -3500.0), Class::Biological);
+        assert_eq!(classify(15.0, 6.0, 0.65, -3500.0, 200.0), Class::Biological);
         // Graupel: strong but spherical, well above the melting level.
-        assert_eq!(classify(45.0, 0.3, 0.99, 1500.0), Class::Graupel);
+        assert_eq!(classify(45.0, 0.3, 0.99, 1500.0, 4700.0), Class::Graupel);
         // Big drops: modest Z for a very large ZDR.
-        assert_eq!(classify(32.0, 4.2, 0.98, -1000.0), Class::BigDrops);
+        assert_eq!(classify(32.0, 4.2, 0.98, -1000.0, 2200.0), Class::BigDrops);
     }
 
     #[test]
@@ -361,14 +467,14 @@ mod tests {
         // The same moments mean different things at different heights: this
         // is why the melting level is an input and not a constant.
         let (z, zdr, rho) = (22.0, 0.3, 0.99);
-        assert_eq!(classify(z, zdr, rho, -3000.0), Class::LightRain);
-        assert_eq!(classify(z, zdr, rho, 3000.0), Class::DrySnow);
+        assert_eq!(classify(z, zdr, rho, -3000.0, 200.0), Class::LightRain);
+        assert_eq!(classify(z, zdr, rho, 3000.0, 6200.0), Class::DrySnow);
     }
 
     #[test]
     fn noise_stays_unclassified() {
         // Nothing coherent: no class should claim it.
-        assert_eq!(classify(-20.0, 9.0, 0.35, 6000.0), Class::None);
+        assert_eq!(classify(-20.0, 9.0, 0.35, 6000.0, 9200.0), Class::None);
     }
 
     /// A volume with a deliberate RHO dip one level up, and enough samples
@@ -408,6 +514,61 @@ mod tests {
         // find and picking the least-clean height would be noise-chasing.
         let (z, rho) = banded_volume(4);
         let h = detect_melting_level(&z, &rho, |_| 40.0, |_| 0.995);
+        assert_eq!(h, DEFAULT_MELTING_LEVEL_M);
+    }
+
+    #[test]
+    fn a_night_time_bug_layer_is_not_a_bright_band() {
+        // The case that made this guard necessary. Overnight the boundary
+        // layer fills with insects, whose correlation coefficient is worse
+        // than any melting snow, and the profile simply improves with height.
+        // Taking the plain minimum put the melting level at 200 m and made
+        // the classifier call an entire LBB volume ice.
+        let (nxy, nz) = (16, 10);
+        let z = Grid3D {
+            nxy,
+            nz,
+            data: vec![200u8; nxy * nxy * nz],
+            half_extent_m: 10_000.0,
+            top_m: 10_000.0,
+        };
+        // RHO climbs monotonically away from the ground: no layer, just bugs.
+        let mut data = vec![0u8; nxy * nxy * nz];
+        for gz in 0..nz {
+            let frac = gz as f32 / (nz - 1) as f32;
+            let rho = 0.55 + 0.44 * frac;
+            for i in gz * nxy * nxy..(gz + 1) * nxy * nxy {
+                data[i] = (rho * 200.0 - 35.0) as u8;
+            }
+        }
+        let rho = Grid3D { data, ..z.clone() };
+
+        let h = detect_melting_level(&z, &rho, |_| 40.0, |raw| (raw as f32 + 35.0) / 200.0);
+        assert_eq!(
+            h, DEFAULT_MELTING_LEVEL_M,
+            "a monotonic profile has no bright band; got {h} m"
+        );
+    }
+
+    #[test]
+    fn a_dip_below_the_floor_is_ignored() {
+        // Even a genuine local minimum is not a melting level if it is at the
+        // ground.
+        let (nxy, nz) = (16, 20);
+        let z = Grid3D {
+            nxy,
+            nz,
+            data: vec![200u8; nxy * nxy * nz],
+            half_extent_m: 10_000.0,
+            top_m: 20_000.0, // 1 km levels
+        };
+        let mut data = vec![250u8; nxy * nxy * nz];
+        // Dip at level 0, i.e. 500 m, under the 1000 m floor.
+        for i in 0..nxy * nxy {
+            data[i] = 100;
+        }
+        let rho = Grid3D { data, ..z.clone() };
+        let h = detect_melting_level(&z, &rho, |_| 40.0, |r| if r > 200 { 0.99 } else { 0.88 });
         assert_eq!(h, DEFAULT_MELTING_LEVEL_M);
     }
 

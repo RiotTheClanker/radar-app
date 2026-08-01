@@ -218,13 +218,18 @@ pub struct Volume3DInfo {
 }
 
 /// Build (or rebuild) the 3D session for one volume + moment
-/// (REF, SRM, VEL, ZDR, RHO).
+/// (REF, SRM, VEL, ZDR, RHO, HCA).
+///
+/// `hidden_classes` is for HCA only, and is passed here rather than set after
+/// opening so switching back to it cannot flash a frame with the
+/// switched-off classes drawn.
 pub fn volume3d_open(
     data: Vec<u8>,
     moment: String,
     threshold: f32,
+    hidden_classes: Vec<u8>,
 ) -> Result<Volume3DInfo, String> {
-    let i = core::volume3d_open(data, moment, threshold)?;
+    let i = core::volume3d_open(data, moment, threshold, hidden_classes)?;
     Ok(Volume3DInfo {
         gpu: i.gpu,
         half_extent_m: i.half_extent_m,
@@ -235,6 +240,12 @@ pub fn volume3d_open(
 /// Update the 3D opacity threshold without rebuilding the grid.
 pub fn volume3d_set_threshold(threshold: f32) -> Result<(), String> {
     core::volume3d_set_threshold(threshold)
+}
+
+/// Show or hide individual hydrometeor classes, by class id. Repaints the
+/// palette; the grid is not rebuilt.
+pub fn volume3d_set_hidden_classes(classes: Vec<u8>) -> Result<(), String> {
+    core::volume3d_set_hidden_classes(classes)
 }
 
 /// A raw RGBA frame (no PNG encode) for fast display.

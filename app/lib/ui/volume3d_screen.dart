@@ -14,7 +14,9 @@ import '../data/hydrometeor.dart';
 import '../data/terrain_tiles.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
+import 'color_key.dart';
 import 'fly_controls.dart';
+import 'hydro_legend.dart';
 import 'toolbar.dart';
 
 /// Pixels the raymarcher may fill in one frame. This is what the old fixed
@@ -70,6 +72,46 @@ const _volFields = [
   _VolField('HCA', 'Hydrometeors'),
 ];
 
+/// The moments the field menu offers, for tests.
+@visibleForTesting
+List<String> get volumeFieldMoments => [for (final f in _volFields) f.moment];
+
+/// The key that belongs beside the render for [moment]: a class list where the
+/// values are class ids, a colour scale everywhere else. Null when the scale
+/// has not arrived yet — the render is still usable without one.
+///
+/// For the classified field the key is also the filter: [hiddenClasses] are
+/// the class ids switched off, and [onToggle] / [onShowAll] drive it.
+///
+/// Pure and separate from [build] because it did not used to be. Picking the
+/// key was two nested conditions inline, and an edit left the outer one
+/// testing the classified field as well, so the colour-scale branch could
+/// never run: hydrometeors had a legend and nothing else did. Nothing failed,
+/// because nothing could reach the branch to check it.
+@visibleForTesting
+Widget? volumeKey(
+  String moment,
+  ColorScale? scale, {
+  Set<int> hiddenClasses = const {},
+  void Function(int id)? onToggle,
+  VoidCallback? onShowAll,
+}) {
+  if (moment == 'HCA') {
+    // Heaviest first, which is the order a storm is read in.
+    return HydroLegend(
+      classes: hydrometeorBySeverity.reversed.toList(),
+      hidden: hiddenClasses,
+      onToggle: onToggle,
+      onShowAll: onShowAll,
+    );
+  }
+  if (scale == null) return null;
+  return ColorKey(
+    scale: scale,
+    rangeFolded: moment == 'VEL' || moment == 'SRM',
+  );
+}
+
 /// Free-fly 3D storm view.
 ///
 /// Touch: one finger looks, two fingers pan, pinch flies forward/back, and
@@ -96,6 +138,17 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     with SingleTickerProviderStateMixin {
   _VolField _field = _volFields[0];
   double _threshold = 10;
+
+  /// Hydrometeor classes switched off in the key, by class id. Its own state
+  /// rather than a position on the threshold slider: the classes have no
+  /// natural order to slide along, so a slider would have to invent one and
+  /// would then only reach the combinations that ordering happens to allow.
+  final Set<int> _hiddenClasses = {};
+
+  /// Colour scale for the current field, so the render can be read as values
+  /// rather than guessed at. Classified fields use a class list instead.
+  ColorScale? _keyScale;
+  String? _keyFor;
 
   // Session
   bool _opening = true;
@@ -178,6 +231,29 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     _open();
   }
 
+  /// Fetch the colour scale for the current field.
+  ///
+  /// The same call the 2D map uses, so the key is built from the table the
+  /// renderer actually painted with -- including an imported `.pal`.
+  Future<void> _loadKey() async {
+    if (_field.moment == 'HCA') {
+      if (mounted) setState(() => _keyFor = 'HCA');
+      return;
+    }
+    if (_keyFor == _field.moment) return;
+    try {
+      final s = await colorScale(productCode: 0, moment: _field.moment);
+      if (!mounted) return;
+      setState(() {
+        _keyScale = s;
+        _keyFor = _field.moment;
+      });
+    } catch (_) {
+      // The render is still usable without a key.
+      if (mounted) setState(() => _keyScale = null);
+    }
+  }
+
   /// Forget every held input. Anything still down when the app is backgrounded
   /// or the screen is torn down would otherwise keep driving the camera.
   void _clearInputs() {
@@ -226,8 +302,12 @@ class _Volume3DScreenState extends State<Volume3DScreen>
         data: widget.volumeBytes,
         moment: _field.moment,
         threshold: _threshold,
+        // Sent at open rather than after it, so coming back to the classified
+        // field cannot flash one frame with the switched-off classes drawn.
+        hiddenClasses: _hiddenClasses.toList(),
       );
       if (!mounted) return;
+      unawaited(_loadKey());
       _gpu = info.gpu;
       _ex = info.halfExtentM;
       _top = info.topM;
@@ -596,10 +676,28 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                 _gpu ? _flyView() : _legacyView(),
                 if (_chrome) ...[
                   Positioned(left: 0, right: 0, top: 0, child: _topOverlay()),
-                  // Classified colours mean nothing without a key, so the
-                  // legend is not optional chrome for this field.
-                  if (_field.moment == 'HCA')
-                    Positioned(left: 8, bottom: 96, child: _hcaLegend()),
+                  // Right edge, vertically centred: where the key sits on the
+                  // 2D map, so it is in the same place in both views. Below
+                  // the bottom overlay in the stack, so the altitude pad
+                  // still takes the touches where the two meet on a short
+                  // screen.
+                  if (volumeKey(
+                        _field.moment,
+                        _keyScale,
+                        hiddenClasses: _hiddenClasses,
+                        onToggle: _toggleClass,
+                        onShowAll: _showAllClasses,
+                      )
+                      case final key?)
+                    SafeArea(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: key,
+                        ),
+                      ),
+                    ),
                   Positioned(left: 0, right: 0, bottom: 0, child: _bottomOverlay()),
                 ] else
                   Positioned(
@@ -613,52 +711,6 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                   ),
               ],
             ),
-    );
-  }
-
-  /// Key for the hydrometeor classes. Compact enough to leave the storm
-  /// visible; the classifier's own caveats live in the issue and the README,
-  /// not on screen.
-  Widget _hcaLegend() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xCC0A0D12),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final c in hydrometeorClasses)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 1.5),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 11,
-                    height: 11,
-                    decoration: BoxDecoration(
-                      color: c.color,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    c.label,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.white,
-                      height: 1.1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
     );
   }
 
@@ -1014,6 +1066,37 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     );
   }
 
+  /// Push the threshold to the renderer once the drag ends.
+  Future<void> _applyThreshold(double v) async {
+    if (_gpu) {
+      await volume3DSetThreshold(threshold: v);
+      _dirty = true;
+    } else {
+      _legacyRender();
+    }
+  }
+
+  void _toggleClass(int id) {
+    setState(() {
+      if (!_hiddenClasses.remove(id)) _hiddenClasses.add(id);
+    });
+    unawaited(_applyHiddenClasses());
+  }
+
+  void _showAllClasses() {
+    setState(_hiddenClasses.clear);
+    unawaited(_applyHiddenClasses());
+  }
+
+  /// Repaint with the current set of switched-off classes. Only the palette
+  /// changes, so the grid is not rebuilt and this is fast enough to run on
+  /// every tap.
+  Future<void> _applyHiddenClasses() async {
+    if (!_gpu) return;
+    await volume3DSetHiddenClasses(classes: _hiddenClasses.toList());
+    _dirty = true;
+  }
+
   Widget _bottomControls() {
     return SafeArea(
       top: false,
@@ -1023,32 +1106,36 @@ class _Volume3DScreenState extends State<Volume3DScreen>
           children: [
             const SizedBox(width: 12),
             const Icon(Icons.filter_alt, size: 16, color: Colors.white54),
+            // The classified field has no continuous floor to raise, and the
+            // key is its filter instead. The row stays, so the controls do
+            // not jump when the field changes, and says where the filter is.
             Expanded(
-              child: Slider(
-                value: _threshold,
-                min: 0,
-                max: 50,
-                divisions: 25,
-                label: switch (_field.moment) {
-                  'REF' => '≥ ${_threshold.round()} dBZ',
-                  // Classes are discrete, so there is no continuous floor to
-                  // raise. The slider hides clutter and biological returns
-                  // instead, which is the filtering this field actually wants.
-                  'HCA' => _threshold > 10
-                      ? 'weather only'
-                      : 'all classes',
-                  _ => 'floor ${_threshold.round()}',
-                },
-                onChanged: (v) => setState(() => _threshold = v),
-                onChangeEnd: (v) async {
-                  if (_gpu) {
-                    await volume3DSetThreshold(threshold: v);
-                    _dirty = true;
-                  } else {
-                    _legacyRender();
-                  }
-                },
-              ),
+              child: _field.moment == 'HCA'
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 10),
+                      child: Text(
+                        _hiddenClasses.isEmpty
+                            ? 'Tap the key to show or hide classes'
+                            : '${_hiddenClasses.length} '
+                                'class${_hiddenClasses.length == 1 ? '' : 'es'} hidden',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white54,
+                        ),
+                      ),
+                    )
+                  : Slider(
+                      value: _threshold,
+                      min: 0,
+                      max: 50,
+                      divisions: 25,
+                      label: switch (_field.moment) {
+                        'REF' => '≥ ${_threshold.round()} dBZ',
+                        _ => 'floor ${_threshold.round()}',
+                      },
+                      onChanged: (v) => setState(() => _threshold = v),
+                      onChangeEnd: _applyThreshold,
+                    ),
             ),
             const SizedBox(width: 8),
           ],

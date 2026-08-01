@@ -130,15 +130,21 @@ Future<Volume3DFrame> renderVolume3D({
 );
 
 /// Build (or rebuild) the 3D session for one volume + moment
-/// (REF, SRM, VEL, ZDR, RHO).
+/// (REF, SRM, VEL, ZDR, RHO, HCA).
+///
+/// `hidden_classes` is for HCA only, and is passed here rather than set after
+/// opening so switching back to it cannot flash a frame with the
+/// switched-off classes drawn.
 Future<Volume3DInfo> volume3DOpen({
   required List<int> data,
   required String moment,
   required double threshold,
+  required List<int> hiddenClasses,
 }) => RustLib.instance.api.crateApiRadarVolume3DOpen(
   data: data,
   moment: moment,
   threshold: threshold,
+  hiddenClasses: hiddenClasses,
 );
 
 /// Update the 3D opacity threshold without rebuilding the grid.
@@ -146,6 +152,13 @@ Future<void> volume3DSetThreshold({required double threshold}) => RustLib
     .instance
     .api
     .crateApiRadarVolume3DSetThreshold(threshold: threshold);
+
+/// Show or hide individual hydrometeor classes, by class id. Repaints the
+/// palette; the grid is not rebuilt.
+Future<void> volume3DSetHiddenClasses({required List<int> classes}) => RustLib
+    .instance
+    .api
+    .crateApiRadarVolume3DSetHiddenClasses(classes: classes);
 
 /// Render one free-fly frame. `clip` = [minx,miny,minz,maxx,maxy,maxz] 0..1.
 Future<RawFrame> volume3DRenderFly({

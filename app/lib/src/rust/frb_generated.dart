@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1335750595;
+  int get rustContentHash => 89819558;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -205,6 +205,7 @@ abstract class RustLibApi extends BaseApi {
     required List<int> data,
     required String moment,
     required double threshold,
+    required List<int> hiddenClasses,
   });
 
   Future<RawFrame> crateApiRadarVolume3DRenderFly({
@@ -222,6 +223,10 @@ abstract class RustLibApi extends BaseApi {
     required List<int> rgba,
     required int width,
     required int height,
+  });
+
+  Future<void> crateApiRadarVolume3DSetHiddenClasses({
+    required List<int> classes,
   });
 
   Future<void> crateApiRadarVolume3DSetTerrain({
@@ -1092,6 +1097,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required List<int> data,
     required String moment,
     required double threshold,
+    required List<int> hiddenClasses,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -1100,6 +1106,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_list_prim_u_8_loose(data, serializer);
           sse_encode_String(moment, serializer);
           sse_encode_f_32(threshold, serializer);
+          sse_encode_list_prim_u_8_loose(hiddenClasses, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1112,7 +1119,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiRadarVolume3DOpenConstMeta,
-        argValues: [data, moment, threshold],
+        argValues: [data, moment, threshold, hiddenClasses],
         apiImpl: this,
       ),
     );
@@ -1120,7 +1127,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiRadarVolume3DOpenConstMeta => const TaskConstMeta(
     debugName: "volume3d_open",
-    argNames: ["data", "moment", "threshold"],
+    argNames: ["data", "moment", "threshold", "hiddenClasses"],
   );
 
   @override
@@ -1217,6 +1224,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiRadarVolume3DSetHiddenClasses({
+    required List<int> classes,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(classes, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 27,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRadarVolume3DSetHiddenClassesConstMeta,
+        argValues: [classes],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadarVolume3DSetHiddenClassesConstMeta =>
+      const TaskConstMeta(
+        debugName: "volume3d_set_hidden_classes",
+        argNames: ["classes"],
+      );
+
+  @override
   Future<void> crateApiRadarVolume3DSetTerrain({
     required List<double> heights,
     required int width,
@@ -1232,7 +1272,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1263,7 +1303,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1294,7 +1334,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },

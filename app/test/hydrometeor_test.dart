@@ -8,6 +8,8 @@ import 'package:radar_app/data/hydrometeor.dart';
 /// legend — it mislabels rather than omits. So read the Rust source and check.
 void main() {
   final src = File('../rust/radar_core/src/process/hca.rs').readAsStringSync();
+  final table =
+      File('../rust/radar_core/src/render/color_table.rs').readAsStringSync();
 
   test('rust source is where we think it is', () {
     expect(src, contains('pub enum Class'),
@@ -70,6 +72,83 @@ void main() {
         ],
         rgb,
         reason: '$variant colour differs between hca.rs and the legend',
+      );
+    }
+  });
+
+  test('the reading order matches Class::BY_SEVERITY in the Rust source', () {
+    // The key lists the classes in this order and each row is that class's
+    // own filter switch, so a list out of step with the Rust one would put
+    // the wrong label on the wrong switch. Read the canonical ordering.
+    final body = RegExp(r'BY_SEVERITY: \[Class; \d+\] = \[(.*?)\];', dotAll: true)
+        .firstMatch(src)!
+        .group(1)!;
+    final variants = [
+      for (final m in RegExp(r'Class::(\w+)').allMatches(body)) m.group(1)!,
+    ];
+    expect(variants.length, hydrometeorBySeverity.length);
+
+    final labelSrc = src.substring(src.indexOf('fn label(self)'));
+    final labels = <String, String>{
+      for (final m in RegExp(r'Class::(\w+) => "([^"]*)"').allMatches(labelSrc))
+        m.group(1)!: m.group(2)!,
+    };
+    expect(
+      [for (final v in variants) labels[v]],
+      [for (final c in hydrometeorBySeverity) c.label],
+      reason: 'the legend orders the classes differently from BY_SEVERITY',
+    );
+  });
+
+  test('the reading order is the full class list, just rearranged', () {
+    expect(
+      hydrometeorBySeverity.map((c) => c.id).toSet(),
+      hydrometeorClasses.map((c) => c.id).toSet(),
+      reason: 'a class is missing from, or invented in, the filter ordering',
+    );
+    for (final c in hydrometeorBySeverity) {
+      final byId = hydrometeorClasses.firstWhere((o) => o.id == c.id);
+      expect(c.label, byId.label, reason: 'class ${c.id} label');
+      expect(c.color, byId.color, reason: 'class ${c.id} colour');
+    }
+    expect(
+      hydrometeorBySeverity.map((c) => c.id).toList(),
+      isNot(hydrometeorClasses.map((c) => c.id).toList()),
+      reason: 'severity order is meant to differ from id order; if the enum '
+          'was renumbered this list is now redundant',
+    );
+  });
+
+  test('the NWS legend matches the table the map is drawn with', () {
+    // A legend showing our 3D palette against NOAA's product would name every
+    // class wrongly, which is worse than no legend: it misleads rather than
+    // omits. These colours must be the ones hydro_class_default paints with.
+    final body = RegExp(r'fn hydro_class_default.*?\n    \}', dotAll: true)
+        .firstMatch(table)!
+        .group(0)!;
+    final stops = <int, List<int>>{};
+    for (final m in RegExp(r'\((\d+)\.0, \[(\d+), (\d+), (\d+)\]\)')
+        .allMatches(body)) {
+      stops[int.parse(m.group(1)!)] = [
+        int.parse(m.group(2)!),
+        int.parse(m.group(3)!),
+        int.parse(m.group(4)!),
+      ];
+    }
+    expect(stops.length, nwsHydrometeorClasses.length,
+        reason: 'a class was added or removed in hydro_class_default');
+
+    for (final c in nwsHydrometeorClasses) {
+      final rgb = stops[c.id];
+      expect(rgb, isNotNull, reason: 'no stop at code ${c.id} for "${c.label}"');
+      expect(
+        [
+          (c.color.r * 255).round(),
+          (c.color.g * 255).round(),
+          (c.color.b * 255).round(),
+        ],
+        rgb,
+        reason: '${c.label} (code ${c.id}) differs from hydro_class_default',
       );
     }
   });

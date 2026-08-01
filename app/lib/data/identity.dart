@@ -22,7 +22,7 @@ const appSlug = 'taa-yuku-radar';
 
 /// Kept in step with `version:` in pubspec.yaml by a test — see
 /// test/identity_test.dart.
-const appVersion = '0.1.3';
+const appVersion = '0.1.4';
 
 /// Where to find us. Used as the contact in [userAgent].
 const appUrl = 'https://github.com/RiotTheClanker/radar-app';
@@ -33,7 +33,7 @@ const appUrl = 'https://github.com/RiotTheClanker/radar-app';
 /// it has to move whenever this does.
 const appId = 'io.github.riottheclanker.taayuku';
 
-/// e.g. `taa-yuku-radar/0.1.3 (+https://github.com/RiotTheClanker/radar-app)`
+/// e.g. `taa-yuku-radar/0.1.4 (+https://github.com/RiotTheClanker/radar-app)`
 const userAgent = '$appSlug/$appVersion (+$appUrl)';
 
 /// Ready to splat into an `http` call's `headers:`.

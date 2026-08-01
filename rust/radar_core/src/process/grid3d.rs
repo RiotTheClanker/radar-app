@@ -114,8 +114,20 @@ pub fn build_grid_encoded(
                     continue;
                 };
                 if raw <= 1 {
-                    // keep explicit "no echo" so interpolation can fade
-                    col.push((cut.beam_height_m(slant) as f32, enc.no_echo));
+                    // No data here. For reflectivity, recording it as the
+                    // no-echo value lets interpolation fade echo edges out,
+                    // because -33 dBZ is below anything displayed and reads
+                    // as "nothing". For the fields whose zero sits mid-scale
+                    // it is a lie: absence is not 0 m/s, not 0 dB of ZDR, and
+                    // certainly not a correlation coefficient of 1. Feeding
+                    // those into the interpolation drags real readings toward
+                    // clean values -- a bug return at RHO 0.6 blended against
+                    // an injected 1.0 comes out looking like rain. Same
+                    // mistake as #9, one stage earlier: leave the gap alone
+                    // and let the column interpolate between real samples.
+                    if enc.no_echo <= enc.min_show {
+                        col.push((cut.beam_height_m(slant) as f32, enc.no_echo));
+                    }
                     continue;
                 }
                 if let crate::level3::BinValue::Value(dbz) = cut.decoder.decode(raw) {

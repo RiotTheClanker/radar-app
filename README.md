@@ -42,9 +42,10 @@ your device.
 - **Hydrometeor classification**: a fuzzy-logic classifier over Z, ZDR and
   correlation coefficient labels each voxel rain, heavy rain, big drops,
   hail/rain, graupel, wet or dry snow, ice crystals, clutter or biological,
-  with the melting level found from the volume's own bright band. It uses no
-  KDP and no texture fields, so read it as storm structure rather than as the
-  operational product
+  with the melting level found from the volume's own bright band. Every class
+  in the key is its own switch, so you can hide everything but the graupel
+  and hail and look at the updrafts. It uses no KDP and no texture fields, so
+  read it as storm structure rather than as the operational product
 
 **Situational awareness**
 - Live NWS warnings, watches and advisories, each layer separate, tap for the
@@ -75,7 +76,8 @@ basemap, my location, aiming cursor, more
 **Color key** — a scale down the right edge showing what the colors mean for
 whatever product is up, in that product's own units. It is built from the
 same table the renderer used, so an imported `.pal` changes the key too.
-Toggle it under the more menu.
+Hydrometeor classification gets a list of classes there instead, since its
+values are class ids rather than a quantity. Toggle it under the more menu.
 
 **3D view** — fills the screen, with the controls floating over the storm.
 Drag to look, two fingers to pan, pinch to fly. On desktop: `W` `A` `S` `D`
@@ -84,7 +86,13 @@ On touch, use the on-screen stick and altitude pad. The scissors button
 reveals slice planes; the layers button switches the 3D field; the mountain
 button drapes the storm over real terrain; the bars button shades the cone of
 silence; the eye button hides the stick and every other control, leaving just
-the storm.
+the storm. A key for whichever field is up sits down the right edge, the same
+place it does on the map — a colour scale in that field's own units, or a
+list of classes for hydrometeor classification. The slider along the bottom
+raises a floor in the field's own units. Hydrometeor classification has no
+such floor, and filters through the key instead: tap a class to hide it, tap
+it again to bring it back, "show all" to clear. Hidden classes stay listed,
+struck through.
 
 Terrain is off by default — it is a second set of tiles to fetch, and it is
 not always wanted. Elevation comes from the free AWS Terrain Tiles dataset.
@@ -122,8 +130,8 @@ almost anything modern).
 > `radar_app` — by hand. This is a one-time move, done deliberately before
 > any signed release, because after that the ID can never change again.
 
-> Linux and Android `arm64-v8a` are tested on real hardware each release. The
-> Windows build comes out of CI and has not been smoke-tested.
+> Linux, Windows and Android `arm64-v8a` are tested on real hardware each
+> release.
 >
 > Nothing is code-signed yet, so Windows shows an "unknown publisher" warning
 > and Android asks about installing from an unknown source.
@@ -149,7 +157,7 @@ Package a `.deb`:
 
 ```
 cd app && flutter build linux --release && cd ..
-./packaging/build-deb.sh 0.1.3
+./packaging/build-deb.sh 0.1.4
 ```
 
 ## Architecture

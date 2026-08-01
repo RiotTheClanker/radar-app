@@ -2,7 +2,7 @@ fn main() {
     let data = std::fs::read(std::env::args().nth(1).unwrap()).unwrap();
     let out = std::env::args().nth(2).unwrap();
     let t = std::time::Instant::now();
-    let info = radar_core::api::volume3d_open(data, "REF".into(), 10.0).unwrap();
+    let info = radar_core::api::volume3d_open(data, "REF".into(), 10.0, vec![]).unwrap();
     println!("open: gpu={} ex={} top={} in {:?}", info.gpu, info.half_extent_m, info.top_m, t.elapsed());
     let t2 = std::time::Instant::now();
     let mut frame = None;
