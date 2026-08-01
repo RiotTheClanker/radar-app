@@ -122,8 +122,8 @@ almost anything modern).
 > `radar_app` — by hand. This is a one-time move, done deliberately before
 > any signed release, because after that the ID can never change again.
 
-> Linux and Android `arm64-v8a` are tested on real hardware each release. The
-> Windows build comes out of CI and has not been smoke-tested.
+> Linux, Windows and Android `arm64-v8a` are tested on real hardware each
+> release.
 >
 > Nothing is code-signed yet, so Windows shows an "unknown publisher" warning
 > and Android asks about installing from an unknown source.

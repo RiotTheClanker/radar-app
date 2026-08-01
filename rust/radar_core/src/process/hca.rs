@@ -22,13 +22,20 @@
 //!     and biological scatterers from weather. Correlation coefficient plus a
 //!     height band above ground stands in for them, which turns out to be
 //!     enough for insects and not enough for clutter: measured against the
-//!     NWS, biological returns match 86% of the time and clutter 11%.
+//!     NWS, biological returns match around 80% of the time and clutter
+//!     around 12%.
 //!
-//! Scored against the NWS's own classification at the four tilts it
-//! publishes (see [`crate::process::hca_grade`]): 78% agreement on a
-//! clear-air night volume at LBB, 91% on a held-out TLX volume. The held-out
-//! score being the higher of the two is the evidence that the membership
-//! functions are not merely fitted to one night.
+//! Scored against the NWS's own classification at the four tilts it publishes
+//! (see [`crate::process::hca_grade`]), over ten sites spanning Florida to
+//! Washington: **78.9% mean agreement**, ranging 66% to 95%.
+//!
+//! The membership functions were tuned against four of those sites, chosen
+//! because they were the worst performers. The six never used for tuning
+//! average **83.6%**, higher than the tuned four at 72%, which is the
+//! evidence that these are not merely fitted numbers. Sites disagreeing most
+//! are those dominated by widespread stratiform ice, where separating dry
+//! snow from ice crystals needs discrimination the three moments here cannot
+//! provide.
 //!
 //! So: useful for reading storm structure, not a substitute for the
 //! operational product.
@@ -138,7 +145,7 @@ struct Mbf {
 /// multiplies rather than joining the weighted sum.
 const W_Z: f32 = 1.0;
 const W_ZDR: f32 = 0.8;
-const W_RHO: f32 = 1.4;
+const W_RHO: f32 = 1.8;
 
 fn mbf(c: Class) -> Mbf {
     match c {
@@ -151,15 +158,15 @@ fn mbf(c: Class) -> Mbf {
             // before overlapped biological returns almost entirely, and the
             // classifier called 46000 insect gates clutter.
             z: [20.0, 30.0, 70.0, 80.0],
-            zdr: [-6.0, -4.0, 1.5, 3.0],
+            zdr: [-8.0, -5.0, 0.5, 1.5],
             rho: [0.20, 0.35, 0.75, 0.85],
             dh: [-9000.0, -9000.0, 9000.0, 9000.0],
             agl: Some([0.0, 0.0, 300.0, 900.0]),
         },
         // Birds and insects: weak, very high ZDR, poor RHO.
         Class::Biological => Mbf {
-            z: [0.0, 5.0, 25.0, 35.0],
-            zdr: [1.0, 3.0, 8.0, 12.0],
+            z: [0.0, 5.0, 35.0, 45.0],
+            zdr: [0.4, 1.5, 8.0, 12.0],
             rho: [0.30, 0.50, 0.83, 0.90],
             dh: [-9000.0, -9000.0, 9000.0, 9000.0],
             // Insects and birds fill the boundary layer and thin out above
@@ -231,7 +238,7 @@ fn mbf(c: Class) -> Mbf {
         Class::HailRain => Mbf {
             z: [48.0, 55.0, 75.0, 80.0],
             zdr: [-1.5, -0.5, 1.2, 2.5],
-            rho: [0.85, 0.90, 0.97, 1.0],
+            rho: [0.88, 0.93, 0.98, 1.0],
             
             dh: [-9000.0, -9000.0, 2000.0, 4500.0],
             agl: None,

@@ -57,12 +57,16 @@ volume's own bright band rather than assumed, so the ice/liquid boundary
 follows the day's atmosphere. A legend sits beside the render, and the
 threshold slider switches between all classes and weather only.
 
-Scored against the NWS's own classification at the four tilts it publishes:
-78% agreement on a clear-air night volume, 91% on a second volume held back
-from the tuning. It runs without KDP or the texture fields the operational
-algorithm uses, and that shows most in ground clutter, which it still gets
-wrong more often than right. Good for reading storm structure; not a
-substitute for the operational product.
+Scored against the NWS's own classification at the four tilts it publishes,
+across ten radars from Florida to Washington: **78.9% mean agreement**,
+ranging 66% to 95%. Six of those sites were never used while tuning and
+average 83.6%.
+
+It runs without KDP or the texture fields the operational algorithm uses, and
+that shows: ground clutter it still gets wrong more often than right, and it
+is weakest over widespread stratiform ice, where telling dry snow from ice
+crystals needs more than the three moments available here. Good for reading
+storm structure; not a substitute for the operational product.
 
 **Much better classification, from checking it against the NWS.** Comparing
 our answer to theirs at the four tilts they publish turned up three real
@@ -81,8 +85,8 @@ to do with either. They are now placed by height above ground.
 Correlation coefficient carried the least weight of the three moments, when
 it is the best single indicator of whether a return is weather at all.
 
-Agreement went from 8% to 78% on that volume, and 91% on a second one held
-back from the tuning. Biological returns alone went from 35% to 86%.
+Agreement went from 8% to 78.9% averaged over ten radars. Biological returns
+alone went from 35% to about 80%.
 
 **Fixed: the 3D view invented readings at the edge of the data** (#9). The
 volume is a texture of palette indices, and the sampler filtered them, so
