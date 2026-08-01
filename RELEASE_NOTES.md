@@ -6,6 +6,20 @@
   GitHub's generated commit list is appended below whatever is written here.
 -->
 
+### Fixed
+
+**Thin black spokes through Level 2 data** (#28). Each radial claimed a slice
+of azimuth as wide as it reported itself to be, which tiles perfectly for
+Level 3 — exactly one degree, on whole degrees — but not for Level 2.
+Super-resolution start azimuths drift, so one radial would cover 10.0-10.5°
+while the next started at 10.57°, and the sliver between belonged to nobody.
+Every such sliver drew as a black line radiating from the radar. The 3D view
+had the same holes, as empty columns through the volume.
+
+Slivers now go to whichever neighbouring radial is nearer, but only across
+gaps under two degrees, so a sector the radar genuinely did not scan stays
+empty instead of being filled with invented coverage.
+
 ### Storm tracks
 
 The NWS's own storm cells, from the Level 3 STI product: each cell's id and
