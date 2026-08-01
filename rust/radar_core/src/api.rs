@@ -420,7 +420,7 @@ fn grid_encode_for(moment: &str) -> GridEncode {
 /// All three are required: classifying from one moment is guesswork, so a
 /// volume without ZDR or RHO (a legacy, non-dual-pol scan) is an error rather
 /// than a degraded picture.
-fn build_hca_grid(vol: &level2::Level2Volume) -> Result<Grid3D, String> {
+pub fn build_hca_grid(vol: &level2::Level2Volume) -> Result<Grid3D, String> {
     use crate::process::hca;
     const NXY: usize = 384;
     const NZ: usize = 40;

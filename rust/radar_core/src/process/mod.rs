@@ -3,6 +3,7 @@
 
 pub mod grid3d;
 pub mod hca;
+pub mod hca_grade;
 pub mod nowcast;
 pub mod mda;
 pub mod sti;

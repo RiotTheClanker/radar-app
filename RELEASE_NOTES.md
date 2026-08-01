@@ -62,6 +62,18 @@ uses, so heavy rain and hail lean harder on Z and ZDR than they should, and
 clutter with a high correlation coefficient can still be called weather. Good
 for reading storm structure; not a substitute for the operational product.
 
+**Fixed: the melting level could land on the ground.** It is found from the
+volume's own correlation-coefficient dip, and overnight the boundary layer
+fills with insects, whose correlation coefficient is worse than any melting
+snow. On a 3am volume that put the melting level at 200 m and made the
+classifier call the entire volume ice. It now requires the dip to be above
+1 km and to be a genuine layer, cleaner both above and below.
+
+Measured against the NWS's own classification at the four tilts it publishes,
+agreement on that volume went from 8% to 43%. Most of what is left is
+biological returns being called rain, which is the missing texture fields
+doing exactly what the caveat above says they would.
+
 **Fixed: the 3D view invented readings at the edge of the data** (#9). The
 volume is a texture of palette indices, and the sampler filtered them, so
 where data met empty space the index slid through the middle of the table.

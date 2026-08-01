@@ -239,16 +239,33 @@ pub fn classify(z_dbz: f32, zdr_db: f32, rho: f32, dh_m: f32) -> Class {
 /// echoes.
 pub const DEFAULT_MELTING_LEVEL_M: f32 = 3200.0;
 
+/// The melting level is never this low in any situation this classifier is
+/// useful for, and below it the correlation-coefficient dip is far more
+/// likely to be insects than melting snow.
+pub const MIN_MELTING_LEVEL_M: f32 = 1000.0;
+
 /// Find the melting level from the volume itself.
 ///
 /// Melting aggregates are wet, large and irregular, so the layer shows up as
-/// a dip in correlation coefficient — the one signature that is hard to
-/// confuse with anything else. For each height we take the mean RHO over
-/// voxels with enough reflectivity to be weather, and pick the lowest.
+/// a dip in correlation coefficient. For each height we take the mean RHO
+/// over voxels with enough reflectivity to be weather, and look for the dip.
 ///
-/// Returns [`DEFAULT_MELTING_LEVEL_M`] when no layer is convincing enough,
-/// which is the honest answer for a volume of dry snow or of pure warm rain:
-/// there is no bright band in either.
+/// Two conditions keep it from finding a dip that is not a bright band, both
+/// learned from real data rather than reasoned out. Overnight the boundary
+/// layer fills with insects and birds, whose correlation coefficient is far
+/// worse than any melting snow, and a plain minimum locks onto them: on a
+/// LBB volume at 3am local this returned 200 m, put the melting level at the
+/// ground, and made the classifier call the entire volume ice.
+///
+///   * The candidate must be above [`MIN_MELTING_LEVEL_M`]. Biological
+///     returns hug the ground; a real melting layer does not.
+///   * It must be a genuine local minimum, cleaner above *and* below. A bug
+///     layer sits at the bottom of a profile that only improves with height,
+///     so it never satisfies this.
+///
+/// Returns [`DEFAULT_MELTING_LEVEL_M`] when nothing convincing is found,
+/// which is the honest answer for a volume of dry snow, of pure warm rain, or
+/// of insects.
 pub fn detect_melting_level(
     z: &Grid3D,
     rho: &Grid3D,
@@ -257,28 +274,40 @@ pub fn detect_melting_level(
 ) -> f32 {
     let dz = z.top_m / z.nz as f32;
     let per = z.nxy * z.nxy;
-    let mut best_h = DEFAULT_MELTING_LEVEL_M;
-    let mut best_rho = 0.97; // must dip below this to count as a bright band
+
+    // Mean RHO per level, over voxels bright enough to be weather.
+    let mut prof: Vec<Option<f32>> = Vec::with_capacity(z.nz);
     for gz in 0..z.nz {
         let (mut sum, mut n) = (0.0f64, 0u32);
         for i in gz * per..(gz + 1) * per {
-            if z.data[i] == 0 || rho.data[i] == 0 {
-                continue;
-            }
-            if dec_z(z.data[i]) < 20.0 {
+            if z.data[i] == 0 || rho.data[i] == 0 || dec_z(z.data[i]) < 20.0 {
                 continue;
             }
             sum += dec_rho(rho.data[i]) as f64;
             n += 1;
         }
         // Too few samples at this height to trust the mean.
-        if n < 64 {
+        prof.push((n >= 64).then(|| (sum / n as f64) as f32));
+    }
+
+    let mut best_h = DEFAULT_MELTING_LEVEL_M;
+    let mut best_rho = 0.97; // must dip below this to count at all
+    for gz in 1..z.nz.saturating_sub(1) {
+        let h = (gz as f32 + 0.5) * dz;
+        if h < MIN_MELTING_LEVEL_M {
             continue;
         }
-        let mean = (sum / n as f64) as f32;
+        let (Some(mean), Some(below), Some(above)) = (prof[gz], prof[gz - 1], prof[gz + 1])
+        else {
+            continue;
+        };
+        // A bright band is a layer, not a floor: cleaner on both sides.
+        if mean >= below || mean >= above {
+            continue;
+        }
         if mean < best_rho {
             best_rho = mean;
-            best_h = (gz as f32 + 0.5) * dz;
+            best_h = h;
         }
     }
     best_h
@@ -408,6 +437,61 @@ mod tests {
         // find and picking the least-clean height would be noise-chasing.
         let (z, rho) = banded_volume(4);
         let h = detect_melting_level(&z, &rho, |_| 40.0, |_| 0.995);
+        assert_eq!(h, DEFAULT_MELTING_LEVEL_M);
+    }
+
+    #[test]
+    fn a_night_time_bug_layer_is_not_a_bright_band() {
+        // The case that made this guard necessary. Overnight the boundary
+        // layer fills with insects, whose correlation coefficient is worse
+        // than any melting snow, and the profile simply improves with height.
+        // Taking the plain minimum put the melting level at 200 m and made
+        // the classifier call an entire LBB volume ice.
+        let (nxy, nz) = (16, 10);
+        let z = Grid3D {
+            nxy,
+            nz,
+            data: vec![200u8; nxy * nxy * nz],
+            half_extent_m: 10_000.0,
+            top_m: 10_000.0,
+        };
+        // RHO climbs monotonically away from the ground: no layer, just bugs.
+        let mut data = vec![0u8; nxy * nxy * nz];
+        for gz in 0..nz {
+            let frac = gz as f32 / (nz - 1) as f32;
+            let rho = 0.55 + 0.44 * frac;
+            for i in gz * nxy * nxy..(gz + 1) * nxy * nxy {
+                data[i] = (rho * 200.0 - 35.0) as u8;
+            }
+        }
+        let rho = Grid3D { data, ..z.clone() };
+
+        let h = detect_melting_level(&z, &rho, |_| 40.0, |raw| (raw as f32 + 35.0) / 200.0);
+        assert_eq!(
+            h, DEFAULT_MELTING_LEVEL_M,
+            "a monotonic profile has no bright band; got {h} m"
+        );
+    }
+
+    #[test]
+    fn a_dip_below_the_floor_is_ignored() {
+        // Even a genuine local minimum is not a melting level if it is at the
+        // ground.
+        let (nxy, nz) = (16, 20);
+        let z = Grid3D {
+            nxy,
+            nz,
+            data: vec![200u8; nxy * nxy * nz],
+            half_extent_m: 10_000.0,
+            top_m: 20_000.0, // 1 km levels
+        };
+        let mut data = vec![250u8; nxy * nxy * nz];
+        // Dip at level 0, i.e. 500 m, under the 1000 m floor.
+        for i in 0..nxy * nxy {
+            data[i] = 100;
+        }
+        let rho = Grid3D { data, ..z.clone() };
+        let h = detect_melting_level(&z, &rho, |_| 40.0, |r| if r > 200 { 0.99 } else { 0.88 });
         assert_eq!(h, DEFAULT_MELTING_LEVEL_M);
     }
 
