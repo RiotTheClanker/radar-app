@@ -76,11 +76,10 @@ void main() {
     }
   });
 
-  test('the filter order matches Class::BY_SEVERITY in the Rust source', () {
-    // The 3D filter cuts along this ordering, and the legend greys out what
-    // it has cut. If the two lists disagree the key crosses out one class
-    // while the renderer hides a different one — a legend that lies is worse
-    // than none, so read the ordering the renderer actually uses.
+  test('the reading order matches Class::BY_SEVERITY in the Rust source', () {
+    // The key lists the classes in this order and each row is that class's
+    // own filter switch, so a list out of step with the Rust one would put
+    // the wrong label on the wrong switch. Read the canonical ordering.
     final body = RegExp(r'BY_SEVERITY: \[Class; \d+\] = \[(.*?)\];', dotAll: true)
         .firstMatch(src)!
         .group(1)!;
@@ -101,7 +100,7 @@ void main() {
     );
   });
 
-  test('the filter order is the full class list, just rearranged', () {
+  test('the reading order is the full class list, just rearranged', () {
     expect(
       hydrometeorBySeverity.map((c) => c.id).toSet(),
       hydrometeorClasses.map((c) => c.id).toSet(),

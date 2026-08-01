@@ -399,6 +399,10 @@ struct Vol3DSession {
     gpu: Option<crate::render::gpu3d::GpuVolume>,
     site_lat: f64,
     site_lon: f64,
+    /// The two ways of filtering, held so either can be changed without the
+    /// caller having to resend the other.
+    threshold: f32,
+    hidden_classes: Vec<u8>,
 }
 
 static VOL3D: Mutex<Option<Vol3DSession>> = Mutex::new(None);
@@ -458,23 +462,25 @@ pub fn build_hca_grid(vol: &level2::Level2Volume) -> Result<Grid3D, String> {
     ))
 }
 
-fn palette_3d(moment: &str, threshold: f32) -> [[u8; 4]; 256] {
+/// [`hidden`] carries class ids the classified field is not to draw; it is
+/// ignored by every continuous field, which filters on [`threshold`] instead.
+fn palette_3d(moment: &str, threshold: f32, hidden: &[u8]) -> [[u8; 4]; 256] {
     if moment == "HCA" {
         use crate::process::hca::Class;
         // Discrete classes, so the table is a lookup rather than a ramp and
-        // there is no continuous floor to raise. `threshold` is a cutoff into
-        // the severity ordering instead: 0 shows everything, and each step up
-        // drops the lightest class still showing, ending on hail alone. The
-        // caller passes a rank, not a value in any unit.
-        let cutoff = threshold.round().clamp(0.0, (Class::BY_SEVERITY.len() - 1) as f32) as usize;
+        // `threshold` has no meaning here: there is no continuous floor to
+        // raise, and any ordering of the classes to slide along would be one
+        // we invented. The key is the filter instead, and `hidden` is
+        // whichever classes have been switched off in it — an arbitrary set,
+        // not a cutoff, so "graupel and hail only" is reachable.
         let mut pal = [[0u8; 4]; 256];
-        for (rank, c) in Class::BY_SEVERITY.iter().enumerate() {
-            if rank < cutoff {
+        for c in Class::ALL {
+            if hidden.contains(&(c as u8)) {
                 continue;
             }
             let quiet = matches!(c, Class::GroundClutter | Class::Biological);
             let [r, g, b] = c.color();
-            pal[*c as usize] = [r, g, b, if quiet { 90 } else { 150 }];
+            pal[c as usize] = [r, g, b, if quiet { 90 } else { 150 }];
         }
         return pal;
     }
@@ -541,7 +547,16 @@ pub struct Volume3DInfo {
 }
 
 /// Build (or rebuild) the 3D session for one volume + moment.
-pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Volume3DInfo, String> {
+///
+/// `hidden_classes` applies to the classified field only, and is passed in at
+/// open rather than set afterwards so switching fields cannot flash a frame
+/// with the switched-off classes back on.
+pub fn volume3d_open(
+    data: Vec<u8>,
+    moment: String,
+    threshold: f32,
+    hidden_classes: Vec<u8>,
+) -> Result<Volume3DInfo, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
     let cuts = match moment.as_str() {
         // Classification needs three moments at once; `cuts` is only used
@@ -562,7 +577,7 @@ pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Vo
         build_grid_encoded(&cuts, 384, 40, 120_000.0, 16_000.0, grid_encode_for(&moment))
             .ok_or_else(|| format!("no {moment} cuts in volume"))?
     };
-    let pal = palette_3d(&moment, threshold);
+    let pal = palette_3d(&moment, threshold, &hidden_classes);
     // The top cut is where the cone of silence begins.
     let el_max = cuts
         .iter()
@@ -583,18 +598,43 @@ pub fn volume3d_open(data: Vec<u8>, moment: String, threshold: f32) -> Result<Vo
         gpu,
         site_lat: vol.site_lat,
         site_lon: vol.site_lon,
+        threshold,
+        hidden_classes,
     });
     Ok(info)
 }
 
 /// Update the opacity threshold without rebuilding the grid.
 pub fn volume3d_set_threshold(threshold: f32) -> Result<(), String> {
-    let guard = VOL3D.lock().unwrap();
-    let s = guard.as_ref().ok_or("no 3D session")?;
-    if let Some(gpu) = &s.gpu {
-        gpu.update_palette(&palette_3d(&s.moment, threshold));
-    }
+    let mut guard = VOL3D.lock().unwrap();
+    let s = guard.as_mut().ok_or("no 3D session")?;
+    s.threshold = threshold;
+    s.repaint();
     Ok(())
+}
+
+/// Show or hide individual classes of the classified field, by class id.
+///
+/// An arbitrary set rather than a cutoff: the classes have no natural order
+/// to slide along — is graupel more or less than heavy rain? — and picking
+/// one would decide for the user which combinations are reachable. Hiding
+/// everything but graupel and hail is a reasonable thing to want.
+pub fn volume3d_set_hidden_classes(classes: Vec<u8>) -> Result<(), String> {
+    let mut guard = VOL3D.lock().unwrap();
+    let s = guard.as_mut().ok_or("no 3D session")?;
+    s.hidden_classes = classes;
+    s.repaint();
+    Ok(())
+}
+
+impl Vol3DSession {
+    /// Rebuild the palette from whatever the filters are now. The grid is
+    /// untouched, so this is a table upload rather than a re-grid.
+    fn repaint(&self) {
+        if let Some(gpu) = &self.gpu {
+            gpu.update_palette(&palette_3d(&self.moment, self.threshold, &self.hidden_classes));
+        }
+    }
 }
 
 /// A raw (unencoded) RGBA frame for fast display.
@@ -1060,8 +1100,8 @@ mod tests {
     use super::*;
     use crate::process::hca::Class;
 
-    fn visible(cutoff: f32) -> Vec<Class> {
-        let pal = palette_3d("HCA", cutoff);
+    fn visible(hidden: &[u8]) -> Vec<Class> {
+        let pal = palette_3d("HCA", 0.0, hidden);
         Class::BY_SEVERITY
             .iter()
             .copied()
@@ -1069,49 +1109,74 @@ mod tests {
             .collect()
     }
 
-    /// The filter walks the severity ordering, so each step up drops exactly
-    /// the lightest class still showing. It used to be a single switch that
-    /// hid clutter and biological together and nothing else.
     #[test]
-    fn each_step_drops_one_class_from_the_bottom() {
-        for cutoff in 0..Class::BY_SEVERITY.len() {
-            assert_eq!(
-                visible(cutoff as f32),
-                Class::BY_SEVERITY[cutoff..].to_vec(),
-                "cutoff {cutoff}"
-            );
+    fn nothing_hidden_draws_every_class() {
+        assert_eq!(visible(&[]).len(), Class::ALL.len());
+    }
+
+    /// Hiding one class hides exactly that class. The filter used to be a
+    /// single switch over clutter and biological together, so turning off
+    /// clutter alone was not expressible.
+    #[test]
+    fn hiding_one_class_leaves_the_rest_alone() {
+        for c in Class::ALL {
+            let left = visible(&[c as u8]);
+            assert_eq!(left.len(), Class::ALL.len() - 1, "{:?}", c.label());
+            assert!(!left.contains(&c), "{:?} still drawn", c.label());
         }
     }
 
+    /// The point of a per-class filter rather than a cutoff: an arbitrary
+    /// combination, here the two that mean an updraft.
     #[test]
-    fn the_last_step_leaves_hail_alone() {
-        assert_eq!(visible(9.0), vec![Class::HailRain]);
+    fn an_arbitrary_subset_is_reachable() {
+        let hide: Vec<u8> = Class::ALL
+            .iter()
+            .filter(|c| !matches!(c, Class::Graupel | Class::HailRain))
+            .map(|c| *c as u8)
+            .collect();
+        assert_eq!(visible(&hide), vec![Class::Graupel, Class::HailRain]);
+    }
+
+    #[test]
+    fn hiding_everything_is_allowed_and_empties_the_volume() {
+        let all: Vec<u8> = Class::ALL.iter().map(|c| *c as u8).collect();
+        assert!(visible(&all).is_empty());
+    }
+
+    /// A stale id from an older build must not blank the volume or panic.
+    #[test]
+    fn unknown_class_ids_are_ignored() {
+        assert_eq!(visible(&[0, 200, 255]).len(), Class::ALL.len());
+    }
+
+    /// The classified field has no continuous floor, so the threshold slider
+    /// must not quietly filter it as well.
+    #[test]
+    fn the_threshold_does_not_touch_the_classified_field() {
+        for thr in [0.0f32, 10.0, 25.0, 50.0] {
+            let pal = palette_3d("HCA", thr, &[]);
+            let shown = Class::ALL.iter().filter(|c| pal[**c as usize][3] > 0).count();
+            assert_eq!(shown, Class::ALL.len(), "threshold {thr}");
+        }
     }
 
     /// Rain before heavy rain before graupel before hail: the order a storm
-    /// is read in, not the order the palette indices happen to run.
+    /// is read in, and the order the key lists the classes in. Not the order
+    /// the palette indices happen to run.
     #[test]
-    fn convective_classes_outrank_rain() {
+    fn the_reading_order_runs_light_to_heavy() {
         let rank = |c: Class| Class::BY_SEVERITY.iter().position(|&x| x == c).unwrap();
         assert!(rank(Class::LightRain) < rank(Class::HeavyRain));
         assert!(rank(Class::HeavyRain) < rank(Class::Graupel));
         assert!(rank(Class::Graupel) < rank(Class::HailRain));
-        // Every non-meteorological class sorts below every hydrometeor.
-        assert!(rank(Class::Biological) < rank(Class::IceCrystals));
         assert!(rank(Class::GroundClutter) < rank(Class::Biological));
+        assert!(rank(Class::Biological) < rank(Class::IceCrystals));
     }
 
-    /// A slider that overruns its range must not black the volume out or
-    /// panic on the index.
+    /// Every class in the reading order is a class that exists, exactly once.
     #[test]
-    fn out_of_range_cutoffs_clamp() {
-        assert_eq!(visible(-5.0), Class::BY_SEVERITY.to_vec());
-        assert_eq!(visible(99.0), vec![Class::HailRain]);
-    }
-
-    /// Every class in the ordering is a class that exists, exactly once.
-    #[test]
-    fn the_ordering_is_a_permutation_of_the_classes() {
+    fn the_reading_order_is_a_permutation_of_the_classes() {
         let mut a = Class::BY_SEVERITY.to_vec();
         let mut b = Class::ALL.to_vec();
         a.sort_by_key(|c| *c as u8);

@@ -68,54 +68,84 @@ void main() {
     );
   });
 
-  test('the key crosses out exactly what the filter is hiding', () {
-    // Both sides walk hydrometeorBySeverity, which is checked against the
-    // renderer's own ordering in hydrometeor_test.
-    for (var cutoff = 0; cutoff < hydrometeorBySeverity.length; cutoff++) {
-      final legend = volumeKey('HCA', null, hcaCutoff: cutoff) as HydroLegend;
-      expect(
-        legend.hidden,
-        hydrometeorBySeverity.take(cutoff).map((c) => c.id).toSet(),
-        reason: 'cutoff $cutoff',
-      );
-      // Hidden or not, every class stays listed: vanishing from the key
-      // leaves you unable to tell "filtered out" from "never there".
-      expect(legend.classes.length, hydrometeorBySeverity.length);
-    }
+  test('a hidden class stays listed, crossed out', () {
+    // Vanishing from the key would leave you unable to tell a class you
+    // filtered out from one the radar never saw — and no way to switch it
+    // back on, since the row is the switch.
+    final legend = volumeKey('HCA', null, hiddenClasses: {4, 10}) as HydroLegend;
+    expect(legend.classes.length, hydrometeorBySeverity.length);
+    expect(legend.hidden, {4, 10});
   });
 
-  test('the filter label names the lightest class still showing', () {
-    expect(hcaFilterLabel(0), 'all classes');
-    expect(hcaFilterLabel(5), 'Rain and above');
-    expect(hcaFilterLabel(7), 'Heavy rain and above');
-    expect(hcaFilterLabel(8), 'Graupel and above');
-    expect(hcaFilterLabel(9), 'Hail / rain only');
-    // A slider that overruns must still read sensibly.
-    expect(hcaFilterLabel(-1), 'all classes');
-    expect(hcaFilterLabel(99), 'Hail / rain only');
-  });
-
-  test('every filter step changes what is shown', () {
-    // A stop that hides nothing new is a stop that does nothing when dragged
-    // onto, which reads as a broken slider.
-    final seen = <String>{};
-    for (var cutoff = 0; cutoff < hydrometeorBySeverity.length; cutoff++) {
-      final legend = volumeKey('HCA', null, hcaCutoff: cutoff) as HydroLegend;
-      expect(seen.add(legend.hidden.toList().join(',')), isTrue,
-          reason: 'cutoff $cutoff hides the same classes as an earlier stop');
-    }
+  test('any combination is reachable, not just a prefix of some order', () {
+    // The whole reason this is a per-class filter rather than a slider: the
+    // classes have no natural order, so "graupel and hail only" has to be
+    // expressible without an ordering that happens to put them adjacent.
+    final keep = {6, 10};
+    final hidden = {
+      for (final c in hydrometeorBySeverity)
+        if (!keep.contains(c.id)) c.id,
+    };
+    final legend = volumeKey('HCA', null, hiddenClasses: hidden) as HydroLegend;
+    expect(
+      legend.classes.where((c) => !legend.hidden.contains(c.id)).map((c) => c.label),
+      unorderedEquals(['Graupel', 'Hail / rain']),
+    );
   });
 
   testWidgets('a filtered class is drawn struck through, not just flagged',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: volumeKey('HCA', null, hcaCutoff: 5)),
+      home: Scaffold(
+        body: volumeKey('HCA', null, hiddenClasses: {5}, onToggle: (_) {}),
+      ),
     ));
     Text textFor(String label) => tester.widget<Text>(find.text(label));
-    // Rain is the lowest class still showing at cutoff 5; wet snow is the
-    // highest one hidden.
     expect(textFor('Rain').style?.decoration, isNot(TextDecoration.lineThrough));
     expect(textFor('Wet snow').style?.decoration, TextDecoration.lineThrough);
+  });
+
+  testWidgets('tapping a class reports that class', (tester) async {
+    final tapped = <int>[];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: volumeKey('HCA', null, onToggle: tapped.add),
+      ),
+    ));
+    await tester.tap(find.text('Graupel'));
+    await tester.tap(find.text('Ground clutter'));
+    expect(tapped, [6, 1]);
+  });
+
+  testWidgets('the key says it can be tapped, and offers a way back',
+      (tester) async {
+    // A colour key is not somewhere people expect to find controls, so it has
+    // to say so; and having switched ten classes off one at a time, nobody
+    // wants to switch them back on one at a time.
+    Future<void> pump(Set<int> hidden) => tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: volumeKey('HCA', null,
+                hiddenClasses: hidden, onToggle: (_) {}, onShowAll: () {}),
+          ),
+        ));
+
+    await pump({});
+    expect(find.text('Tap to filter'), findsOneWidget);
+    expect(find.text('Show all'), findsNothing);
+
+    await pump({7});
+    expect(find.text('Show all'), findsOneWidget);
+  });
+
+  testWidgets('a plain legend has no tap targets', (tester) async {
+    // The 2D map draws the NWS's own product, which there is no palette of
+    // ours to filter. Its key floats over a draggable map, so it must not
+    // swallow gestures for a filter it does not have.
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: volumeKey('HCA', null)),
+    ));
+    expect(find.byType(InkWell), findsNothing);
+    expect(find.text('Tap to filter'), findsNothing);
   });
 
   test('only the velocity fields show the range-folded swatch', () {

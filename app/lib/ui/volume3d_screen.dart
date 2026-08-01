@@ -80,8 +80,8 @@ List<String> get volumeFieldMoments => [for (final f in _volFields) f.moment];
 /// values are class ids, a colour scale everywhere else. Null when the scale
 /// has not arrived yet — the render is still usable without one.
 ///
-/// [hcaCutoff] is the classified field's filter position, so the key can grey
-/// out the classes it is hiding.
+/// For the classified field the key is also the filter: [hiddenClasses] are
+/// the class ids switched off, and [onToggle] / [onShowAll] drive it.
 ///
 /// Pure and separate from [build] because it did not used to be. Picking the
 /// key was two nested conditions inline, and an edit left the outer one
@@ -89,15 +89,20 @@ List<String> get volumeFieldMoments => [for (final f in _volFields) f.moment];
 /// never run: hydrometeors had a legend and nothing else did. Nothing failed,
 /// because nothing could reach the branch to check it.
 @visibleForTesting
-Widget? volumeKey(String moment, ColorScale? scale, {int hcaCutoff = 0}) {
+Widget? volumeKey(
+  String moment,
+  ColorScale? scale, {
+  Set<int> hiddenClasses = const {},
+  void Function(int id)? onToggle,
+  VoidCallback? onShowAll,
+}) {
   if (moment == 'HCA') {
-    // Heaviest at the top, so the filter visibly eats the list from the
-    // bottom up as it is dragged.
+    // Heaviest first, which is the order a storm is read in.
     return HydroLegend(
       classes: hydrometeorBySeverity.reversed.toList(),
-      hidden: {
-        for (final c in hydrometeorBySeverity.take(hcaCutoff)) c.id,
-      },
+      hidden: hiddenClasses,
+      onToggle: onToggle,
+      onShowAll: onShowAll,
     );
   }
   if (scale == null) return null;
@@ -105,16 +110,6 @@ Widget? volumeKey(String moment, ColorScale? scale, {int hcaCutoff = 0}) {
     scale: scale,
     rangeFolded: moment == 'VEL' || moment == 'SRM',
   );
-}
-
-/// Label for the classified field's filter at [cutoff].
-@visibleForTesting
-String hcaFilterLabel(int cutoff) {
-  if (cutoff <= 0) return 'all classes';
-  if (cutoff >= hydrometeorBySeverity.length - 1) {
-    return '${hydrometeorBySeverity.last.label} only';
-  }
-  return '${hydrometeorBySeverity[cutoff].label} and above';
 }
 
 /// Free-fly 3D storm view.
@@ -144,14 +139,11 @@ class _Volume3DScreenState extends State<Volume3DScreen>
   _VolField _field = _volFields[0];
   double _threshold = 10;
 
-  /// The classified field's filter, kept apart from [_threshold] because it
-  /// is not a value in any unit: it is a position in the severity ordering,
-  /// and 0-9 rather than 0-50. Sharing one number would carry "9" into
-  /// reflectivity as 9 dBZ on the way back out.
-  double _hcaCutoff = 0;
-
-  /// What the renderer's filter is set to for the field on screen.
-  double get _filter => _field.moment == 'HCA' ? _hcaCutoff : _threshold;
+  /// Hydrometeor classes switched off in the key, by class id. Its own state
+  /// rather than a position on the threshold slider: the classes have no
+  /// natural order to slide along, so a slider would have to invent one and
+  /// would then only reach the combinations that ordering happens to allow.
+  final Set<int> _hiddenClasses = {};
 
   /// Colour scale for the current field, so the render can be read as values
   /// rather than guessed at. Classified fields use a class list instead.
@@ -309,7 +301,10 @@ class _Volume3DScreenState extends State<Volume3DScreen>
       final info = await volume3DOpen(
         data: widget.volumeBytes,
         moment: _field.moment,
-        threshold: _filter,
+        threshold: _threshold,
+        // Sent at open rather than after it, so coming back to the classified
+        // field cannot flash one frame with the switched-off classes drawn.
+        hiddenClasses: _hiddenClasses.toList(),
       );
       if (!mounted) return;
       unawaited(_loadKey());
@@ -686,8 +681,13 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                   // the bottom overlay in the stack, so the altitude pad
                   // still takes the touches where the two meet on a short
                   // screen.
-                  if (volumeKey(_field.moment, _keyScale,
-                          hcaCutoff: _hcaCutoff.round())
+                  if (volumeKey(
+                        _field.moment,
+                        _keyScale,
+                        hiddenClasses: _hiddenClasses,
+                        onToggle: _toggleClass,
+                        onShowAll: _showAllClasses,
+                      )
                       case final key?)
                     SafeArea(
                       child: Align(
@@ -1066,16 +1066,35 @@ class _Volume3DScreenState extends State<Volume3DScreen>
     );
   }
 
-  /// Push the filter to the renderer once the drag ends. Sent as the field's
-  /// own quantity -- a class rank for the classified field, a value in the
-  /// field's units for the rest -- which is what the palette expects.
-  Future<void> _applyFilter(double _) async {
+  /// Push the threshold to the renderer once the drag ends.
+  Future<void> _applyThreshold(double v) async {
     if (_gpu) {
-      await volume3DSetThreshold(threshold: _filter);
+      await volume3DSetThreshold(threshold: v);
       _dirty = true;
     } else {
       _legacyRender();
     }
+  }
+
+  void _toggleClass(int id) {
+    setState(() {
+      if (!_hiddenClasses.remove(id)) _hiddenClasses.add(id);
+    });
+    unawaited(_applyHiddenClasses());
+  }
+
+  void _showAllClasses() {
+    setState(_hiddenClasses.clear);
+    unawaited(_applyHiddenClasses());
+  }
+
+  /// Repaint with the current set of switched-off classes. Only the palette
+  /// changes, so the grid is not rebuilt and this is fast enough to run on
+  /// every tap.
+  Future<void> _applyHiddenClasses() async {
+    if (!_gpu) return;
+    await volume3DSetHiddenClasses(classes: _hiddenClasses.toList());
+    _dirty = true;
   }
 
   Widget _bottomControls() {
@@ -1087,19 +1106,23 @@ class _Volume3DScreenState extends State<Volume3DScreen>
           children: [
             const SizedBox(width: 12),
             const Icon(Icons.filter_alt, size: 16, color: Colors.white54),
-            // Classes are discrete, so the classified field gets one stop per
-            // class rather than a continuous floor: each step up drops the
-            // lightest class still showing, ending on hail alone.
+            // The classified field has no continuous floor to raise, and the
+            // key is its filter instead. The row stays, so the controls do
+            // not jump when the field changes, and says where the filter is.
             Expanded(
               child: _field.moment == 'HCA'
-                  ? Slider(
-                      value: _hcaCutoff,
-                      min: 0,
-                      max: (hydrometeorBySeverity.length - 1).toDouble(),
-                      divisions: hydrometeorBySeverity.length - 1,
-                      label: hcaFilterLabel(_hcaCutoff.round()),
-                      onChanged: (v) => setState(() => _hcaCutoff = v),
-                      onChangeEnd: _applyFilter,
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 10),
+                      child: Text(
+                        _hiddenClasses.isEmpty
+                            ? 'Tap the key to show or hide classes'
+                            : '${_hiddenClasses.length} '
+                                'class${_hiddenClasses.length == 1 ? '' : 'es'} hidden',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white54,
+                        ),
+                      ),
                     )
                   : Slider(
                       value: _threshold,
@@ -1111,7 +1134,7 @@ class _Volume3DScreenState extends State<Volume3DScreen>
                         _ => 'floor ${_threshold.round()}',
                       },
                       onChanged: (v) => setState(() => _threshold = v),
-                      onChangeEnd: _applyFilter,
+                      onChangeEnd: _applyThreshold,
                     ),
             ),
             const SizedBox(width: 8),

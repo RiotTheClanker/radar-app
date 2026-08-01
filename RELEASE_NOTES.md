@@ -41,25 +41,25 @@ makes weak values transparent in 3D, and the key still lists them. It says
 what a colour means, not what is currently visible. The classified field is
 the exception — see below.
 
-### Filtering hydrometeors by how much weather they are
+### The key is the filter, for hydrometeor classification
 
 The 3D filter used to be a switch on the classified field: everything, or
-everything except clutter and biological. It is a step per class now, and it
-walks up by intensity — rain, big drops, heavy rain, graupel, hail — so you
-can strip a volume back to just the graupel and hail and see where the
-updrafts are.
+everything except clutter and biological. Now every class in the key is its
+own switch — tap it to hide that class, tap it again to bring it back. Hide
+everything but graupel and hail and you are looking at the updrafts.
 
-Note this is the order a storm is read in, not the order the classes are
-numbered in. Graupel sits above heavy rain because graupel means an updraft.
+Per class rather than a slider because the classes have no natural order to
+slide along. Any threshold would have to invent one, and would then only
+reach the combinations that ordering happened to allow; "graupel and hail,
+but not the snow below them" is not a prefix of anything.
 
-The key crosses out the classes the filter is hiding rather than dropping
-them from the list, so you can see what you have cut. Classes stay listed
-either way — one that simply vanished would leave you unable to tell
-"filtered out" from "never there".
+A hidden class stays in the key, greyed and struck through, rather than
+disappearing. You can see what you cut, you can tell it apart from a class
+the radar never saw, and the row is still there to switch back on. "Show all"
+at the top of the key clears the lot.
 
-There is no light-rain step, because there is no light-rain class: the
-classifier follows the NWS's own scheme, which has rain and heavy rain and
-nothing between them.
+The key still lists the classes heaviest first, which is the order a storm is
+read in and not the order they are numbered in.
 
 ### Storm tracks
 

@@ -30,14 +30,17 @@ const hydrometeorClasses = <HydrometeorClass>[
 ];
 
 /// The same classes in ascending order of how much weather they are, which is
-/// the order the 3D filter cuts in: each step up drops the lightest class
-/// still showing, ending on hail alone.
+/// the order the 3D key lists them in — reversed, so the heaviest is on top
+/// and the list reads the way a storm does.
 ///
 /// Not id order. The ids are palette indices, grouped so the frozen classes
 /// sit together, and that puts graupel below rain — graupel means an updraft,
 /// so it belongs above heavy rain here. `Class::BY_SEVERITY` in `hca.rs` is
-/// the ordering the renderer actually filters with and
-/// `test/hydrometeor_test` checks this against it.
+/// the canonical ordering and `test/hydrometeor_test` checks this against it.
+///
+/// A reading order only. The filter is per class, tapped in the key, because
+/// no single ordering makes every useful combination reachable: wanting
+/// graupel and hail without the snow below them is not a prefix of anything.
 const hydrometeorBySeverity = <HydrometeorClass>[
   HydrometeorClass(1, 'Ground clutter', Color(0xFF787878)),
   HydrometeorClass(2, 'Biological', Color(0xFF966EB4)),

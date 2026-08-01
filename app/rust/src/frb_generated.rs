@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1335750595;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 89819558;
 
 // Section: executor
 
@@ -926,11 +926,16 @@ fn wire__crate__api__radar__volume3d_open_impl(
             let api_data = <Vec<u8>>::sse_decode(&mut deserializer);
             let api_moment = <String>::sse_decode(&mut deserializer);
             let api_threshold = <f32>::sse_decode(&mut deserializer);
+            let api_hidden_classes = <Vec<u8>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
-                    let output_ok =
-                        crate::api::radar::volume3d_open(api_data, api_moment, api_threshold)?;
+                    let output_ok = crate::api::radar::volume3d_open(
+                        api_data,
+                        api_moment,
+                        api_threshold,
+                        api_hidden_classes,
+                    )?;
                     Ok(output_ok)
                 })())
             }
@@ -1016,6 +1021,39 @@ fn wire__crate__api__radar__volume3d_set_ground_impl(
                 transform_result_sse::<_, String>((move || {
                     let output_ok =
                         crate::api::radar::volume3d_set_ground(api_rgba, api_width, api_height)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__radar__volume3d_set_hidden_classes_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "volume3d_set_hidden_classes",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_classes = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::volume3d_set_hidden_classes(api_classes)?;
                     Ok(output_ok)
                 })())
             }
@@ -1545,11 +1583,17 @@ fn pde_ffi_dispatcher_primary_impl(
         24 => wire__crate__api__radar__volume3d_open_impl(port, ptr, rust_vec_len, data_len),
         25 => wire__crate__api__radar__volume3d_render_fly_impl(port, ptr, rust_vec_len, data_len),
         26 => wire__crate__api__radar__volume3d_set_ground_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__radar__volume3d_set_terrain_impl(port, ptr, rust_vec_len, data_len),
-        28 => {
+        27 => wire__crate__api__radar__volume3d_set_hidden_classes_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        28 => wire__crate__api__radar__volume3d_set_terrain_impl(port, ptr, rust_vec_len, data_len),
+        29 => {
             wire__crate__api__radar__volume3d_set_threshold_impl(port, ptr, rust_vec_len, data_len)
         }
-        29 => wire__crate__api__radar__volume3d_show_cone_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__radar__volume3d_show_cone_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

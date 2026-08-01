@@ -1,7 +1,7 @@
 fn main() {
     let data = std::fs::read(std::env::args().nth(1).unwrap()).unwrap();
     let out = std::env::args().nth(2).unwrap();
-    let info = radar_core::api::volume3d_open(data, "REF".into(), 10.0).unwrap();
+    let info = radar_core::api::volume3d_open(data, "REF".into(), 10.0, vec![]).unwrap();
     println!("gpu={} ex={} top={}", info.gpu, info.half_extent_m, info.top_m);
     let b = radar_core::api::volume3d_ground_bounds().unwrap();
     println!("ground bounds N{:.3} S{:.3} E{:.3} W{:.3}", b[0], b[1], b[2], b[3]);
