@@ -4,6 +4,7 @@
 pub mod grid3d;
 pub mod hca;
 pub mod nowcast;
+pub mod mda;
 pub mod sti;
 
 use crate::level3::ValueDecoder;

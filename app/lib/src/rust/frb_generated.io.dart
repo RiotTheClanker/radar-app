@@ -53,6 +53,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ColorScaleStop> dco_decode_list_color_scale_stop(dynamic raw);
 
   @protected
+  List<MesoHit> dco_decode_list_meso_hit(dynamic raw);
+
+  @protected
   List<double> dco_decode_list_prim_f_32_loose(dynamic raw);
 
   @protected
@@ -72,6 +75,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<TrackPoint> dco_decode_list_track_point(dynamic raw);
+
+  @protected
+  MesoHit dco_decode_meso_hit(dynamic raw);
 
   @protected
   double? dco_decode_opt_box_autoadd_f_32(dynamic raw);
@@ -142,6 +148,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<MesoHit> sse_decode_list_meso_hit(SseDeserializer deserializer);
+
+  @protected
   List<double> sse_decode_list_prim_f_32_loose(SseDeserializer deserializer);
 
   @protected
@@ -161,6 +170,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<TrackPoint> sse_decode_list_track_point(SseDeserializer deserializer);
+
+  @protected
+  MesoHit sse_decode_meso_hit(SseDeserializer deserializer);
 
   @protected
   double? sse_decode_opt_box_autoadd_f_32(SseDeserializer deserializer);
@@ -235,6 +247,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_meso_hit(List<MesoHit> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_f_32_loose(
     List<double> self,
     SseSerializer serializer,
@@ -272,6 +287,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     List<TrackPoint> self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_meso_hit(MesoHit self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_f_32(double? self, SseSerializer serializer);
