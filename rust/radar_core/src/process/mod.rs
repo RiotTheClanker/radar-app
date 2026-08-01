@@ -2,6 +2,7 @@
 //! volume-integrated products (composite reflectivity, VIL, echo tops).
 
 pub mod grid3d;
+pub mod hca;
 pub mod nowcast;
 
 use crate::level3::ValueDecoder;

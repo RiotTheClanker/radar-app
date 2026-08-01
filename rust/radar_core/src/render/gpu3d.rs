@@ -321,7 +321,16 @@ pub struct FlyParams {
 }
 
 impl GpuVolume {
-    pub fn new(grid: &Grid3D, palette: &[[u8; 4]; 256], z_exaggeration: f32) -> Result<Self, String> {
+    /// `categorical` marks a field whose values are class ids rather than a
+    /// measurement. Those must not be filtered: half way between class 3 and
+    /// class 7 is class 5, a different thing entirely, so they sample
+    /// nearest-neighbour and show voxel edges.
+    pub fn new(
+        grid: &Grid3D,
+        palette: &[[u8; 4]; 256],
+        z_exaggeration: f32,
+        categorical: bool,
+    ) -> Result<Self, String> {
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -364,9 +373,14 @@ impl GpuVolume {
             size,
         );
         let vol_view = vol_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let vol_filter = if categorical {
+            wgpu::FilterMode::Nearest
+        } else {
+            wgpu::FilterMode::Linear
+        };
         let vol_samp = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: vol_filter,
+            min_filter: vol_filter,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -931,7 +945,7 @@ mod tests {
         }
         pal[128] = [0, 0, 0, 0];
 
-        let Ok(mut gpu) = GpuVolume::new(&grid, &pal, 4.0) else {
+        let Ok(mut gpu) = GpuVolume::new(&grid, &pal, 4.0, false) else {
             eprintln!("no graphics adapter; skipping");
             return;
         };
@@ -973,7 +987,7 @@ mod tests {
             top_m: 16_000.0,
         };
         let pal = [[0u8; 4]; 256];
-        let Ok(mut gpu) = GpuVolume::new(&grid, &pal, 4.0) else {
+        let Ok(mut gpu) = GpuVolume::new(&grid, &pal, 4.0, false) else {
             eprintln!("no graphics adapter; skipping");
             return;
         };
@@ -1031,7 +1045,7 @@ mod tests {
             half_extent_m: 120_000.0,
             top_m: 16_000.0,
         };
-        let Ok(mut gpu) = GpuVolume::new(&grid, &[[0u8; 4]; 256], 4.0) else {
+        let Ok(mut gpu) = GpuVolume::new(&grid, &[[0u8; 4]; 256], 4.0, false) else {
             eprintln!("no graphics adapter; skipping");
             return;
         };
