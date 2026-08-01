@@ -4,6 +4,7 @@
 pub mod grid3d;
 pub mod hca;
 pub mod nowcast;
+pub mod storms;
 
 use crate::level3::ValueDecoder;
 use crate::sweep::{GateData, Sweep, SweepRadial};

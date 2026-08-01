@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1861753179;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1495060699;
 
 // Section: executor
 
@@ -803,6 +803,59 @@ fn wire__crate__api__radar__sample_level3_impl(
         },
     )
 }
+fn wire__crate__api__radar__storm_tracks_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "storm_tracks",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_prev = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_latest = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_source = <String>::sse_decode(&mut deserializer);
+            let api_north = <f64>::sse_decode(&mut deserializer);
+            let api_south = <f64>::sse_decode(&mut deserializer);
+            let api_east = <f64>::sse_decode(&mut deserializer);
+            let api_west = <f64>::sse_decode(&mut deserializer);
+            let api_width = <u32>::sse_decode(&mut deserializer);
+            let api_height = <u32>::sse_decode(&mut deserializer);
+            let api_threshold_dbz = <f32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::radar::storm_tracks(
+                        api_prev,
+                        api_latest,
+                        api_source,
+                        api_north,
+                        api_south,
+                        api_east,
+                        api_west,
+                        api_width,
+                        api_height,
+                        api_threshold_dbz,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__radar__volume3d_ground_bounds_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1209,6 +1262,30 @@ impl SseDecode for Vec<u8> {
     }
 }
 
+impl SseDecode for Vec<crate::api::radar::StormTrack> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::radar::StormTrack>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::radar::TrackPoint> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::radar::TrackPoint>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Option<f32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1294,6 +1371,44 @@ impl SseDecode for crate::api::radar::SampleResult {
     }
 }
 
+impl SseDecode for crate::api::radar::StormTrack {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_lat = <f64>::sse_decode(deserializer);
+        let mut var_lon = <f64>::sse_decode(deserializer);
+        let mut var_maxDbz = <f32>::sse_decode(deserializer);
+        let mut var_areaKm2 = <f32>::sse_decode(deserializer);
+        let mut var_tracked = <bool>::sse_decode(deserializer);
+        let mut var_speedMs = <f32>::sse_decode(deserializer);
+        let mut var_bearingDeg = <f32>::sse_decode(deserializer);
+        let mut var_forecast = <Vec<crate::api::radar::TrackPoint>>::sse_decode(deserializer);
+        return crate::api::radar::StormTrack {
+            lat: var_lat,
+            lon: var_lon,
+            max_dbz: var_maxDbz,
+            area_km2: var_areaKm2,
+            tracked: var_tracked,
+            speed_ms: var_speedMs,
+            bearing_deg: var_bearingDeg,
+            forecast: var_forecast,
+        };
+    }
+}
+
+impl SseDecode for crate::api::radar::TrackPoint {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_minutes = <f32>::sse_decode(deserializer);
+        let mut var_lat = <f64>::sse_decode(deserializer);
+        let mut var_lon = <f64>::sse_decode(deserializer);
+        return crate::api::radar::TrackPoint {
+            minutes: var_minutes,
+            lat: var_lat,
+            lon: var_lon,
+        };
+    }
+}
+
 impl SseDecode for u32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1371,17 +1486,18 @@ fn pde_ffi_dispatcher_primary_impl(
         18 => wire__crate__api__radar__reset_palettes_impl(port, ptr, rust_vec_len, data_len),
         19 => wire__crate__api__radar__sample_level2_impl(port, ptr, rust_vec_len, data_len),
         20 => wire__crate__api__radar__sample_level3_impl(port, ptr, rust_vec_len, data_len),
-        21 => {
+        21 => wire__crate__api__radar__storm_tracks_impl(port, ptr, rust_vec_len, data_len),
+        22 => {
             wire__crate__api__radar__volume3d_ground_bounds_impl(port, ptr, rust_vec_len, data_len)
         }
-        22 => wire__crate__api__radar__volume3d_open_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__radar__volume3d_render_fly_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__radar__volume3d_set_ground_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__radar__volume3d_set_terrain_impl(port, ptr, rust_vec_len, data_len),
-        26 => {
+        23 => wire__crate__api__radar__volume3d_open_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__radar__volume3d_render_fly_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__radar__volume3d_set_ground_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__radar__volume3d_set_terrain_impl(port, ptr, rust_vec_len, data_len),
+        27 => {
             wire__crate__api__radar__volume3d_set_threshold_impl(port, ptr, rust_vec_len, data_len)
         }
-        27 => wire__crate__api__radar__volume3d_show_cone_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__radar__volume3d_show_cone_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1539,6 +1655,49 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::SampleResult>
     for crate::api::radar::SampleResult
 {
     fn into_into_dart(self) -> crate::api::radar::SampleResult {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::radar::StormTrack {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.lat.into_into_dart().into_dart(),
+            self.lon.into_into_dart().into_dart(),
+            self.max_dbz.into_into_dart().into_dart(),
+            self.area_km2.into_into_dart().into_dart(),
+            self.tracked.into_into_dart().into_dart(),
+            self.speed_ms.into_into_dart().into_dart(),
+            self.bearing_deg.into_into_dart().into_dart(),
+            self.forecast.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::radar::StormTrack {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::StormTrack>
+    for crate::api::radar::StormTrack
+{
+    fn into_into_dart(self) -> crate::api::radar::StormTrack {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::radar::TrackPoint {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.minutes.into_into_dart().into_dart(),
+            self.lat.into_into_dart().into_dart(),
+            self.lon.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::radar::TrackPoint {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::TrackPoint>
+    for crate::api::radar::TrackPoint
+{
+    fn into_into_dart(self) -> crate::api::radar::TrackPoint {
         self
     }
 }
@@ -1702,6 +1861,26 @@ impl SseEncode for Vec<u8> {
     }
 }
 
+impl SseEncode for Vec<crate::api::radar::StormTrack> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::radar::StormTrack>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::radar::TrackPoint> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::radar::TrackPoint>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<f32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1752,6 +1931,29 @@ impl SseEncode for crate::api::radar::SampleResult {
         <f64>::sse_encode(self.beam_height_m, serializer);
         <f64>::sse_encode(self.azimuth_deg, serializer);
         <f32>::sse_encode(self.elevation_deg, serializer);
+    }
+}
+
+impl SseEncode for crate::api::radar::StormTrack {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <f64>::sse_encode(self.lat, serializer);
+        <f64>::sse_encode(self.lon, serializer);
+        <f32>::sse_encode(self.max_dbz, serializer);
+        <f32>::sse_encode(self.area_km2, serializer);
+        <bool>::sse_encode(self.tracked, serializer);
+        <f32>::sse_encode(self.speed_ms, serializer);
+        <f32>::sse_encode(self.bearing_deg, serializer);
+        <Vec<crate::api::radar::TrackPoint>>::sse_encode(self.forecast, serializer);
+    }
+}
+
+impl SseEncode for crate::api::radar::TrackPoint {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <f32>::sse_encode(self.minutes, serializer);
+        <f64>::sse_encode(self.lat, serializer);
+        <f64>::sse_encode(self.lon, serializer);
     }
 }
 
