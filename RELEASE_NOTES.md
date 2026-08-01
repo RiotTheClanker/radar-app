@@ -95,8 +95,8 @@ rain, graupel, wet and dry snow, ice crystals, ground clutter or biological
 scatterers — using a fuzzy-logic classifier over reflectivity, differential
 reflectivity and correlation coefficient. The melting level is found from the
 volume's own bright band rather than assumed, so the ice/liquid boundary
-follows the day's atmosphere. A legend sits beside the render, and the
-threshold slider switches between all classes and weather only.
+follows the day's atmosphere. The key beside the render lists the classes and
+doubles as the filter — see above.
 
 Scored against the NWS's own classification at the four tilts it publishes,
 across ten radars from Florida to Washington: **78.9% mean agreement**,
@@ -136,3 +136,12 @@ Half way from 0 m/s to empty was a fully opaque −32 m/s that nothing measured
 — which is what drew the cone standing on the radar site in velocity, ZDR and
 CC. Reflectivity was never affected, because its low values are already
 transparent. Value and coverage are now filtered separately.
+
+### Installing over 0.1.3
+
+The application id is unchanged, so unlike 0.1.3 this does not install
+alongside your existing copy. On Android you will still have to uninstall
+0.1.3 first: release builds are signed with a debug key that CI regenerates
+on every run, and Android refuses to install an APK over one signed by a
+different key. That goes away once the app is signed with a stable key, which
+is the next thing on the list.
