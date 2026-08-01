@@ -825,31 +825,11 @@ fn wire__crate__api__radar__storm_tracks_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_prev = <Vec<u8>>::sse_decode(&mut deserializer);
-            let api_latest = <Vec<u8>>::sse_decode(&mut deserializer);
-            let api_source = <String>::sse_decode(&mut deserializer);
-            let api_north = <f64>::sse_decode(&mut deserializer);
-            let api_south = <f64>::sse_decode(&mut deserializer);
-            let api_east = <f64>::sse_decode(&mut deserializer);
-            let api_west = <f64>::sse_decode(&mut deserializer);
-            let api_width = <u32>::sse_decode(&mut deserializer);
-            let api_height = <u32>::sse_decode(&mut deserializer);
-            let api_threshold_dbz = <f32>::sse_decode(&mut deserializer);
+            let api_data = <Vec<u8>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
-                    let output_ok = crate::api::radar::storm_tracks(
-                        api_prev,
-                        api_latest,
-                        api_source,
-                        api_north,
-                        api_south,
-                        api_east,
-                        api_west,
-                        api_width,
-                        api_height,
-                        api_threshold_dbz,
-                    )?;
+                    let output_ok = crate::api::radar::storm_tracks(api_data)?;
                     Ok(output_ok)
                 })())
             }
@@ -1374,23 +1354,23 @@ impl SseDecode for crate::api::radar::SampleResult {
 impl SseDecode for crate::api::radar::StormTrack {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
         let mut var_lat = <f64>::sse_decode(deserializer);
         let mut var_lon = <f64>::sse_decode(deserializer);
-        let mut var_maxDbz = <f32>::sse_decode(deserializer);
-        let mut var_areaKm2 = <f32>::sse_decode(deserializer);
         let mut var_tracked = <bool>::sse_decode(deserializer);
-        let mut var_speedMs = <f32>::sse_decode(deserializer);
-        let mut var_bearingDeg = <f32>::sse_decode(deserializer);
+        let mut var_speedKt = <f32>::sse_decode(deserializer);
+        let mut var_headingDeg = <f32>::sse_decode(deserializer);
         let mut var_forecast = <Vec<crate::api::radar::TrackPoint>>::sse_decode(deserializer);
+        let mut var_errorNm = <f32>::sse_decode(deserializer);
         return crate::api::radar::StormTrack {
+            id: var_id,
             lat: var_lat,
             lon: var_lon,
-            max_dbz: var_maxDbz,
-            area_km2: var_areaKm2,
             tracked: var_tracked,
-            speed_ms: var_speedMs,
-            bearing_deg: var_bearingDeg,
+            speed_kt: var_speedKt,
+            heading_deg: var_headingDeg,
             forecast: var_forecast,
+            error_nm: var_errorNm,
         };
     }
 }
@@ -1662,14 +1642,14 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::radar::SampleResult>
 impl flutter_rust_bridge::IntoDart for crate::api::radar::StormTrack {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.id.into_into_dart().into_dart(),
             self.lat.into_into_dart().into_dart(),
             self.lon.into_into_dart().into_dart(),
-            self.max_dbz.into_into_dart().into_dart(),
-            self.area_km2.into_into_dart().into_dart(),
             self.tracked.into_into_dart().into_dart(),
-            self.speed_ms.into_into_dart().into_dart(),
-            self.bearing_deg.into_into_dart().into_dart(),
+            self.speed_kt.into_into_dart().into_dart(),
+            self.heading_deg.into_into_dart().into_dart(),
             self.forecast.into_into_dart().into_dart(),
+            self.error_nm.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1937,14 +1917,14 @@ impl SseEncode for crate::api::radar::SampleResult {
 impl SseEncode for crate::api::radar::StormTrack {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
         <f64>::sse_encode(self.lat, serializer);
         <f64>::sse_encode(self.lon, serializer);
-        <f32>::sse_encode(self.max_dbz, serializer);
-        <f32>::sse_encode(self.area_km2, serializer);
         <bool>::sse_encode(self.tracked, serializer);
-        <f32>::sse_encode(self.speed_ms, serializer);
-        <f32>::sse_encode(self.bearing_deg, serializer);
+        <f32>::sse_encode(self.speed_kt, serializer);
+        <f32>::sse_encode(self.heading_deg, serializer);
         <Vec<crate::api::radar::TrackPoint>>::sse_encode(self.forecast, serializer);
+        <f32>::sse_encode(self.error_nm, serializer);
     }
 }
 

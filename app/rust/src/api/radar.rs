@@ -316,60 +316,45 @@ pub struct TrackPoint {
     pub lon: f64,
 }
 
-/// A storm cell with its motion, when it could be matched to the previous
-/// scan.
+/// A storm cell as the NWS's own SCIT reports it.
 pub struct StormTrack {
+    /// NWS cell id, e.g. "O8" — stable between volumes.
+    pub id: String,
     pub lat: f64,
     pub lon: f64,
-    pub max_dbz: f32,
-    pub area_km2: f32,
-    /// False for a cell seen for the first time; the motion fields are then
-    /// meaningless and `forecast` is empty.
+    /// False when the cell has no movement solution yet.
     pub tracked: bool,
-    pub speed_ms: f32,
-    /// Degrees clockwise from north, the way it is heading.
-    pub bearing_deg: f32,
+    pub speed_kt: f32,
+    /// Degrees true the storm is heading toward.
+    pub heading_deg: f32,
     pub forecast: Vec<TrackPoint>,
+    /// NWS forecast track error in nautical miles, where given.
+    pub error_nm: f32,
 }
 
-/// Identify storm cells in the latest scan and derive their motion from the
-/// previous one. Same two frames and view box as the nowcast.
-pub fn storm_tracks(
-    prev: Vec<u8>,
-    latest: Vec<u8>,
-    source: String,
-    north: f64,
-    south: f64,
-    east: f64,
-    west: f64,
-    width: u32,
-    height: u32,
-    threshold_dbz: f32,
-) -> Result<Vec<StormTrack>, String> {
-    Ok(core::storm_tracks(
-        prev, latest, source, north, south, east, west, width, height,
-        threshold_dbz,
-    )?
-    .into_iter()
-    .map(|s| StormTrack {
-        lat: s.lat,
-        lon: s.lon,
-        max_dbz: s.max_dbz,
-        area_km2: s.area_km2,
-        tracked: s.tracked,
-        speed_ms: s.speed_ms,
-        bearing_deg: s.bearing_deg,
-        forecast: s
-            .forecast
-            .into_iter()
-            .map(|p| TrackPoint {
-                minutes: p.minutes,
-                lat: p.lat,
-                lon: p.lon,
-            })
-            .collect(),
-    })
-    .collect())
+/// Read storm tracks out of a Level 3 STI product (code 58, key `xxx_NST_`).
+pub fn storm_tracks(data: Vec<u8>) -> Result<Vec<StormTrack>, String> {
+    Ok(core::storm_tracks(data)?
+        .into_iter()
+        .map(|s| StormTrack {
+            id: s.id,
+            lat: s.lat,
+            lon: s.lon,
+            tracked: s.tracked,
+            speed_kt: s.speed_kt,
+            heading_deg: s.heading_deg,
+            forecast: s
+                .forecast
+                .into_iter()
+                .map(|p| TrackPoint {
+                    minutes: p.minutes,
+                    lat: p.lat,
+                    lon: p.lon,
+                })
+                .collect(),
+            error_nm: s.error_nm,
+        })
+        .collect())
 }
 
 /// Import a `.pal` color table. Returns the product family it

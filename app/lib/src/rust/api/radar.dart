@@ -229,31 +229,9 @@ Future<RadarFrame> nowcastView({
   height: height,
 );
 
-/// Identify storm cells in the latest scan and derive their motion from the
-/// previous one. Same two frames and view box as the nowcast.
-Future<List<StormTrack>> stormTracks({
-  required List<int> prev,
-  required List<int> latest,
-  required String source,
-  required double north,
-  required double south,
-  required double east,
-  required double west,
-  required int width,
-  required int height,
-  required double thresholdDbz,
-}) => RustLib.instance.api.crateApiRadarStormTracks(
-  prev: prev,
-  latest: latest,
-  source: source,
-  north: north,
-  south: south,
-  east: east,
-  west: west,
-  width: width,
-  height: height,
-  thresholdDbz: thresholdDbz,
-);
+/// Read storm tracks out of a Level 3 STI product (code 58, key `xxx_NST_`).
+Future<List<StormTrack>> stormTracks({required List<int> data}) =>
+    RustLib.instance.api.crateApiRadarStormTracks(data: data);
 
 /// Import a `.pal` color table. Returns the product family it
 /// applies to.
@@ -574,58 +552,59 @@ class SampleResult {
           elevationDeg == other.elevationDeg;
 }
 
-/// A storm cell with its motion, when it could be matched to the previous
-/// scan.
+/// A storm cell as the NWS's own SCIT reports it.
 class StormTrack {
+  /// NWS cell id, e.g. "O8" — stable between volumes.
+  final String id;
   final double lat;
   final double lon;
-  final double maxDbz;
-  final double areaKm2;
 
-  /// False for a cell seen for the first time; the motion fields are then
-  /// meaningless and `forecast` is empty.
+  /// False when the cell has no movement solution yet.
   final bool tracked;
-  final double speedMs;
+  final double speedKt;
 
-  /// Degrees clockwise from north, the way it is heading.
-  final double bearingDeg;
+  /// Degrees true the storm is heading toward.
+  final double headingDeg;
   final List<TrackPoint> forecast;
 
+  /// NWS forecast track error in nautical miles, where given.
+  final double errorNm;
+
   const StormTrack({
+    required this.id,
     required this.lat,
     required this.lon,
-    required this.maxDbz,
-    required this.areaKm2,
     required this.tracked,
-    required this.speedMs,
-    required this.bearingDeg,
+    required this.speedKt,
+    required this.headingDeg,
     required this.forecast,
+    required this.errorNm,
   });
 
   @override
   int get hashCode =>
+      id.hashCode ^
       lat.hashCode ^
       lon.hashCode ^
-      maxDbz.hashCode ^
-      areaKm2.hashCode ^
       tracked.hashCode ^
-      speedMs.hashCode ^
-      bearingDeg.hashCode ^
-      forecast.hashCode;
+      speedKt.hashCode ^
+      headingDeg.hashCode ^
+      forecast.hashCode ^
+      errorNm.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is StormTrack &&
           runtimeType == other.runtimeType &&
+          id == other.id &&
           lat == other.lat &&
           lon == other.lon &&
-          maxDbz == other.maxDbz &&
-          areaKm2 == other.areaKm2 &&
           tracked == other.tracked &&
-          speedMs == other.speedMs &&
-          bearingDeg == other.bearingDeg &&
-          forecast == other.forecast;
+          speedKt == other.speedKt &&
+          headingDeg == other.headingDeg &&
+          forecast == other.forecast &&
+          errorNm == other.errorNm;
 }
 
 /// One projected position along a storm's forecast path.

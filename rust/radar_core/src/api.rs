@@ -826,112 +826,61 @@ pub struct TrackPoint {
     pub lon: f64,
 }
 
-/// A storm cell with its motion, if it could be matched to the previous scan.
+/// A storm cell as the NWS's own SCIT reports it.
 pub struct StormTrack {
+    /// The NWS cell id, e.g. "O8". Stable between volumes, so a cell can be
+    /// followed by name across scans.
+    pub id: String,
     pub lat: f64,
     pub lon: f64,
-    pub max_dbz: f32,
-    pub area_km2: f32,
-    /// False for a cell seen for the first time. `speed_ms`, `bearing_deg`
-    /// and `forecast` are then meaningless and empty respectively.
+    /// False when the cell has no movement solution yet; the motion fields
+    /// are then meaningless and `forecast` is empty.
     pub tracked: bool,
-    pub speed_ms: f32,
-    /// Degrees clockwise from north, the way it is heading.
-    pub bearing_deg: f32,
+    pub speed_kt: f32,
+    /// Degrees true the storm is heading toward. The product quotes the
+    /// direction it comes *from*, like wind; this is the opposite, which is
+    /// what an arrow points along.
+    pub heading_deg: f32,
     pub forecast: Vec<TrackPoint>,
+    /// NWS forecast track error in nautical miles, where given.
+    pub error_nm: f32,
 }
 
-/// Identify storm cells in the latest scan and derive motion by matching them
-/// against the previous one.
+/// Read storm tracks out of a Level 3 STI product (code 58).
 ///
-/// Takes the same two frames the nowcast does, and the same view box, so the
-/// caller already has everything to hand. Cells are found on the rasterised
-/// view rather than the raw radials, which means the resolution of the tracks
-/// follows the resolution of what is on screen.
-pub fn storm_tracks(
-    prev: Vec<u8>,
-    latest: Vec<u8>,
-    source: String,
-    north: f64,
-    south: f64,
-    east: f64,
-    west: f64,
-    width: u32,
-    height: u32,
-    threshold_dbz: f32,
-) -> Result<Vec<StormTrack>, String> {
-    use crate::process::storms;
-
-    let (a_raw, b_raw, decoder, t_prev, t_latest) = if source == "MRMS" {
-        let ga = crate::mrms::parse(&prev, 3).map_err(|e| e.to_string())?;
-        let gb = crate::mrms::parse(&latest, 3).map_err(|e| e.to_string())?;
-        (
-            render::latlon_raw_view(&ga, north, south, east, west, width, height),
-            render::latlon_raw_view(&gb, north, south, east, west, width, height),
-            crate::level3::ValueDecoder::ScaleOffset {
-                scale: 2.0,
-                offset: 66.0,
-            },
-            ga.timestamp,
-            gb.timestamp,
-        )
-    } else {
-        let fa = level3::parse(&prev).map_err(|e| e.to_string())?;
-        let fb = level3::parse(&latest).map_err(|e| e.to_string())?;
-        let sa = fa.to_sweep().ok_or("previous frame has no radial data")?;
-        let sb = fb.to_sweep().ok_or("latest frame has no radial data")?;
-        (
-            render::sweep_raw_view(&sa, north, south, east, west, width, height),
-            render::sweep_raw_view(&sb, north, south, east, west, width, height),
-            sb.decoder,
-            fa.volume_scan_time,
-            fb.volume_scan_time,
-        )
-    };
-
-    let dec = |r: u8| match decoder.decode(r as u16) {
-        crate::level3::BinValue::Value(v) => Some(v),
-        _ => None,
-    };
-    // A cell has to be big enough to survive to the next scan to be worth
-    // tracking; below this it is speckle or a decaying shower.
-    const MIN_AREA_KM2: f32 = 15.0;
-    // Nothing on radar translates faster than this. Gates the pairing.
-    const MAX_SPEED_MS: f32 = 40.0;
-
-    let (w, h) = (width as usize, height as usize);
-    let a = storms::find_cells(
-        &a_raw, w, h, north, south, east, west, dec, threshold_dbz, MIN_AREA_KM2,
-    );
-    let b = storms::find_cells(
-        &b_raw, w, h, north, south, east, west, dec, threshold_dbz, MIN_AREA_KM2,
-    );
-    // Clamp: a bogus or equal pair of timestamps would divide by ~0 and give
-    // every storm an absurd speed.
-    let dt = ((t_latest - t_prev) as f32).clamp(60.0, 3600.0);
-
-    Ok(storms::track(&a, &b, dt, MAX_SPEED_MS)
-        .into_iter()
-        .map(|t| StormTrack {
-            lat: t.cell.lat,
-            lon: t.cell.lon,
-            max_dbz: t.cell.max_dbz,
-            area_km2: t.cell.area_km2,
-            tracked: t.tracked,
-            speed_ms: t.speed_ms,
-            bearing_deg: t.bearing_deg,
-            forecast: [15.0f32, 30.0, 45.0, 60.0]
-                .iter()
-                .filter_map(|&m| {
-                    storms::project(&t, m).map(|(lat, lon)| TrackPoint {
-                        minutes: m,
-                        lat,
-                        lon,
+/// These are NOAA's, not ours: the NWS runs SCIT across seven reflectivity
+/// thresholds with full vertical integration and publishes the result, which
+/// beats anything derivable here from a single threshold on one 2D field, and
+/// carries a forecast error estimate we could not produce at all.
+pub fn storm_tracks(data: Vec<u8>) -> Result<Vec<StormTrack>, String> {
+    let f = level3::parse(&data).map_err(|e| e.to_string())?;
+    let tab = f
+        .tabular
+        .as_deref()
+        .ok_or("this product carries no storm table")?;
+    Ok(
+        crate::process::sti::parse(tab, f.site_lat, f.site_lon)
+            .into_iter()
+            .map(|c| StormTrack {
+                id: c.id,
+                lat: c.lat,
+                lon: c.lon,
+                tracked: c.movement.is_some(),
+                speed_kt: c.movement.map_or(0.0, |m| m.speed_kt),
+                heading_deg: c.movement.map_or(0.0, |m| m.heading_deg()),
+                forecast: c
+                    .forecast
+                    .into_iter()
+                    .map(|p| TrackPoint {
+                        minutes: p.minutes,
+                        lat: p.lat,
+                        lon: p.lon,
                     })
-                })
-                .collect(),
-        })
-        .collect())
+                    .collect(),
+                error_nm: c.error_fcst_nm.unwrap_or(0.0),
+            })
+            .collect(),
+    )
 }
 
 /// Import a `.pal` color table; it replaces the built-in palette
