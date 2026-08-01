@@ -57,22 +57,32 @@ volume's own bright band rather than assumed, so the ice/liquid boundary
 follows the day's atmosphere. A legend sits beside the render, and the
 threshold slider switches between all classes and weather only.
 
-It runs without KDP or the texture fields the operational NEXRAD algorithm
-uses, so heavy rain and hail lean harder on Z and ZDR than they should, and
-clutter with a high correlation coefficient can still be called weather. Good
-for reading storm structure; not a substitute for the operational product.
+Scored against the NWS's own classification at the four tilts it publishes:
+78% agreement on a clear-air night volume, 91% on a second volume held back
+from the tuning. It runs without KDP or the texture fields the operational
+algorithm uses, and that shows most in ground clutter, which it still gets
+wrong more often than right. Good for reading storm structure; not a
+substitute for the operational product.
 
-**Fixed: the melting level could land on the ground.** It is found from the
-volume's own correlation-coefficient dip, and overnight the boundary layer
-fills with insects, whose correlation coefficient is worse than any melting
-snow. On a 3am volume that put the melting level at 200 m and made the
-classifier call the entire volume ice. It now requires the dip to be above
-1 km and to be a genuine layer, cleaner both above and below.
+**Much better classification, from checking it against the NWS.** Comparing
+our answer to theirs at the four tilts they publish turned up three real
+faults, none of which was visible by eye:
 
-Measured against the NWS's own classification at the four tilts it publishes,
-agreement on that volume went from 8% to 43%. Most of what is left is
-biological returns being called rain, which is the missing texture fields
-doing exactly what the caveat above says they would.
+The melting level could land on the ground. It is found from the volume's own
+correlation-coefficient dip, and overnight the boundary layer fills with
+insects, whose correlation coefficient is worse than any melting snow. On a
+3am volume that put the melting level at 200 m and called the whole volume
+ice. The dip must now be above 1 km and be a genuine layer, cleaner above and
+below.
+
+Insects and ground clutter were tied to the freezing level, which has nothing
+to do with either. They are now placed by height above ground.
+
+Correlation coefficient carried the least weight of the three moments, when
+it is the best single indicator of whether a return is weather at all.
+
+Agreement went from 8% to 78% on that volume, and 91% on a second one held
+back from the tuning. Biological returns alone went from 35% to 86%.
 
 **Fixed: the 3D view invented readings at the edge of the data** (#9). The
 volume is a texture of palette indices, and the sampler filtered them, so

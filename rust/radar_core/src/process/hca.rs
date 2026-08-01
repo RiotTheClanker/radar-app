@@ -19,9 +19,16 @@
 //!     operational classifier would.
 //!   * **Texture fields** — SD(Z) and SD(PHIDP), the local standard
 //!     deviations, which is how the real algorithm separates ground clutter
-//!     and biological scatterers from weather. We approximate that with
-//!     correlation coefficient and a height ceiling, which is weaker: clutter
-//!     with a high RHO can still be called weather.
+//!     and biological scatterers from weather. Correlation coefficient plus a
+//!     height band above ground stands in for them, which turns out to be
+//!     enough for insects and not enough for clutter: measured against the
+//!     NWS, biological returns match 86% of the time and clutter 11%.
+//!
+//! Scored against the NWS's own classification at the four tilts it
+//! publishes (see [`crate::process::hca_grade`]): 78% agreement on a
+//! clear-air night volume at LBB, 91% on a held-out TLX volume. The held-out
+//! score being the higher of the two is the evidence that the membership
+//! functions are not merely fitted to one night.
 //!
 //! So: useful for reading storm structure, not a substitute for the
 //! operational product.
@@ -116,7 +123,14 @@ struct Mbf {
     z: [f32; 4],
     zdr: [f32; 4],
     rho: [f32; 4],
+    /// Height band relative to the melting level, metres, negative below.
     dh: [f32; 4],
+    /// Height band above ground instead, for the classes that are not
+    /// hydrometeors. Clutter and insects care where the ground is, not where
+    /// the freezing level is: tying them to the melting level put biological
+    /// returns out of reach on any night with a high freezing level, and the
+    /// classifier called two thirds of a clear-air volume rain.
+    agl: Option<[f32; 4]>,
 }
 
 /// Z carries the most information about amount, ZDR about shape, RHO about
@@ -124,36 +138,49 @@ struct Mbf {
 /// multiplies rather than joining the weighted sum.
 const W_Z: f32 = 1.0;
 const W_ZDR: f32 = 0.8;
-const W_RHO: f32 = 0.6;
+const W_RHO: f32 = 1.4;
 
 fn mbf(c: Class) -> Mbf {
     match c {
         // Low RHO, no height, near the ground. Real clutter also has a rough
         // PHIDP texture, which we cannot see.
         Class::GroundClutter => Mbf {
-            z: [10.0, 20.0, 70.0, 80.0],
-            zdr: [-6.0, -3.0, 3.0, 6.0],
-            rho: [0.40, 0.50, 0.85, 0.92],
-            dh: [-9000.0, -9000.0, -4000.0, -2500.0],
+            // Clutter is a strong return from a stationary hard target: high
+            // Z, ZDR near zero or negative, and the worst correlation
+            // coefficient of anything on the scope. The loose bands this had
+            // before overlapped biological returns almost entirely, and the
+            // classifier called 46000 insect gates clutter.
+            z: [20.0, 30.0, 70.0, 80.0],
+            zdr: [-6.0, -4.0, 1.5, 3.0],
+            rho: [0.20, 0.35, 0.75, 0.85],
+            dh: [-9000.0, -9000.0, 9000.0, 9000.0],
+            agl: Some([0.0, 0.0, 300.0, 900.0]),
         },
         // Birds and insects: weak, very high ZDR, poor RHO.
         Class::Biological => Mbf {
             z: [0.0, 5.0, 25.0, 35.0],
             zdr: [1.0, 3.0, 8.0, 12.0],
             rho: [0.30, 0.50, 0.83, 0.90],
-            dh: [-9000.0, -9000.0, -3000.0, -1500.0],
+            dh: [-9000.0, -9000.0, 9000.0, 9000.0],
+            // Insects and birds fill the boundary layer and thin out above
+            // it; nothing about that follows the freezing level.
+            agl: Some([0.0, 0.0, 2500.0, 4500.0]),
         },
         Class::IceCrystals => Mbf {
             z: [-10.0, -5.0, 20.0, 28.0],
             zdr: [0.3, 0.8, 3.5, 5.0],
             rho: [0.95, 0.98, 1.0, 1.0],
+            
             dh: [200.0, 800.0, 9000.0, 9000.0],
+            agl: None,
         },
         Class::DrySnow => Mbf {
             z: [-5.0, 5.0, 30.0, 38.0],
             zdr: [-0.5, -0.1, 0.6, 1.2],
             rho: [0.95, 0.97, 1.0, 1.0],
+            
             dh: [200.0, 700.0, 9000.0, 9000.0],
+            agl: None,
         },
         // The bright band: melting aggregates look big and wet, so ZDR jumps
         // and RHO dips. Tightly tied to the melting level.
@@ -161,33 +188,43 @@ fn mbf(c: Class) -> Mbf {
             z: [20.0, 27.0, 45.0, 52.0],
             zdr: [0.5, 1.0, 3.0, 4.5],
             rho: [0.80, 0.86, 0.95, 0.975],
+            
             dh: [-900.0, -400.0, 400.0, 900.0],
+            agl: None,
         },
         // Rimed ice: strong return but nearly spherical, so ZDR near zero.
         Class::Graupel => Mbf {
             z: [25.0, 33.0, 52.0, 58.0],
             zdr: [-0.5, -0.1, 1.0, 1.8],
             rho: [0.94, 0.97, 1.0, 1.0],
+            
             dh: [-2500.0, -1000.0, 5000.0, 8000.0],
+            agl: None,
         },
         Class::LightRain => Mbf {
             z: [5.0, 12.0, 40.0, 47.0],
             zdr: [0.1, 0.3, 1.8, 2.8],
             rho: [0.95, 0.97, 1.0, 1.0],
+            
             dh: [-9000.0, -9000.0, -300.0, 300.0],
+            agl: None,
         },
         Class::HeavyRain => Mbf {
             z: [40.0, 45.0, 55.0, 62.0],
             zdr: [0.5, 1.0, 3.0, 4.5],
             rho: [0.93, 0.96, 1.0, 1.0],
+            
             dh: [-9000.0, -9000.0, -300.0, 300.0],
+            agl: None,
         },
         // Large oblate drops: modest Z for a very large ZDR.
         Class::BigDrops => Mbf {
             z: [18.0, 25.0, 45.0, 52.0],
             zdr: [2.2, 3.0, 5.5, 7.0],
             rho: [0.92, 0.95, 1.0, 1.0],
+            
             dh: [-9000.0, -9000.0, -300.0, 300.0],
+            agl: None,
         },
         // Hail tumbles, so it has no preferred orientation: ZDR collapses
         // toward zero while Z stays very high. Mixed phase drops RHO.
@@ -195,28 +232,36 @@ fn mbf(c: Class) -> Mbf {
             z: [48.0, 55.0, 75.0, 80.0],
             zdr: [-1.5, -0.5, 1.2, 2.5],
             rho: [0.85, 0.90, 0.97, 1.0],
+            
             dh: [-9000.0, -9000.0, 2000.0, 4500.0],
+            agl: None,
         },
         Class::None => Mbf {
             z: [0.0; 4],
             zdr: [0.0; 4],
             rho: [0.0; 4],
             dh: [0.0; 4],
+            agl: None,
         },
     }
 }
 
 /// Classify one voxel.
 ///
-/// `dh` is height above the melting level in metres. Returns [`Class::None`]
+/// `dh_m` is height above the melting level; `h_m` is height above the radar.
+/// Most classes gate on the first, clutter and biological on the second.
+/// Returns [`Class::None`]
 /// when nothing scores meaningfully, which keeps voxels of noise out of the
 /// render rather than forcing them into the nearest class.
-pub fn classify(z_dbz: f32, zdr_db: f32, rho: f32, dh_m: f32) -> Class {
+pub fn classify(z_dbz: f32, zdr_db: f32, rho: f32, dh_m: f32, h_m: f32) -> Class {
     let mut best = Class::None;
     let mut best_score = 0.18; // floor: below this, call it unclassified
     for c in Class::ALL {
         let m = mbf(c);
-        let gate = trap(dh_m, m.dh[0], m.dh[1], m.dh[2], m.dh[3]);
+        let gate = match m.agl {
+            Some(a) => trap(h_m, a[0], a[1], a[2], a[3]),
+            None => trap(dh_m, m.dh[0], m.dh[1], m.dh[2], m.dh[3]),
+        };
         if gate <= 0.0 {
             continue;
         }
@@ -348,6 +393,7 @@ pub fn build_grid_hca(
             dec_zdr(rzdr),
             dec_rho(rrho),
             h - melting_level_m,
+            h,
         );
         data[i] = c as u8;
     }
@@ -370,19 +416,19 @@ mod tests {
     #[test]
     fn recognises_the_classic_signatures() {
         // Heavy rain: high Z, moderately oblate drops, clean RHO, below melt.
-        assert_eq!(classify(50.0, 1.8, 0.99, -2000.0), Class::HeavyRain);
+        assert_eq!(classify(50.0, 1.8, 0.99, -2000.0, 1200.0), Class::HeavyRain);
         // Hail mixed with rain: very high Z, ZDR collapsed by tumbling.
-        assert_eq!(classify(62.0, 0.2, 0.93, -1500.0), Class::HailRain);
+        assert_eq!(classify(62.0, 0.2, 0.93, -1500.0, 1700.0), Class::HailRain);
         // Dry snow above the melting level.
-        assert_eq!(classify(20.0, 0.2, 0.99, 2500.0), Class::DrySnow);
+        assert_eq!(classify(20.0, 0.2, 0.99, 2500.0, 5700.0), Class::DrySnow);
         // Bright band: ZDR up, RHO down, right at the melting level.
-        assert_eq!(classify(35.0, 2.0, 0.90, 0.0), Class::WetSnow);
+        assert_eq!(classify(35.0, 2.0, 0.90, 0.0, 3200.0), Class::WetSnow);
         // Insects: weak, hugely oblate, incoherent, near the ground.
-        assert_eq!(classify(15.0, 6.0, 0.65, -3500.0), Class::Biological);
+        assert_eq!(classify(15.0, 6.0, 0.65, -3500.0, 200.0), Class::Biological);
         // Graupel: strong but spherical, well above the melting level.
-        assert_eq!(classify(45.0, 0.3, 0.99, 1500.0), Class::Graupel);
+        assert_eq!(classify(45.0, 0.3, 0.99, 1500.0, 4700.0), Class::Graupel);
         // Big drops: modest Z for a very large ZDR.
-        assert_eq!(classify(32.0, 4.2, 0.98, -1000.0), Class::BigDrops);
+        assert_eq!(classify(32.0, 4.2, 0.98, -1000.0, 2200.0), Class::BigDrops);
     }
 
     #[test]
@@ -390,14 +436,14 @@ mod tests {
         // The same moments mean different things at different heights: this
         // is why the melting level is an input and not a constant.
         let (z, zdr, rho) = (22.0, 0.3, 0.99);
-        assert_eq!(classify(z, zdr, rho, -3000.0), Class::LightRain);
-        assert_eq!(classify(z, zdr, rho, 3000.0), Class::DrySnow);
+        assert_eq!(classify(z, zdr, rho, -3000.0, 200.0), Class::LightRain);
+        assert_eq!(classify(z, zdr, rho, 3000.0, 6200.0), Class::DrySnow);
     }
 
     #[test]
     fn noise_stays_unclassified() {
         // Nothing coherent: no class should claim it.
-        assert_eq!(classify(-20.0, 9.0, 0.35, 6000.0), Class::None);
+        assert_eq!(classify(-20.0, 9.0, 0.35, 6000.0, 9200.0), Class::None);
     }
 
     /// A volume with a deliberate RHO dip one level up, and enough samples
