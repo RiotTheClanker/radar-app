@@ -106,19 +106,34 @@ void main() {
     });
   });
 
-  testWidgets('a locked pane keeps its framing across a site change',
-      (tester) async {
+  testWidgets('a locked pane follows an explicit radar change', (tester) async {
+    await _withPane(tester, (pane) async {
+      pane.toggleLock();
+      await tester.pump();
+
+      final fws = nexradSites.firstWhere((s) => s.icao == 'KFWS');
+      pane.selectSite(fws, moveMap: true);
+      await tester.pump();
+
+      // Holding the old framing left the pane pointed at ground the new
+      // radar cannot see, so it went blank — which reads as the pane having
+      // failed to switch at all.
+      expect(pane.site.icao, 'KFWS');
+      expect(pane.cameraOrNull!.center.latitude, closeTo(fws.lat, 1e-4));
+      expect(pane.cameraOrNull!.center.longitude, closeTo(fws.lon, 1e-4));
+    });
+  });
+
+  testWidgets('a locked pane sits still for a site change that does not '
+      'move the map', (tester) async {
     await _withPane(tester, (pane) async {
       pane.toggleLock();
       await tester.pump();
       final before = pane.cameraOrNull!;
 
-      // Re-centring on the new radar is exactly the yank the lock prevents;
-      // the storm it is parked on has not moved.
-      pane.selectSite(
-        nexradSites.firstWhere((s) => s.icao == 'KFWS'),
-        moveMap: true,
-      );
+      // Startup settles the site this way once geolocation resolves; there
+      // is no explicit command behind it, so nothing should jump.
+      pane.selectSite(nexradSites.firstWhere((s) => s.icao == 'KFWS'));
       await tester.pump();
 
       expect(pane.site.icao, 'KFWS');

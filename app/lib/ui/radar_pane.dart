@@ -188,12 +188,15 @@ class RadarPaneState extends State<RadarPane> {
   bool _cursorBusy = false;
   DateTime _cursorLast = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// A locked pane holds its own view. Nothing that would move a pane
-  /// passively reaches it — not another pane's pan, not a change of radar
-  /// site — so you can park one pane on a second storm and keep working the
-  /// others around it. Its own gestures still move it, and it stops
-  /// broadcasting them, so locking detaches a pane from the group in both
-  /// directions rather than just muting one side.
+  /// A locked pane holds its own view against *passive* movement — another
+  /// pane being panned — so you can park one pane on a second storm and keep
+  /// working the others around it. It also stops broadcasting its own moves,
+  /// so locking detaches a pane from the group in both directions rather
+  /// than just muting one side.
+  ///
+  /// It does not override commands aimed at the pane on purpose: picking a
+  /// radar, "my location", framing an alert. Those all still land, because a
+  /// control that silently does nothing reads as broken.
   bool _locked = false;
 
   bool _measuring = false;
@@ -353,10 +356,12 @@ class RadarPaneState extends State<RadarPane> {
       _frames = [];
       _futureFrame = null;
     });
-    // A locked pane keeps its framing across a site change: the storm it is
-    // parked on is still where it was, and re-centring on the new radar is
-    // exactly the yank the lock exists to prevent.
-    if (moveMap && _mapReady && !_locked) {
+    // Locked panes move too. Picking a radar is an explicit command, the
+    // same class as "my location" and zoom-to-alert, which already override
+    // the lock. Holding a locked pane's framing across a site change left it
+    // pointed at ground the new radar cannot see, so it went blank — which
+    // reads as the pane having failed to switch at all.
+    if (moveMap && _mapReady) {
       _mapController.move(LatLng(s.lat, s.lon), _mapController.camera.zoom);
     }
     widget.onChanged();
@@ -1067,25 +1072,22 @@ class RadarPaneState extends State<RadarPane> {
         }
       }
 
-      return MouseRegion(
-        onEnter: (_) {
+      return Listener(
+        // Click to focus, deliberately not hover. Focus decides which pane
+        // the toolbar acts on, and following the pointer meant that reaching
+        // for a control retargeted it on the way: crossing a neighbouring
+        // pane to get to the bar handed that pane the focus, so the setting
+        // landed somewhere you were only passing over.
+        onPointerDown: (_) {
           if (!widget.focused) widget.onFocus();
         },
-        child: Listener(
-          // Focus follows any press too, so a tap in a pane makes the
-          // toolbar act on that pane even when the pointer never moved.
-          onPointerDown: (_) {
-            if (!widget.focused) widget.onFocus();
-          },
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: widget.focused && widget.showHeader
-                    ? Wx.accent
-                    : Wx.line,
-              ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: widget.focused && widget.showHeader ? Wx.accent : Wx.line,
             ),
-            child: Stack(
+          ),
+          child: Stack(
               children: [
                 Positioned.fill(child: _map(shared, frame)),
                 if (widget.showHeader)
@@ -1128,8 +1130,7 @@ class RadarPaneState extends State<RadarPane> {
               ],
             ),
           ),
-        ),
-      );
+        );
     });
   }
 
