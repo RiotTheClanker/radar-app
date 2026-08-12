@@ -121,6 +121,9 @@ class RadarPane extends StatefulWidget {
 }
 
 class RadarPaneState extends State<RadarPane> {
+  /// Height of the per-pane label strip.
+  static const _headerH = 22.0;
+
   final _mapController = MapController();
   bool _mapReady = false;
 
@@ -1033,11 +1036,12 @@ class RadarPaneState extends State<RadarPane> {
                 if (widget.showHeader)
                   Positioned(top: 0, left: 0, right: 0, child: _header(shared)),
                 if (_loading)
-                  const Positioned(
-                    top: 0,
+                  Positioned(
+                    // Under the label strip rather than through it.
+                    top: widget.showHeader ? _headerH : 0,
                     left: 0,
                     right: 0,
-                    child: LinearProgressIndicator(minHeight: 2),
+                    child: const LinearProgressIndicator(minHeight: 2),
                   ),
                 // Same edge, same toggle. A classified field gets a list of
                 // classes rather than a colour scale: the scale would be
@@ -1083,7 +1087,7 @@ class RadarPaneState extends State<RadarPane> {
     final stale = age != null && age.inMinutes > 20 && shared.historyTime == null;
 
     return Container(
-      height: 22,
+      height: _headerH,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       color: Wx.bg1.withValues(alpha: 0.88),
       child: Row(
