@@ -955,7 +955,11 @@ class RadarPaneState extends State<RadarPane> {
   /// mosaic, throwing away the arrangement the user built.
   void _maybeSwitchMosaic() {
     if (_loading || !_mapReady) return;
-    if (widget.shared.layout != PaneLayout.single) return;
+    // Labelled panes means there is more than one of them. Asking the
+    // workspace which layout it wants would be the wrong question: what
+    // matters is how many panes are actually on screen, which is what the
+    // label strip already tracks.
+    if (widget.showHeader) return;
     final z = _mapController.camera.zoom;
     if (z < 6.0 && identical(_product, productRef)) {
       setProduct(mrmsProduct);

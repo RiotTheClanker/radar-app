@@ -203,4 +203,68 @@ void main() {
       expect(productRef.hasTilts, isTrue);
     });
   });
+
+  // Grid sizes below are the room left for panes once the two 30pt chrome
+  // strips and the 24pt status strip have taken their share.
+  group('layouts offered for the room available', () {
+    test('a phone in portrait offers two stacked, not two side by side', () {
+      const w = 360.0, h = 740 - 84.0;
+
+      expect(PaneLayout.availableIn(w, h),
+          [PaneLayout.single, PaneLayout.twoDown]);
+      // Splitting 360 points across two columns leaves panes narrower than
+      // the colour key that explains them.
+      expect(PaneLayout.twoAcross.fitsIn(w, h), isFalse);
+      expect(PaneLayout.quad.fitsIn(w, h), isFalse);
+    });
+
+    test('a phone in landscape offers two side by side instead', () {
+      const w = 800.0, h = 400 - 84.0;
+
+      expect(PaneLayout.availableIn(w, h),
+          [PaneLayout.single, PaneLayout.twoAcross]);
+      expect(PaneLayout.twoDown.fitsIn(w, h), isFalse);
+    });
+
+    test('a tablet takes everything', () {
+      expect(PaneLayout.availableIn(600, 960 - 84), PaneLayout.values);
+      expect(PaneLayout.availableIn(1024, 768 - 84), PaneLayout.values);
+    });
+
+    test('four panes on a phone renders as two rather than as one', () {
+      // Keeping the pane count and reorienting beats dropping to a single
+      // pane: the user asked for a comparison, and one is still possible.
+      expect(
+        PaneLayout.bestFor(PaneLayout.quad, 360, 740 - 84),
+        PaneLayout.twoDown,
+      );
+      expect(
+        PaneLayout.bestFor(PaneLayout.quad, 800, 400 - 84),
+        PaneLayout.twoAcross,
+      );
+    });
+
+    test('turning a phone swaps the orientation of a two-pane split', () {
+      // Portrait cannot do side by side, landscape cannot do stacked.
+      expect(
+        PaneLayout.bestFor(PaneLayout.twoAcross, 360, 740 - 84),
+        PaneLayout.twoDown,
+      );
+      expect(
+        PaneLayout.bestFor(PaneLayout.twoDown, 800, 400 - 84),
+        PaneLayout.twoAcross,
+      );
+    });
+
+    test('a layout that fits is left exactly as chosen', () {
+      for (final l in PaneLayout.values) {
+        expect(PaneLayout.bestFor(l, 1920, 1080), l);
+      }
+    });
+
+    test('a window too small for any split still draws one pane', () {
+      expect(PaneLayout.bestFor(PaneLayout.quad, 200, 150), PaneLayout.single);
+      expect(PaneLayout.availableIn(200, 150), [PaneLayout.single]);
+    });
+  });
 }

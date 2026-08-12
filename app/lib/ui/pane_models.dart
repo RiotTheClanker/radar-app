@@ -169,4 +169,43 @@ enum PaneLayout {
   final int rows;
 
   int get count => cols * rows;
+
+  /// Smallest pane worth drawing. Below this a pane is not a second opinion
+  /// on the storm, it is a stamp — a phone in portrait splits four ways into
+  /// panes about 180 points wide, which is narrower than the colour key that
+  /// is meant to explain them.
+  static const minPaneWidth = 260.0;
+  static const minPaneHeight = 190.0;
+
+  bool fitsIn(double width, double height) =>
+      width / cols >= minPaneWidth && height / rows >= minPaneHeight;
+
+  /// The layout to actually draw when [wanted] does not fit the room there
+  /// is. Falls back by keeping as many panes as still fit and reorienting
+  /// them, so turning a phone from landscape to portrait swaps two side by
+  /// side for two stacked rather than dropping to one.
+  ///
+  /// [wanted] is left alone in the caller's state, so the layout the user
+  /// picked comes back as soon as there is room for it again.
+  static PaneLayout bestFor(PaneLayout wanted, double width, double height) {
+    if (wanted.fitsIn(width, height)) return wanted;
+    if (wanted.count > 1) {
+      // Prefer the orientation the room is shaped for.
+      final ordered = width >= height
+          ? const [twoAcross, twoDown]
+          : const [twoDown, twoAcross];
+      for (final l in ordered) {
+        if (l.fitsIn(width, height)) return l;
+      }
+    }
+    return single;
+  }
+
+  /// Which layouts to offer for a given amount of room. [single] is always
+  /// offered: there is always space for one pane, and a switcher that can
+  /// empty itself is worse than one that is short.
+  static List<PaneLayout> availableIn(double width, double height) => [
+        for (final l in values)
+          if (l == single || l.fitsIn(width, height)) l,
+      ];
 }

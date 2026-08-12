@@ -118,7 +118,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   }
 
   Iterable<RadarPaneState> get _livePanes sync* {
-    for (var i = 0; i < _shared.layout.count; i++) {
+    for (var i = 0; i < _effective.count; i++) {
       final s = _paneKeys[i].currentState;
       if (s != null) yield s;
     }
@@ -145,7 +145,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     _lastCenter = center;
     _lastZoom = zoom;
     if (!_shared.linkViews) return;
-    for (var i = 0; i < _shared.layout.count; i++) {
+    for (var i = 0; i < _effective.count; i++) {
       if (i == paneId) continue;
       _paneKeys[i].currentState?.applyCamera(center, zoom);
     }
@@ -337,6 +337,12 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
 
   bool _wide = true;
 
+  /// What is actually on screen. [WorkspaceState.layout] stays as whatever
+  /// the user chose, so a layout that does not fit the current window is
+  /// restored rather than forgotten once there is room for it again.
+  PaneLayout _effective = PaneLayout.single;
+  List<PaneLayout> _available = PaneLayout.values;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -344,6 +350,17 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       body: SafeArea(
         child: LayoutBuilder(builder: (context, constraints) {
           _wide = constraints.maxWidth >= _wideChrome;
+
+          // What the panes actually get, once the three strips have taken
+          // their share.
+          final gridW = constraints.maxWidth;
+          final gridH = constraints.maxHeight - Wx.barH * 2 - Wx.statusH;
+          _available = PaneLayout.availableIn(gridW, gridH);
+          _effective = PaneLayout.bestFor(_shared.layout, gridW, gridH);
+          // Focus can be left pointing at a pane the new layout does not
+          // have — picking four on a phone renders two.
+          if (_focused >= _effective.count) _focused = 0;
+
           return Column(
             children: [
               _menuBar(),
@@ -358,7 +375,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   }
 
   Widget _grid() {
-    final layout = _shared.layout;
+    final layout = _effective;
     final multi = layout.count > 1;
     var id = 0;
     return Stack(
@@ -437,15 +454,15 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         // Layout. Four flat buttons rather than a menu: switching between
         // one and four panes is the whole feature, and burying it one click
         // deep would make it feel like a setting.
-        for (final l in PaneLayout.values)
+        for (final l in _available)
           WxButton(
             icon: _layoutIcon(l),
             tooltip: l.label,
             dense: true,
-            active: _shared.layout == l,
+            active: _effective == l,
             onTap: () => _setLayout(l),
           ),
-        if (_shared.layout != PaneLayout.single) ...[
+        if (_effective != PaneLayout.single) ...[
           const SizedBox(width: 2),
           WxMenu<String>(
             icon: linked ? Icons.link : Icons.link_off,
