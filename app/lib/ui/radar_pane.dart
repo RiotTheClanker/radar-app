@@ -176,6 +176,14 @@ class RadarPaneState extends State<RadarPane> {
   bool _cursorBusy = false;
   DateTime _cursorLast = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// A locked pane holds its own view. Nothing that would move a pane
+  /// passively reaches it — not another pane's pan, not a change of radar
+  /// site — so you can park one pane on a second storm and keep working the
+  /// others around it. Its own gestures still move it, and it stops
+  /// broadcasting them, so locking detaches a pane from the group in both
+  /// directions rather than just muting one side.
+  bool _locked = false;
+
   bool _measuring = false;
   final List<LatLng> _measurePts = [];
 
@@ -233,6 +241,7 @@ class RadarPaneState extends State<RadarPane> {
   int get tilt => _tilt;
   bool get loading => _loading;
   String? get error => _error;
+  bool get locked => _locked;
   bool get cursorOn => _cursor;
   bool get tracksOn => _tracks;
   bool get futureOn => _future;
@@ -316,7 +325,10 @@ class RadarPaneState extends State<RadarPane> {
       _frames = [];
       _futureFrame = null;
     });
-    if (moveMap && _mapReady) {
+    // A locked pane keeps its framing across a site change: the storm it is
+    // parked on is still where it was, and re-centring on the new radar is
+    // exactly the yank the lock exists to prevent.
+    if (moveMap && _mapReady && !_locked) {
       _mapController.move(LatLng(s.lat, s.lon), _mapController.camera.zoom);
     }
     widget.onChanged();
@@ -348,6 +360,11 @@ class RadarPaneState extends State<RadarPane> {
     if (_tracks) unawaited(_updateTracks());
   }
 
+  void toggleLock() {
+    setState(() => _locked = !_locked);
+    widget.onChanged();
+  }
+
   void toggleMeasure() {
     setState(() {
       _measuring = !_measuring;
@@ -368,8 +385,13 @@ class RadarPaneState extends State<RadarPane> {
   /// Move this pane's camera without echoing the move back to the workspace.
   /// Used for view linking; guarded so a pane that is already there does not
   /// start a ping-pong of moves between panes.
-  void applyCamera(LatLng center, double zoom) {
+  ///
+  /// A locked pane ignores this. [force] is for the explicit "take me there"
+  /// commands aimed at this pane in particular — a button the user just
+  /// pressed has to do something, even when the pane is locked.
+  void applyCamera(LatLng center, double zoom, {bool force = false}) {
     if (!mounted || !_mapReady) return;
+    if (_locked && !force) return;
     final cam = _mapController.camera;
     const eps = 1e-7;
     if ((cam.center.latitude - center.latitude).abs() < eps &&
@@ -380,8 +402,9 @@ class RadarPaneState extends State<RadarPane> {
     _mapController.move(center, zoom);
   }
 
-  void frameBounds(LatLngBounds bounds) {
+  void frameBounds(LatLngBounds bounds, {bool force = false}) {
     if (!_mapReady) return;
+    if (_locked && !force) return;
     _mapController.fitCamera(
       CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(48)),
     );
@@ -1125,6 +1148,19 @@ class RadarPaneState extends State<RadarPane> {
               color: stale ? Wx.warn : Wx.textDim,
             ),
           ),
+          // Trailing edge, where a window's controls live. Lit when engaged
+          // so a glance across the grid says which panes are parked.
+          WxButton(
+            icon: _locked ? Icons.lock : Icons.lock_open,
+            tooltip: _locked
+                ? 'Locked here — pans and site changes elsewhere leave this '
+                    'pane alone. Click to rejoin.'
+                : 'Lock this pane to its current view',
+            height: _headerH,
+            dense: true,
+            color: _locked ? Wx.accent : Wx.textFaint,
+            onTap: toggleLock,
+          ),
         ],
       ),
     );
@@ -1156,8 +1192,10 @@ class RadarPaneState extends State<RadarPane> {
           _maybeSwitchMosaic();
           // Only a real gesture propagates to the linked panes. Echoing a
           // move that arrived from another pane is how view linking turns
-          // into an infinite loop between two maps.
-          if (evt.source != MapEventSource.mapController &&
+          // into an infinite loop between two maps. A locked pane says
+          // nothing either — it is out of the group in both directions.
+          if (!_locked &&
+              evt.source != MapEventSource.mapController &&
               evt.source != MapEventSource.fitCamera) {
             widget.onCameraMoved(
               widget.paneId,

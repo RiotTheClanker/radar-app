@@ -1,0 +1,171 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:radar_app/data/nexrad_sites.g.dart';
+import 'package:radar_app/ui/pane_models.dart';
+import 'package:radar_app/ui/radar_pane.dart';
+import 'package:radar_app/ui/workspace_state.dart';
+import 'package:radar_app/ui/wx_theme.dart';
+
+/// Runs [body] against a pane with no data behind it.
+///
+/// `autoLoad: false` is what the workspace passes before geolocation has
+/// settled, and it is what keeps this off the network — the lock is a
+/// question about the camera, not about frames.
+///
+/// The shared state is disposed inside the body rather than through
+/// `addTearDown`, because it owns the alert poll and the animation clock and
+/// the test binding checks for pending timers before teardown runs.
+Future<void> _withPane(
+  WidgetTester tester,
+  Future<void> Function(RadarPaneState pane) body, {
+  void Function(int paneId, LatLng center, double zoom)? onCameraMoved,
+}) async {
+  final shared = WorkspaceState();
+  try {
+    final key = GlobalKey<RadarPaneState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: wxTheme(),
+        home: Scaffold(
+          body: RadarPane(
+            key: key,
+            paneId: 0,
+            shared: shared,
+            initialSite: nexradSites.firstWhere((s) => s.icao == 'KTLX'),
+            initialProduct: productRef,
+            focused: true,
+            showHeader: true,
+            autoLoad: false,
+            onFocus: () {},
+            onChanged: () {},
+            onCameraMoved: onCameraMoved ?? (_, _, _) {},
+          ),
+        ),
+      ),
+    );
+    // Let the map attach so it has a camera to report.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await body(key.currentState!);
+  } finally {
+    shared.dispose();
+  }
+}
+
+const _elsewhere = LatLng(41.5, -99.5);
+
+void main() {
+  testWidgets('an unlocked pane follows a linked pan', (tester) async {
+    await _withPane(tester, (pane) async {
+      expect(pane.locked, isFalse);
+
+      pane.applyCamera(_elsewhere, 9);
+      await tester.pump();
+
+      final cam = pane.cameraOrNull!;
+      expect(cam.center.latitude, closeTo(_elsewhere.latitude, 1e-6));
+      expect(cam.zoom, closeTo(9, 1e-6));
+    });
+  });
+
+  testWidgets('a locked pane ignores another pane panning', (tester) async {
+    await _withPane(tester, (pane) async {
+      final before = pane.cameraOrNull!;
+
+      pane.toggleLock();
+      await tester.pump();
+      expect(pane.locked, isTrue);
+
+      pane.applyCamera(_elsewhere, 9);
+      await tester.pump();
+
+      // This is the whole point: park a pane on a second storm and work the
+      // others around it.
+      final after = pane.cameraOrNull!;
+      expect(after.center.latitude, closeTo(before.center.latitude, 1e-6));
+      expect(after.center.longitude, closeTo(before.center.longitude, 1e-6));
+      expect(after.zoom, closeTo(before.zoom, 1e-6));
+    });
+  });
+
+  testWidgets('a locked pane still takes an explicit command', (tester) async {
+    await _withPane(tester, (pane) async {
+      pane.toggleLock();
+      await tester.pump();
+
+      // "My location" and zoom-to-alert are buttons the user just pressed. A
+      // control that silently does nothing reads as broken.
+      pane.applyCamera(_elsewhere, 9, force: true);
+      await tester.pump();
+
+      expect(
+        pane.cameraOrNull!.center.latitude,
+        closeTo(_elsewhere.latitude, 1e-6),
+      );
+    });
+  });
+
+  testWidgets('a locked pane keeps its framing across a site change',
+      (tester) async {
+    await _withPane(tester, (pane) async {
+      pane.toggleLock();
+      await tester.pump();
+      final before = pane.cameraOrNull!;
+
+      // Re-centring on the new radar is exactly the yank the lock prevents;
+      // the storm it is parked on has not moved.
+      pane.selectSite(
+        nexradSites.firstWhere((s) => s.icao == 'KFWS'),
+        moveMap: true,
+      );
+      await tester.pump();
+
+      expect(pane.site.icao, 'KFWS');
+      expect(
+        pane.cameraOrNull!.center.latitude,
+        closeTo(before.center.latitude, 1e-6),
+      );
+    });
+  });
+
+  testWidgets('a locked pane stops broadcasting its own moves',
+      (tester) async {
+    var broadcasts = 0;
+    await _withPane(
+      tester,
+      (pane) async {
+        await tester.drag(find.byType(RadarPane), const Offset(-60, -40));
+        await tester.pump();
+        expect(broadcasts, greaterThan(0),
+            reason: 'an unlocked pane leads the others');
+
+        pane.toggleLock();
+        await tester.pump();
+        final quiet = broadcasts;
+
+        await tester.drag(find.byType(RadarPane), const Offset(-60, -40));
+        await tester.pump();
+
+        // Locking detaches in both directions — a parked pane neither follows
+        // nor drags everyone else along with it.
+        expect(broadcasts, quiet);
+      },
+      onCameraMoved: (_, _, _) => broadcasts++,
+    );
+  });
+
+  testWidgets('the header offers the lock and shows which state it is in',
+      (tester) async {
+    await _withPane(tester, (pane) async {
+      expect(find.byIcon(Icons.lock_open), findsOneWidget);
+      expect(find.byIcon(Icons.lock), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.lock_open));
+      await tester.pump();
+
+      expect(pane.locked, isTrue);
+      expect(find.byIcon(Icons.lock), findsOneWidget);
+    });
+  });
+}

@@ -215,11 +215,18 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       return;
     }
     _shared.setMyLocation(loc);
+    // The pane you are working in goes there even if it is locked — you just
+    // pressed the button. The rest follow only if they are not parked.
+    final zoom = result.precise ? 8.0 : 7.0;
+    final focused = _active;
+    focused?.applyCamera(loc, zoom, force: true);
     for (final p in _livePanes) {
-      p.applyCamera(loc, result.precise ? 8 : 7);
+      if (!identical(p, focused)) p.applyCamera(loc, zoom);
     }
     final nearest = _nearestSite(loc);
-    if (_active != null && nearest.icao != _active!.site.icao) _setSite(nearest);
+    if (focused != null && nearest.icao != focused.site.icao) {
+      _setSite(nearest);
+    }
   }
 
   /// Jump the whole workspace to a past moment (or back to live).
@@ -310,12 +317,13 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   void _zoomToAlert(WeatherAlert a) {
     final b = alertBounds(a);
     if (b == null) return;
-    if (!_shared.linkViews) {
-      _active?.frameBounds(b);
-      return;
-    }
+    // Picking an alert out of the list is a "show me this" command, so the
+    // focused pane goes there regardless of its lock.
+    final focused = _active;
+    focused?.frameBounds(b, force: true);
+    if (!_shared.linkViews) return;
     for (final p in _livePanes) {
-      p.frameBounds(b);
+      if (!identical(p, focused)) p.frameBounds(b);
     }
   }
 
@@ -391,6 +399,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     final active = _active;
     final site = active?.site;
     final linked = _shared.linkSite || _shared.linkViews;
+    final lockedCount = _livePanes.where((p) => p.locked).length;
 
     return WxBar(
       leading: [
@@ -423,10 +432,15 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             tooltip: 'What the panes share',
             active: linked,
             onSelected: (v) {
-              if (v == 'views') {
-                _shared.setLinkViews(!_shared.linkViews);
-              } else {
-                _shared.setLinkSite(!_shared.linkSite);
+              switch (v) {
+                case 'views':
+                  _shared.setLinkViews(!_shared.linkViews);
+                case 'site':
+                  _shared.setLinkSite(!_shared.linkSite);
+                case 'unlock':
+                  for (final p in _livePanes) {
+                    if (p.locked) p.toggleLock();
+                  }
               }
             },
             itemBuilder: (_) => [
@@ -440,6 +454,20 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
                 label: 'Same radar site',
                 checked: _shared.linkSite,
               ),
+              // A pane locked and forgotten looks like a pane that stopped
+              // working, so the way out is offered where the linking lives
+              // rather than only on the pane itself.
+              if (lockedCount > 0) ...[
+                const PopupMenuDivider(),
+                wxMenuItem(
+                  value: 'unlock',
+                  label: lockedCount == 1
+                      ? 'Release 1 locked pane'
+                      : 'Release $lockedCount locked panes',
+                  showCheck: true,
+                  checked: false,
+                ),
+              ],
             ],
           ),
         ],
