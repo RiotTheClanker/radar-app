@@ -194,12 +194,29 @@ class WxBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              // Dragging a toolbar is not a gesture anyone reaches for, but
-              // it must not eat the trackpad/wheel scroll either — this only
-              // moves when the content genuinely overflows.
-              child: Row(children: leading),
+            // Fades the last few pixels so a bar that has more to show reads
+            // as scrollable rather than broken — a label chopped mid-word at
+            // a hard edge looks like a layout bug. Sized in pixels rather
+            // than a fraction so a wide bar, where the fade falls on empty
+            // background, is left alone.
+            child: ShaderMask(
+              shaderCallback: (rect) {
+                final fade = (14 / rect.width).clamp(0.0, 0.4);
+                return LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: const [Colors.black, Colors.black, Colors.transparent],
+                  stops: [0, 1 - fade, 1],
+                ).createShader(rect);
+              },
+              blendMode: BlendMode.dstIn,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                // Dragging a toolbar is not a gesture anyone reaches for, but
+                // it must not eat the trackpad/wheel scroll either — this
+                // only moves when the content genuinely overflows.
+                child: Row(children: leading),
+              ),
             ),
           ),
           ...trailing,

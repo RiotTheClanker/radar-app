@@ -329,19 +329,30 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
 
   // ----------------------------------------------------------------- ui ----
 
+  /// Whether there is room to spell the menus out. Below this the labels are
+  /// dropped for icons alone: on a phone "Layers" and "Tools" together cost
+  /// about 140 of 360 points, which is what pushed the layout switcher — the
+  /// whole reason multi-panel exists — off the edge and behind a scroll.
+  static const _wideChrome = 520.0;
+
+  bool _wide = true;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Wx.bg0,
       body: SafeArea(
-        child: Column(
-          children: [
-            _menuBar(),
-            _productBar(),
-            Expanded(child: _grid()),
-            _statusBar(),
-          ],
-        ),
+        child: LayoutBuilder(builder: (context, constraints) {
+          _wide = constraints.maxWidth >= _wideChrome;
+          return Column(
+            children: [
+              _menuBar(),
+              _productBar(),
+              Expanded(child: _grid()),
+              _statusBar(),
+            ],
+          );
+        }),
       ),
     );
   }
@@ -367,10 +378,20 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             ],
           ),
         ),
+        // Bounded on both sides: right-anchored alone, the text lays out at
+        // its natural width and runs off a phone-width pane rather than
+        // ellipsising. Attribution has to stay legible, so it gets the width
+        // it needs and truncates only past that.
         Positioned(
+          left: 0,
           right: 0,
           bottom: 0,
-          child: IgnorePointer(child: _attribution()),
+          child: IgnorePointer(
+            child: Align(
+              alignment: Alignment.bottomRight,
+              child: _attribution(),
+            ),
+          ),
         ),
       ],
     );
@@ -410,7 +431,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
               ? 'Radar site'
               : '${site.name}, ${site.state} — change radar site',
           onTap: _pickSite,
-          minWidth: 74,
+          minWidth: _wide ? 74 : 0,
         ),
         const WxSep(),
         // Layout. Four flat buttons rather than a menu: switching between
@@ -428,7 +449,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
           const SizedBox(width: 2),
           WxMenu<String>(
             icon: linked ? Icons.link : Icons.link_off,
-            label: 'Link',
+            label: _wide ? 'Link' : null,
             tooltip: 'What the panes share',
             active: linked,
             onSelected: (v) {
@@ -633,7 +654,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         !_shared.alertLayers.contains(AlertCategory.warning);
 
     return WxMenu<String>(
-      label: 'Layers',
+      label: _wide ? 'Layers' : null,
       icon: Icons.layers_outlined,
       tooltip: 'Warnings, outlooks, lightning',
       active: beyondDefault || _shared.showLightning,
@@ -719,7 +740,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     }();
 
     return WxMenu<String>(
-      label: 'Tools',
+      label: _wide ? 'Tools' : null,
       icon: Icons.build_outlined,
       tooltip: 'Replay, snapshots, colour tables',
       active: _shared.historyTime != null,

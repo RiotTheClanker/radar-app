@@ -124,6 +124,18 @@ class RadarPaneState extends State<RadarPane> {
   /// Height of the per-pane label strip.
   static const _headerH = 22.0;
 
+  /// Below this the key stops being a legend and starts being the view: in a
+  /// 2x2 on a phone each pane is about 180x310, and a full-height key eats a
+  /// third of the width it is supposed to be explaining. Short panes are the
+  /// harder case — a landscape phone gives each pane ~155px, less than the
+  /// key's natural height, so it overflowed its own pane.
+  static const _keyMinPaneWidth = 210.0;
+  static const _keyMinPaneHeight = 200.0;
+
+  /// Chrome the key has to share the pane with: label strip, the key's own
+  /// padding and unit caption, and a margin so it does not touch the edges.
+  static const _keyChrome = 76.0;
+
   final _mapController = MapController();
   bool _mapReady = false;
 
@@ -265,6 +277,22 @@ class RadarPaneState extends State<RadarPane> {
     final i = widget.shared.frameIndex;
     if (i < 0) return 0;
     return i >= _frames.length ? _frames.length - 1 : i;
+  }
+
+  /// Whether there is room for a colour key in this pane at all. A pane too
+  /// small for one is better off showing the weather.
+  bool get _keyFits =>
+      widget.shared.showKey &&
+      (_paneSize == Size.zero ||
+          (_paneSize.width >= _keyMinPaneWidth &&
+              _paneSize.height >= _keyMinPaneHeight));
+
+  /// The key shrinks to fit before it disappears, so a merely snug pane keeps
+  /// its legend rather than losing it at a cliff edge.
+  double get _keyBarHeight {
+    if (_paneSize == Size.zero) return 168;
+    final room = _paneSize.height - _headerH - _keyChrome;
+    return room.clamp(70.0, 168.0);
   }
 
   /// UTC timestamp of the frame on screen, for the status bar.
@@ -1071,8 +1099,7 @@ class RadarPaneState extends State<RadarPane> {
                 // labelled with class ids, which are not a quantity and mean
                 // nothing to read off. The colours are the NWS's own, not our
                 // 3D classifier's, because this is their product on screen.
-                if (shared.showKey &&
-                    (_product.short == 'HCA' || _keyScale != null))
+                if (_keyFits && (_product.short == 'HCA' || _keyScale != null))
                   Positioned(
                     right: 4,
                     top: 0,
@@ -1082,6 +1109,7 @@ class RadarPaneState extends State<RadarPane> {
                           ? const HydroLegend(classes: nwsHydrometeorClasses)
                           : ColorKey(
                               scale: _keyScale!,
+                              barHeight: _keyBarHeight,
                               rangeFolded: _product.short.contains('VEL') ||
                                   _product.short.contains('SRM'),
                             ),
