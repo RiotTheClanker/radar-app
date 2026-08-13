@@ -195,6 +195,72 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     }
   }
 
+  /// The elevation cut, applied to the focused pane and its group.
+  void _setTilt(int t) {
+    final focused = _active;
+    focused?.setTilt(t);
+    for (final p in _groupWith(focused, linked: _shared.propagatesTilt)) {
+      p.setTilt(t);
+    }
+  }
+
+  /// Bring a pane that has just rejoined the group back into step with it.
+  ///
+  /// Without this, re-linking looked like it had not worked: the pane kept
+  /// whatever site, tilt and view it had drifted to while it was out, and
+  /// only fell in line once you changed something. Nothing visibly happened
+  /// at the moment you asked for the panes to be linked again.
+  void _syncIntoGroup(RadarPaneState pane) {
+    RadarPaneState? anchor;
+    for (final p in _livePanes) {
+      if (!identical(p, pane) && !p.isolated) {
+        anchor = p;
+        break;
+      }
+    }
+    if (anchor == null) return; // nothing to be in step with
+    pane.syncTo(
+      site: _shared.propagatesSite ? anchor.site : null,
+      tilt: _shared.propagatesTilt ? anchor.tilt : null,
+    );
+    if (!_shared.linkViews) return;
+    final cam = anchor.cameraOrNull;
+    if (cam != null) pane.applyCamera(cam.center, cam.zoom, force: true);
+  }
+
+  /// Pull the whole group onto the focused pane, for when linking is switched
+  /// back on rather than a single pane rejoining.
+  void _syncGroupToFocused() {
+    var anchor = _active;
+    if (anchor == null || anchor.isolated) {
+      anchor = null;
+      for (final p in _livePanes) {
+        if (!p.isolated) {
+          anchor = p;
+          break;
+        }
+      }
+    }
+    if (anchor == null) return;
+    final cam = anchor.cameraOrNull;
+    for (final p in _groupWith(anchor, linked: true)) {
+      p.syncTo(
+        site: _shared.propagatesSite ? anchor.site : null,
+        tilt: _shared.propagatesTilt ? anchor.tilt : null,
+      );
+      if (_shared.linkViews && cam != null) {
+        p.applyCamera(cam.center, cam.zoom, force: true);
+      }
+    }
+  }
+
+  /// A pane's own link button. The toggle happens here rather than in the
+  /// pane so rejoining can immediately put it back in step.
+  void _toggleIsolate(RadarPaneState pane) {
+    pane.toggleIsolate();
+    if (!pane.isolated) _syncIntoGroup(pane);
+  }
+
   void _setSite(NexradSite s) {
     // The pane being worked in always changes: picking a radar is an
     // explicit command, so it lands even on an isolated pane.
@@ -456,6 +522,10 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       onChanged: _onPaneChanged,
       onCameraMoved: _onCameraMoved,
       onSitePicked: _setSite,
+      onIsolateToggled: () {
+        final p = _paneKeys[id].currentState;
+        if (p != null) _toggleIsolate(p);
+      },
     );
   }
 
@@ -500,11 +570,13 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
               switch (v) {
                 case 'views':
                   _shared.setLinkViews(!_shared.linkViews);
+                  if (_shared.linkViews) _syncGroupToFocused();
                 case 'site':
                   _shared.setLinkSite(!_shared.linkSite);
+                  if (_shared.propagatesSite) _syncGroupToFocused();
                 case 'rejoin':
-                  for (final p in _livePanes) {
-                    if (p.isolated) p.toggleIsolate();
+                  for (final p in _livePanes.toList()) {
+                    if (p.isolated) _toggleIsolate(p);
                   }
               }
             },
@@ -652,7 +724,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
               tooltip: 'Elevation cut ${t + 1}',
               dense: true,
               active: active?.tilt == t,
-              onTap: active == null ? null : () => active.setTilt(t),
+              onTap: active == null ? null : () => _setTilt(t),
             ),
         ],
       ],

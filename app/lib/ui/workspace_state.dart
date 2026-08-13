@@ -327,6 +327,13 @@ class WorkspaceState extends ChangeNotifier {
   /// storm, for comparing coverage.
   bool get propagatesSite => linkViews && linkSite;
 
+  /// Whether the elevation cut is shared. Tied to the views because a tilt is
+  /// part of *where* a pane is looking, not what it is measuring: linked
+  /// panes comparing reflectivity against velocity have to be cutting the
+  /// storm at the same height or the comparison says nothing. The product is
+  /// the one thing linked panes are meant to differ on.
+  bool get propagatesTilt => linkViews;
+
   /// Whether a command issued in one pane should reach the rest of the group.
   ///
   /// Isolation is symmetric: a pane out of the group neither follows the

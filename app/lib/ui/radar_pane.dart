@@ -77,6 +77,7 @@ class RadarPane extends StatefulWidget {
     required this.onChanged,
     required this.onCameraMoved,
     required this.onSitePicked,
+    required this.onIsolateToggled,
     required this.showHeader,
     required this.autoLoad,
     this.initialCenter,
@@ -107,6 +108,11 @@ class RadarPane extends StatefulWidget {
   /// toolbar's picker — tapping a site on the map is the same request as
   /// choosing it from the list, and should reach the same panes.
   final void Function(NexradSite) onSitePicked;
+
+  /// The pane's link button was pressed. Routed up because rejoining the
+  /// group means adopting the group's site, tilt and view, and only the
+  /// workspace knows what the rest of the group is doing.
+  final VoidCallback onIsolateToggled;
 
   /// Panes label themselves once there is more than one of them; with a
   /// single pane the toolbar already says all of this.
@@ -398,6 +404,25 @@ class RadarPaneState extends State<RadarPane> {
     });
     widget.onChanged();
     if (_tracks) unawaited(_updateTracks());
+  }
+
+  /// Adopt another pane's site and tilt in one step.
+  ///
+  /// Separate from [selectSite] and [setTilt] so rejoining a group costs one
+  /// reload rather than two, and so a pane that is already in step does
+  /// nothing at all.
+  void syncTo({NexradSite? site, int? tilt}) {
+    final newSite = (site != null && site.icao != _site.icao) ? site : null;
+    final newTilt = (tilt != null && tilt != _tilt) ? tilt : null;
+    if (newSite == null && newTilt == null) return;
+    setState(() {
+      if (newSite != null) _site = newSite;
+      if (newTilt != null) _tilt = newTilt;
+      _frames = [];
+      _futureFrame = null;
+    });
+    widget.onChanged();
+    unawaited(loadFrames());
   }
 
   void toggleIsolate() {
@@ -1174,7 +1199,7 @@ class RadarPaneState extends State<RadarPane> {
             height: _headerH,
             dense: true,
             color: _isolated ? Wx.accent : Wx.textFaint,
-            onTap: toggleIsolate,
+            onTap: widget.onIsolateToggled,
           ),
         ],
       ),

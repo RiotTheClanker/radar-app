@@ -49,6 +49,23 @@ void main() {
       });
     });
 
+    test('the elevation cut is shared with the views, not with the site', () {
+      _withState((s) {
+        // A tilt is part of where a pane is looking. Linked panes comparing
+        // reflectivity against velocity have to be cutting the storm at the
+        // same height, or the comparison says nothing.
+        expect(s.propagatesTilt, isTrue);
+
+        s.setLinkSite(false);
+        expect(s.propagatesTilt, isTrue,
+            reason: 'independent radars still want the same cut');
+        expect(s.propagatesSite, isFalse);
+
+        s.setLinkViews(false);
+        expect(s.propagatesTilt, isFalse);
+      });
+    });
+
     test('an isolated pane does not drive the others', () {
       // The half that was missing. An isolated pane correctly ignored
       // everyone else's radar changes, but changing *its* radar still

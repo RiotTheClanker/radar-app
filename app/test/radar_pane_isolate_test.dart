@@ -20,6 +20,7 @@ Future<void> _withPane(
   WidgetTester tester,
   Future<void> Function(RadarPaneState pane) body, {
   void Function(int paneId, LatLng center, double zoom)? onCameraMoved,
+  VoidCallback? onIsolateToggled,
 }) async {
   final shared = WorkspaceState();
   try {
@@ -41,6 +42,7 @@ Future<void> _withPane(
             onChanged: () {},
             onCameraMoved: onCameraMoved ?? (_, _, _) {},
             onSitePicked: (_) {},
+            onIsolateToggled: onIsolateToggled ?? () {},
           ),
         ),
       ),
@@ -179,11 +181,30 @@ void main() {
       expect(find.byIcon(Icons.link), findsOneWidget);
       expect(find.byIcon(Icons.link_off), findsNothing);
 
-      await tester.tap(find.byIcon(Icons.link));
+      pane.toggleIsolate();
       await tester.pump();
 
-      expect(pane.isolated, isTrue);
       expect(find.byIcon(Icons.link_off), findsOneWidget);
+      expect(find.byIcon(Icons.link), findsNothing);
     });
+  });
+
+  testWidgets('the header button reports the press rather than acting alone',
+      (tester) async {
+    var presses = 0;
+    await _withPane(
+      tester,
+      (pane) async {
+        await tester.tap(find.byIcon(Icons.link));
+        await tester.pump();
+
+        // The workspace owns the toggle: rejoining the group means adopting
+        // the group's site, tilt and view, and the pane cannot know any of
+        // that on its own.
+        expect(presses, 1);
+        expect(pane.isolated, isFalse);
+      },
+      onIsolateToggled: () => presses++,
+    );
   });
 }
