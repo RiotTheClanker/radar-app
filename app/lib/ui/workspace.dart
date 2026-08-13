@@ -93,26 +93,49 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     if (mounted) setState(() {});
   }
 
+  /// How long the first fetch waits on geolocation before giving up on it.
+  ///
+  /// An IP lookup usually answers well inside this, and knowing the position
+  /// first avoids loading the fallback site's data and discarding it. But
+  /// when the lookup is slow or hanging there is no reason for the whole app
+  /// to show nothing: past this, panes load the fallback and the position is
+  /// applied whenever it turns up.
+  static const _locateBudget = Duration(milliseconds: 1500);
+
   /// Find where we are and tune to the nearest radar. GPS if permission is
   /// already granted, IP geolocation otherwise; no prompt here, that belongs
   /// to the "my location" button. Falls back to the default site silently.
   Future<void> _startup() async {
-    final loc = await locate(askPermission: false);
+    final pending = locate(askPermission: false);
+
+    // Whichever comes first: the fix, or the budget running out.
+    final prompt = await Future.any([
+      pending.then<bool>((_) => true),
+      Future<bool>.delayed(_locateBudget, () => false),
+    ]);
     if (!mounted) return;
-    if (loc != null) {
-      _shared.setMyLocation(loc);
-      final nearest = _nearestSite(loc);
-      _seedSites = List.filled(PaneLayout.quad.count, nearest);
-      _lastCenter = loc;
-      _lastZoom = 7;
-      for (final p in _livePanes) {
-        p.selectSite(nearest, moveMap: false);
-        p.applyCamera(loc, 7);
-      }
+    if (prompt) {
+      _applyStartupLocation(await pending);
+    } else {
+      // Let the panes get on with it, and catch up when the fix lands.
+      unawaited(pending.then((loc) {
+        if (mounted) _applyStartupLocation(loc);
+      }));
     }
-    // Releases the panes to fetch, whether or not we found a position — a
-    // failed lookup means the fallback site is the answer, not that we wait.
     setState(() => _seedResolved = true);
+  }
+
+  void _applyStartupLocation(LatLng? loc) {
+    if (loc == null || !mounted) return;
+    _shared.setMyLocation(loc);
+    final nearest = _nearestSite(loc);
+    _seedSites = List.filled(PaneLayout.quad.count, nearest);
+    _lastCenter = loc;
+    _lastZoom = 7;
+    for (final p in _livePanes) {
+      p.selectSite(nearest, moveMap: false);
+      p.applyCamera(loc, 7);
+    }
   }
 
   // -------------------------------------------------------------- panes ----
@@ -449,6 +472,10 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   /// whole reason multi-panel exists — off the edge and behind a scroll.
   static const _wideChrome = 520.0;
 
+  /// Space around and between panes. Doubled between neighbours, so the gap
+  /// down the middle matches the margin at the edge.
+  static const _gutter = 3.0;
+
   bool _wide = true;
 
   /// What is actually on screen. [WorkspaceState.layout] stays as whatever
@@ -495,18 +522,27 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     return Stack(
       children: [
         Positioned.fill(
-          child: Column(
-            children: [
-              for (var r = 0; r < layout.rows; r++)
-                Expanded(
-                  child: Row(
-                    children: [
-                      for (var c = 0; c < layout.cols; c++)
-                        Expanded(child: _pane(id++, multi)),
-                    ],
+          child: Padding(
+            // Gutters, so four panes read as four things you can drive
+            // rather than one surface ruled into quarters.
+            padding: EdgeInsets.all(multi ? _gutter : 0),
+            child: Column(
+              children: [
+                for (var r = 0; r < layout.rows; r++) ...[
+                  if (r > 0) SizedBox(height: multi ? _gutter * 2 : 0),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        for (var c = 0; c < layout.cols; c++) ...[
+                          if (c > 0) SizedBox(width: multi ? _gutter * 2 : 0),
+                          Expanded(child: _pane(id++, multi)),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
-            ],
+                ],
+              ],
+            ),
           ),
         ),
         // Bounded on both sides: right-anchored alone, the text lays out at
@@ -637,6 +673,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             ],
           ),
         ],
+        const WxSep(),
       ],
       trailing: [
         _layersMenu(),
@@ -752,8 +789,15 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         ],
       ],
       trailing: [
-        // Per-pane tools. They act on the focused pane, which is why they sit
-        // here next to the products rather than in the menu bar.
+        // Everything from here acts on the focused pane rather than on the
+        // workspace, which nothing previously said.
+        if (_effective != PaneLayout.single) ...[
+          const WxSep(),
+          const Padding(
+            padding: EdgeInsets.only(right: 4),
+            child: Text('PANE', style: Wx.heading),
+          ),
+        ],
         WxButton(
           icon: Icons.ads_click,
           tooltip: 'Aiming cursor — hover to read, tap to pin',

@@ -144,6 +144,9 @@ class RadarPaneState extends State<RadarPane> {
   /// Height of the per-pane label strip.
   static const _headerH = 22.0;
 
+  /// Ceiling on lightning glyphs drawn at once, per pane.
+  static const _maxStrikeMarkers = 1500;
+
   /// Below this the key stops being a legend and starts being the view: in a
   /// 2x2 on a phone each pane is about 180x310, and a full-height key eats a
   /// third of the width it is supposed to be explaining. Short panes are the
@@ -185,7 +188,12 @@ class RadarPaneState extends State<RadarPane> {
   String? _keyFor;
 
   final LayerHitNotifier<WeatherAlert> _alertHit = ValueNotifier(null);
-  final Map<String, Uint8List> _l2Cache = {};
+
+  /// The radar site dots. Two hundred-odd markers that only change when the
+  /// selected site does, so they are built once rather than on every rebuild
+  /// — and shared state notifies often enough for that to matter.
+  List<Marker>? _siteMarkers;
+  String? _siteMarkersFor;
 
   String? _sampleText;
   LatLng? _samplePos;
@@ -439,7 +447,6 @@ class RadarPaneState extends State<RadarPane> {
     if (identical(p, _product)) return;
     setState(() {
       _product = p;
-      _frames = [];
       _futureFrame = null;
     });
     widget.onChanged();
@@ -450,7 +457,6 @@ class RadarPaneState extends State<RadarPane> {
     if (t == _tilt) return;
     setState(() {
       _tilt = t;
-      _frames = [];
       _futureFrame = null;
     });
     widget.onChanged();
@@ -461,7 +467,6 @@ class RadarPaneState extends State<RadarPane> {
     if (s.icao == _site.icao) return;
     setState(() {
       _site = s;
-      _frames = [];
       _futureFrame = null;
     });
     // Locked panes move too. Picking a radar is an explicit command, the
@@ -513,7 +518,6 @@ class RadarPaneState extends State<RadarPane> {
     setState(() {
       if (newSite != null) _site = newSite;
       if (newTilt != null) _tilt = newTilt;
-      _frames = [];
       _futureFrame = null;
     });
     widget.onChanged();
@@ -649,7 +653,7 @@ class RadarPaneState extends State<RadarPane> {
     return Future.wait(keys.map((key) async {
       final bytes = Uint8List.fromList(await fetchObject(key));
       final frame = await renderLevel3Frame(data: bytes, imageSize: 1024);
-      return _Frame(frame, MemoryImage(Uint8List.fromList(frame.png)), bytes);
+      return _Frame(frame, MemoryImage(frame.png), bytes);
     }));
   }
 
@@ -674,7 +678,7 @@ class RadarPaneState extends State<RadarPane> {
         height: 900,
       );
       frames.add(
-        _Frame(frame, MemoryImage(Uint8List.fromList(frame.png)), bytes),
+        _Frame(frame, MemoryImage(frame.png), bytes),
       );
     }
     return frames;
@@ -682,32 +686,34 @@ class RadarPaneState extends State<RadarPane> {
 
   /// Level 2 volumes are big (5-15 MB), so cap the loop length and cache the
   /// raw bytes so tilt/moment switches don't re-download.
+  /// The recent-volume listing for this pane's site, shared so four panes
+  /// asking at the same moment issue one request.
+  Future<List<String>> _volumeKeys(int count) {
+    final before = widget.shared.historyTime;
+    return widget.shared.listing(
+      'vol|${_site.icao}|$count|${before?.toIso8601String() ?? ''}',
+      () => listRecentVolumes(_site.icao, count: count, before: before),
+    );
+  }
+
   Future<List<_Frame>> _loadLevel2Frames() async {
     final count = math.min(frameCount, 4);
-    final keys = await listRecentVolumes(
-      _site.icao,
-      count: count,
-      before: widget.shared.historyTime,
-    );
+    final keys = await _volumeKeys(count);
     if (keys.isEmpty) {
       throw Exception('no recent Level 2 volumes for ${_site.icao}');
     }
     final frames = <_Frame>[];
     for (final key in keys) {
-      final bytes = _l2Cache[key] ?? await fetchVolume(key);
-      _l2Cache[key] = bytes;
+      // Shared across panes: the L2 products a 2x2 compares all read the
+      // same volume, so this is one download for all of them.
+      final bytes = await widget.shared.volume(key, () => fetchVolume(key));
       final frame = await renderLevel2Frame(
         data: bytes,
         moment: _product.l2Moment!,
         elevationIndex: _product.hasTilts ? _tilt : 0,
         imageSize: 1024,
       );
-      frames.add(
-        _Frame(frame, MemoryImage(Uint8List.fromList(frame.png)), bytes),
-      );
-    }
-    while (_l2Cache.length > 6) {
-      _l2Cache.remove(_l2Cache.keys.first);
+      frames.add(_Frame(frame, MemoryImage(frame.png), bytes));
     }
     return frames;
   }
@@ -883,7 +889,7 @@ class RadarPaneState extends State<RadarPane> {
     if (frame == null) return null;
     try {
       final f = saveSnapshot(
-        Uint8List.fromList(frame.meta.png),
+        frame.meta.png,
         '${_product.isMrms ? 'MRMS' : _site.icao}_${_product.short}'
             .replaceAll(' ', ''),
       );
@@ -904,14 +910,10 @@ class RadarPaneState extends State<RadarPane> {
     setState(() => _loading = true);
     widget.onChanged();
     try {
-      final keys = await listRecentVolumes(
-        _site.icao,
-        count: 1,
-        before: widget.shared.historyTime,
-      );
+      final keys = await _volumeKeys(1);
       if (keys.isEmpty) throw Exception('no volume for ${_site.icao}');
-      final bytes = _l2Cache[keys.last] ?? await fetchVolume(keys.last);
-      _l2Cache[keys.last] = bytes;
+      final bytes =
+          await widget.shared.volume(keys.last, () => fetchVolume(keys.last));
       if (!mounted) return;
       setState(() => _loading = false);
       widget.onChanged();
@@ -1064,7 +1066,7 @@ class RadarPaneState extends State<RadarPane> {
         height: box.height,
       );
       if (!mounted || !_future) return;
-      final img = MemoryImage(Uint8List.fromList(r.png));
+      final img = MemoryImage(r.png);
       // ignore: use_build_context_synchronously
       await precacheImage(img, context);
       if (!mounted || !_future) return;
@@ -1100,13 +1102,23 @@ class RadarPaneState extends State<RadarPane> {
 
   /// Re-render all loaded frames for the current viewport at (roughly)
   /// screen resolution, so 250 m gates stay sharp when zoomed in.
+  /// Re-render the loaded frames for the current viewport, so 250 m gates
+  /// stay sharp when zoomed in.
+  ///
+  /// The frame on screen goes first and is swapped in on its own, because
+  /// that is the one being waited on. The rest of the loop follows. Doing
+  /// the whole loop before showing anything meant a twelve-frame animation
+  /// took twelve renders to sharpen — and for Level 2, twelve re-decodes of
+  /// a 5-15 MB volume.
   Future<void> _renderViewport() async {
     if (_frames.isEmpty || !mounted) return;
     final box = _viewBox();
     if (box == null) return;
     final generation = ++_viewGeneration;
-    try {
-      final results = await Future.wait(_frames.map((f) async {
+    final bounds = LatLngBounds(LatLng(box.n, box.w), LatLng(box.s, box.e));
+
+    Future<MemoryImage?> renderOne(_Frame f) async {
+      try {
         final r = _product.isMrms
             ? await renderMrmsView(
                 data: f.raw,
@@ -1138,41 +1150,95 @@ class RadarPaneState extends State<RadarPane> {
                     width: box.width,
                     height: box.height,
                   );
-        return MemoryImage(Uint8List.fromList(r.png));
-      }));
-      if (generation != _viewGeneration || !mounted) return;
-      final newBounds = LatLngBounds(
-        LatLng(box.n, box.w),
-        LatLng(box.s, box.e),
-      );
-      for (var i = 0; i < _frames.length; i++) {
-        // ignore: use_build_context_synchronously
-        await precacheImage(results[i], context);
-        _frames[i].image = results[i];
-        _frames[i].bounds = newBounds;
+        return MemoryImage(r.png);
+      } catch (_) {
+        // One bad frame must not cost the rest of the loop its sharpening.
+        return null;
       }
-      if (generation != _viewGeneration || !mounted) return;
-      setState(() {});
-      if (_future) unawaited(_renderFuture());
-    } catch (_) {
-      // Viewport sharpening is best-effort; the full-disk render stays up.
     }
+
+    final shown = _shownFrame;
+    final first = await renderOne(_frames[shown]);
+    if (generation != _viewGeneration || !mounted) return;
+    if (first != null) {
+      await precacheImage(first, context);
+      if (generation != _viewGeneration || !mounted) return;
+      setState(() {
+        _frames[shown].image = first;
+        _frames[shown].bounds = bounds;
+      });
+    }
+
+    final rest = [
+      for (var i = 0; i < _frames.length; i++)
+        if (i != shown) i,
+    ];
+    if (rest.isNotEmpty) {
+      final images = await Future.wait(rest.map((i) => renderOne(_frames[i])));
+      if (generation != _viewGeneration || !mounted) return;
+      await Future.wait([
+        for (final img in images)
+          if (img != null) precacheImage(img, context),
+      ]);
+      if (generation != _viewGeneration || !mounted) return;
+      setState(() {
+        for (var k = 0; k < rest.length; k++) {
+          final img = images[k];
+          if (img == null) continue;
+          _frames[rest[k]].image = img;
+          _frames[rest[k]].bounds = bounds;
+        }
+      });
+    }
+
+    if (_future) unawaited(_renderFuture());
   }
 
-  CircleMarker _strikeCircle(Strike s) {
+  /// Colour for a strike by age: bright white-yellow when fresh, fading to
+  /// dim orange over twenty minutes.
+  Color _strikeColor(Strike s) {
     final ageMin = DateTime.now().toUtc().difference(s.time).inSeconds / 60.0;
-    // Fresh strikes: bright white-yellow; fading to dim orange over 20 min.
     final t = (ageMin / 20.0).clamp(0.0, 1.0);
-    final color = Color.lerp(
+    return Color.lerp(
       const Color(0xFFFFF59D),
       const Color(0x66E65100),
       t,
     )!;
-    return CircleMarker(
-      point: s.pos,
-      radius: ageMin < 2 ? 3.5 : 2.5,
-      color: color,
-    );
+  }
+
+  /// Strikes drawn as bolts rather than dots — a circle on a radar map reads
+  /// as a range ring or a storm cell, and lightning is the one layer whose
+  /// shape everyone already knows.
+  ///
+  /// Culled to the visible bounds and capped: twenty minutes of an active
+  /// squall line is thousands of strikes, and a marker apiece across four
+  /// panes is the most expensive thing on screen.
+  List<Marker> _strikeMarkers(WorkspaceState shared) {
+    if (!_mapReady) return const [];
+    final visible = _mapController.camera.visibleBounds;
+    final out = <Marker>[];
+    // Newest first, so the cap drops the faintest rather than the freshest.
+    for (var i = shared.strikes.length - 1; i >= 0; i--) {
+      final s = shared.strikes[i];
+      if (!visible.contains(s.pos)) continue;
+      final fresh = DateTime.now().toUtc().difference(s.time).inMinutes < 2;
+      out.add(
+        Marker(
+          point: s.pos,
+          width: 14,
+          height: 14,
+          child: IgnorePointer(
+            child: Icon(
+              Icons.bolt,
+              size: fresh ? 14 : 11,
+              color: _strikeColor(s),
+            ),
+          ),
+        ),
+      );
+      if (out.length >= _maxStrikeMarkers) break;
+    }
+    return out;
   }
 
   // ----------------------------------------------------------------- ui ----
@@ -1197,7 +1263,8 @@ class RadarPaneState extends State<RadarPane> {
         }
       }
 
-      return Listener(
+      return RepaintBoundary(
+        child: Listener(
         // Click to focus, deliberately not hover. Focus decides which pane
         // the toolbar acts on, and following the pointer meant that reaching
         // for a control retargeted it on the way: crossing a neighbouring
@@ -1255,7 +1322,8 @@ class RadarPaneState extends State<RadarPane> {
               ],
             ),
           ),
-        );
+        ),
+      );
     });
   }
 
@@ -1269,7 +1337,17 @@ class RadarPaneState extends State<RadarPane> {
     return Container(
       height: _headerH,
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      color: Wx.bg1.withValues(alpha: 0.88),
+      decoration: BoxDecoration(
+        color: Wx.bg1.withValues(alpha: 0.88),
+        border: Border(
+          // Lit edge on the strip that carries this pane's own controls —
+          // easier to pick out across a 2x2 than a hairline outline.
+          top: BorderSide(
+            color: widget.focused ? Wx.accent : Colors.transparent,
+            width: 2,
+          ),
+        ),
+      ),
       child: Row(
         children: [
           Text(
@@ -1443,9 +1521,7 @@ class RadarPaneState extends State<RadarPane> {
           ),
         ),
         if (shared.showLightning)
-          CircleLayer(
-            circles: [for (final s in shared.strikes) _strikeCircle(s)],
-          ),
+          MarkerLayer(markers: _strikeMarkers(shared)),
         if (shared.showReports)
           MarkerLayer(
             markers: [
@@ -1663,26 +1739,10 @@ class RadarPaneState extends State<RadarPane> {
             ],
           ),
         ],
-        MarkerLayer(
-          markers: [
-            for (final s in nexradSites)
-              if (!s.isTdwr)
-                Marker(
-                  point: LatLng(s.lat, s.lon),
-                  width: 10,
-                  height: 10,
-                  child: GestureDetector(
-                    onTap: () => widget.onSitePicked(s),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: s.icao == _site.icao ? Wx.accent : Colors.white24,
-                        border: Border.all(color: Colors.black45),
-                      ),
-                    ),
-                  ),
-                ),
-            if (shared.myLocation != null)
+        MarkerLayer(markers: _sites()),
+        if (shared.myLocation != null)
+          MarkerLayer(
+            markers: [
               Marker(
                 point: shared.myLocation!,
                 width: 14,
@@ -1693,10 +1753,37 @@ class RadarPaneState extends State<RadarPane> {
                   color: Color(0xFF64B5F6),
                 ),
               ),
-          ],
-        ),
+            ],
+          ),
       ],
     );
+  }
+
+  List<Marker> _sites() {
+    final cached = _siteMarkers;
+    if (cached != null && _siteMarkersFor == _site.icao) return cached;
+    final built = [
+      for (final s in nexradSites)
+        if (!s.isTdwr)
+          Marker(
+            point: LatLng(s.lat, s.lon),
+            width: 10,
+            height: 10,
+            child: GestureDetector(
+              onTap: () => widget.onSitePicked(s),
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: s.icao == _site.icao ? Wx.accent : Colors.white24,
+                  border: Border.all(color: Colors.black45),
+                ),
+              ),
+            ),
+          ),
+    ];
+    _siteMarkers = built;
+    _siteMarkersFor = _site.icao;
+    return built;
   }
 
   /// Tool readouts, stacked at the foot of the pane. Each only appears while

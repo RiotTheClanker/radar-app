@@ -22,6 +22,7 @@ import '../data/glm_fetcher.dart';
 import '../data/lightning.dart';
 import '../data/spc_fetcher.dart';
 import 'pane_models.dart';
+import 'request_cache.dart';
 
 class WorkspaceState extends ChangeNotifier {
   WorkspaceState() {
@@ -183,6 +184,29 @@ class WorkspaceState extends ChangeNotifier {
       strikes.clear();
     }
   }
+
+  // -------------------------------------------------------- volume cache ----
+
+  /// Level 2 bytes, shared by every pane. This was per-pane, which was four
+  /// copies of the same thing: the L2 products a 2x2 compares all read the
+  /// same Archive II volume, so four linked panes on one site downloaded each
+  /// 5-15 MB file four times over.
+  final _volumes = VolumeCache();
+
+  /// Recent-scan listings, shared while in flight but not retained — they go
+  /// stale as new volumes land.
+  final _listings = Coalescer<List<String>>();
+
+  Future<Uint8List> volume(String key, Future<Uint8List> Function() fetch) =>
+      _volumes.get(key, fetch);
+
+  Uint8List? cachedVolume(String key) => _volumes[key];
+
+  Future<List<String>> listing(
+    String key,
+    Future<List<String>> Function() fetch,
+  ) =>
+      _listings.run(key, fetch);
 
   // ------------------------------------------------------------- layers ----
 
