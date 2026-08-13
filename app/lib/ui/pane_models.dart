@@ -109,6 +109,16 @@ const quickProducts = [
 /// rotation and hail, which is what the multi-panel view exists for.
 const panelPreset = [productRef, productVel, productZdr, productCc];
 
+/// How old the newest scan may be before the timestamp is called out in red.
+///
+/// A NEXRAD volume takes four to six minutes in precipitation mode and up to
+/// about ten in clear air, so ten minutes is roughly where "no new scan yet"
+/// stops being normal cadence and starts being a gap. The point of showing it
+/// loudly is that the gap is upstream — the radar or the feed — and an app
+/// that quietly displays old weather as though it were current is worse than
+/// one that says it is behind.
+const staleAfter = Duration(minutes: 10);
+
 class Basemap {
   final String label;
   final String url;

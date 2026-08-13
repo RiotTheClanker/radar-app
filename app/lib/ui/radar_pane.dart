@@ -218,6 +218,15 @@ class RadarPaneState extends State<RadarPane> {
   /// only whether it is part of the group.
   bool _isolated = false;
 
+  // ------------------------------------------------- local animation ----
+  // An isolated pane runs its own loop. It keeps its own timer rather than
+  // stepping off the workspace's, so a pane sitting still costs nothing and
+  // the shared clock does not have to know which panes left the group.
+  int _localIndex = 0;
+  bool _localPlaying = false;
+  int _localFrameCount = 1;
+  Timer? _localAnim;
+
   bool _measuring = false;
   final List<LatLng> _measurePts = [];
 
@@ -254,6 +263,7 @@ class RadarPaneState extends State<RadarPane> {
   void dispose() {
     widget.shared.removeListener(_onShared);
     widget.shared.forgetPane(widget.paneId);
+    _localAnim?.cancel();
     _sampleClear?.cancel();
     _viewDebounce?.cancel();
     _alertHit.dispose();
@@ -296,9 +306,77 @@ class RadarPaneState extends State<RadarPane> {
 
   int get _shownFrame {
     if (_frames.isEmpty) return 0;
-    final i = widget.shared.frameIndex;
+    final i = _isolated ? _localIndex : widget.shared.frameIndex;
     if (i < 0) return 0;
     return i >= _frames.length ? _frames.length - 1 : i;
+  }
+
+  /// The workspace state this pane reads from. Exposed so the chrome (and
+  /// tests) can ask which clock a pane is on without duplicating the rule.
+  WorkspaceState get shared => widget.shared;
+
+  /// How many frames this pane's loop runs over.
+  int get loopLength =>
+      _isolated ? _frames.length : widget.shared.loopLength;
+
+  /// Where in that loop it currently is.
+  int get frameIndex => _shownFrame;
+
+  bool get playing => _isolated ? _localPlaying : widget.shared.playing;
+
+  /// How many frames to fetch. Isolated panes carry their own, so a pane
+  /// parked on a second storm can hold a long loop while the group shows
+  /// only the latest scan.
+  int get frameCount =>
+      _isolated ? _localFrameCount : widget.shared.frameCount;
+
+  void togglePlay() {
+    setState(() => _localPlaying = !_localPlaying);
+    _syncLocalAnim();
+    widget.onChanged();
+  }
+
+  void step(int delta) {
+    final n = _frames.length;
+    if (n == 0) return;
+    setState(() {
+      _localPlaying = false;
+      _localIndex = (_localIndex.clamp(0, n - 1) + delta) % n;
+      if (_localIndex < 0) _localIndex += n;
+    });
+    _syncLocalAnim();
+    widget.onChanged();
+  }
+
+  void setFrameCount(int n) {
+    if (_localFrameCount == n) return;
+    setState(() {
+      _localFrameCount = n;
+      _localPlaying = n > 1;
+    });
+    _syncLocalAnim();
+    widget.onChanged();
+    unawaited(loadFrames());
+  }
+
+  /// Starts or stops this pane's own ticker. Only runs while the pane is
+  /// both isolated and playing.
+  void _syncLocalAnim() {
+    final wanted = _isolated && _localPlaying;
+    if (wanted && _localAnim == null) {
+      _localAnim = Timer.periodic(const Duration(milliseconds: 350), (_) {
+        final n = _frames.length;
+        if (n < 2 || !mounted) return;
+        // Dwell on the newest frame for a few ticks before looping, the
+        // same as the shared clock.
+        setState(() {
+          _localIndex = _localIndex >= n - 1 + 3 ? 0 : _localIndex + 1;
+        });
+      });
+    } else if (!wanted) {
+      _localAnim?.cancel();
+      _localAnim = null;
+    }
   }
 
   /// Whether there is room for a colour key in this pane at all. A pane too
@@ -336,6 +414,17 @@ class RadarPaneState extends State<RadarPane> {
             isUtc: true,
           ),
         );
+  }
+
+  static String _ageLabel(Duration age) =>
+      age.inHours >= 1 ? '${age.inHours}h' : '${age.inMinutes}m';
+
+  /// Whether the newest scan is old enough to say so. Never during replay:
+  /// data from 1998 is meant to be old.
+  bool get isStale {
+    if (widget.shared.historyTime != null) return false;
+    final age = dataAge;
+    return age != null && age > staleAfter;
   }
 
   double? get elevationDeg {
@@ -432,7 +521,26 @@ class RadarPaneState extends State<RadarPane> {
   }
 
   void toggleIsolate() {
-    setState(() => _isolated = !_isolated);
+    // Carry the frame across so the picture does not jump at the moment the
+    // pane changes hands between the two clocks.
+    final carried = _shownFrame;
+    setState(() {
+      _isolated = !_isolated;
+      if (_isolated) {
+        _localIndex = carried;
+        _localFrameCount = widget.shared.frameCount;
+        _localPlaying = widget.shared.playing;
+      } else {
+        _localPlaying = false;
+      }
+    });
+    if (_isolated) {
+      // Out of the group: stop stretching the shared loop's length.
+      widget.shared.forgetPane(widget.paneId);
+    } else {
+      widget.shared.reportFrames(widget.paneId, _frames.length);
+    }
+    _syncLocalAnim();
     widget.onChanged();
   }
 
@@ -507,7 +615,9 @@ class RadarPaneState extends State<RadarPane> {
         _frames = frames;
         _loading = false;
       });
-      widget.shared.reportFrames(widget.paneId, frames.length);
+      if (!_isolated) {
+        widget.shared.reportFrames(widget.paneId, frames.length);
+      }
       widget.onChanged();
       // Sharpen for the current viewport right away.
       unawaited(_renderViewport());
@@ -520,7 +630,7 @@ class RadarPaneState extends State<RadarPane> {
         _loading = false;
         _error = e.toString();
       });
-      widget.shared.reportFrames(widget.paneId, 0);
+      if (!_isolated) widget.shared.reportFrames(widget.paneId, 0);
       widget.onChanged();
     }
   }
@@ -530,7 +640,7 @@ class RadarPaneState extends State<RadarPane> {
     final keys = await listRecentKeys(
       _site.shortId,
       productCode,
-      count: widget.shared.frameCount,
+      count: frameCount,
       before: widget.shared.historyTime,
     );
     if (keys.isEmpty) {
@@ -547,7 +657,7 @@ class RadarPaneState extends State<RadarPane> {
   /// country, so the initial render just uses the grid's own bounds.
   Future<List<_Frame>> _loadMrmsFrames() async {
     final keys = await listRecentMosaics(
-      count: math.min(widget.shared.frameCount, 6),
+      count: math.min(frameCount, 6),
       before: widget.shared.historyTime,
     );
     if (keys.isEmpty) throw Exception('no recent MRMS mosaics');
@@ -573,7 +683,7 @@ class RadarPaneState extends State<RadarPane> {
   /// Level 2 volumes are big (5-15 MB), so cap the loop length and cache the
   /// raw bytes so tilt/moment switches don't re-download.
   Future<List<_Frame>> _loadLevel2Frames() async {
-    final count = math.min(widget.shared.frameCount, 4);
+    final count = math.min(frameCount, 4);
     final keys = await listRecentVolumes(
       _site.icao,
       count: count,
@@ -927,8 +1037,12 @@ class RadarPaneState extends State<RadarPane> {
     }
     if (_frames.length < 2) {
       // Need a previous scan to measure motion against.
-      if (widget.shared.frameCount < 4) {
-        widget.shared.setFrameCount(4);
+      if (frameCount < 4) {
+        if (_isolated) {
+          setFrameCount(4);
+        } else {
+          widget.shared.setFrameCount(4);
+        }
         await loadFrames();
       }
       if (_frames.length < 2 || !_future) return;
@@ -1150,8 +1264,7 @@ class RadarPaneState extends State<RadarPane> {
   Widget _header(WorkspaceState shared) {
     final t = frameTime;
     final el = elevationDeg;
-    final age = dataAge;
-    final stale = age != null && age.inMinutes > 20 && shared.historyTime == null;
+    final stale = isStale;
 
     return Container(
       height: _headerH,
@@ -1174,9 +1287,16 @@ class RadarPaneState extends State<RadarPane> {
           ],
           const Spacer(),
           if (stale)
-            const Padding(
-              padding: EdgeInsets.only(right: 5),
-              child: Icon(Icons.schedule, size: 12, color: Wx.warn),
+            Tooltip(
+              // Says whose fault it is. The app is showing everything it has
+              // been given; the radar has not published since this scan.
+              message: 'No new scan for '
+                  '${_ageLabel(dataAge ?? Duration.zero)} — the radar or the '
+                  'NOAA feed is behind, not the app',
+              child: const Padding(
+                padding: EdgeInsets.only(right: 5),
+                child: Icon(Icons.cloud_off, size: 12, color: Wx.danger),
+              ),
             ),
           if (_error != null)
             Tooltip(
@@ -1189,7 +1309,8 @@ class RadarPaneState extends State<RadarPane> {
           Text(
             t == null ? '—' : DateFormat('HH:mm').format(t.toLocal()),
             style: Wx.mono.copyWith(
-              color: stale ? Wx.warn : Wx.textDim,
+              color: stale ? Wx.danger : Wx.textDim,
+              fontWeight: stale ? FontWeight.w700 : FontWeight.w400,
             ),
           ),
           // Trailing edge, where a window's controls live. Lit when engaged

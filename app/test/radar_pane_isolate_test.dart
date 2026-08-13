@@ -173,6 +173,73 @@ void main() {
     );
   });
 
+  testWidgets('a pane in the group runs on the shared clock', (tester) async {
+    await _withPane(tester, (pane) async {
+      expect(pane.playing, isFalse);
+      expect(pane.frameCount, 1);
+
+      // Reading straight through to the workspace, so four linked panes
+      // cannot drift apart mid-loop.
+      pane.shared.setFrameCount(8);
+      await tester.pump();
+      expect(pane.frameCount, 8);
+      // Asking for a loop starts it — a frame count above one is a request
+      // to animate, not just to fetch more.
+      expect(pane.playing, isTrue);
+
+      pane.shared.togglePlay();
+      await tester.pump();
+      expect(pane.playing, isFalse);
+    });
+  });
+
+  testWidgets('an isolated pane keeps its own loop', (tester) async {
+    await _withPane(tester, (pane) async {
+      pane.shared.setFrameCount(8);
+      await tester.pump();
+
+      pane.toggleIsolate();
+      await tester.pump();
+
+      // It carries the group's settings across rather than resetting, so
+      // isolating does not visibly change what the pane is doing...
+      expect(pane.frameCount, 8);
+      expect(pane.playing, isTrue);
+
+      // ...but from then on the two run separately.
+      pane.shared.togglePlay();
+      await tester.pump();
+      expect(pane.shared.playing, isFalse);
+      expect(pane.playing, isTrue,
+          reason: 'pausing the group must not pause the isolated pane');
+
+      pane.togglePlay();
+      await tester.pump();
+      expect(pane.playing, isFalse);
+      expect(pane.shared.playing, isFalse,
+          reason: 'and the isolated pane must not drive the group');
+    });
+  });
+
+  testWidgets('an isolated pane stops stretching the shared loop',
+      (tester) async {
+    await _withPane(tester, (pane) async {
+      pane.shared.reportFrames(1, 12);
+      await tester.pump();
+      expect(pane.shared.loopLength, 12);
+
+      pane.toggleIsolate();
+      await tester.pump();
+
+      // Its own frames no longer count toward how far the group's loop
+      // runs, which would otherwise leave linked panes stepping through
+      // frames they do not have.
+      pane.shared.forgetPane(1);
+      await tester.pump();
+      expect(pane.shared.loopLength, 0);
+    });
+  });
+
   testWidgets('the header shows whether the pane is in the group',
       (tester) async {
     await _withPane(tester, (pane) async {

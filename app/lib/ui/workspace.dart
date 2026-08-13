@@ -954,13 +954,20 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   // The bottom strip: the animation clock and what the data is.
   Widget _statusBar() {
     final active = _active;
-    final n = _shared.loopLength;
-    final idx = n == 0 ? 0 : _shared.frameIndex.clamp(0, n - 1);
+    // An isolated pane runs its own loop, so the transport follows it while
+    // it has focus. Without that the play button would be driving panes the
+    // user is not looking at and doing nothing to the one they are.
+    final solo = (active != null && active.isolated) ? active : null;
+    final n = solo?.loopLength ?? _shared.loopLength;
+    final idx = n == 0
+        ? 0
+        : (solo?.frameIndex ?? _shared.frameIndex).clamp(0, n - 1);
+    final playing = solo?.playing ?? _shared.playing;
+    final count = solo?.frameCount ?? _shared.frameCount;
     final t = active?.frameTime;
     final age = active?.dataAge;
-    final stale =
-        age != null && age.inMinutes > 20 && _shared.historyTime == null;
-    final staleLabel = stale ? _ageLabel(age) : null;
+    final stale = active?.isStale ?? false;
+    final staleLabel = stale && age != null ? _ageLabel(age) : null;
 
     return WxBar(
       top: true,
@@ -968,49 +975,77 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       height: Wx.statusH,
       leading: [
         WxButton(
-          icon: _shared.playing ? Icons.pause : Icons.play_arrow,
-          tooltip: _shared.playing ? 'Pause' : 'Play loop',
+          icon: playing ? Icons.pause : Icons.play_arrow,
+          tooltip: solo == null
+              ? (playing ? 'Pause' : 'Play loop')
+              : (playing
+                  ? 'Pause the isolated pane'
+                  : 'Play the isolated pane'),
           dense: true,
           height: Wx.statusH,
-          active: _shared.playing,
-          onTap: n < 2 ? null : _shared.togglePlay,
+          active: playing,
+          onTap: n < 2 ? null : (solo != null ? solo.togglePlay : _shared.togglePlay),
         ),
         WxButton(
           icon: Icons.chevron_left,
           tooltip: 'Previous frame',
           dense: true,
           height: Wx.statusH,
-          onTap: n < 2 ? null : () => _shared.step(-1),
+          onTap: n < 2
+              ? null
+              : () => solo != null ? solo.step(-1) : _shared.step(-1),
         ),
         WxButton(
           icon: Icons.chevron_right,
           tooltip: 'Next frame',
           dense: true,
           height: Wx.statusH,
-          onTap: n < 2 ? null : () => _shared.step(1),
+          onTap: n < 2
+              ? null
+              : () => solo != null ? solo.step(1) : _shared.step(1),
         ),
         WxMenu<int>(
-          label: n == 0 ? '${_shared.frameCount}' : '${idx + 1}/$n',
-          tooltip: 'Loop length',
+          label: n == 0 ? '$count' : '${idx + 1}/$n',
+          tooltip: solo == null
+              ? 'Loop length'
+              : 'Loop length for the isolated pane',
           height: Wx.statusH,
           onSelected: (v) {
-            if (_shared.setFrameCount(v)) _reloadAll();
+            if (solo != null) {
+              solo.setFrameCount(v);
+            } else if (_shared.setFrameCount(v)) {
+              _reloadAll();
+            }
           },
           itemBuilder: (_) => [
             for (final v in const [1, 4, 8, 12])
               wxMenuItem(
                 value: v,
                 label: v == 1 ? 'Latest only' : '$v frames',
-                checked: _shared.frameCount == v,
+                checked: count == v,
               ),
           ],
         ),
+        // Says which loop the transport is driving, so a paused group and a
+        // running isolated pane are not confusable.
+        if (solo != null)
+          const Padding(
+            padding: EdgeInsets.only(left: 2),
+            child: Tooltip(
+              message: 'These controls are driving the isolated pane, not '
+                  'the linked group',
+              child: Icon(Icons.link_off, size: 12, color: Wx.accent),
+            ),
+          ),
         const WxSep(),
         Text(
           t == null
               ? '—'
               : DateFormat('MMM d  HH:mm').format(t.toLocal()),
-          style: Wx.mono.copyWith(color: stale ? Wx.warn : Wx.text),
+          style: Wx.mono.copyWith(
+            color: stale ? Wx.danger : Wx.text,
+            fontWeight: stale ? FontWeight.w700 : FontWeight.w400,
+          ),
         ),
         if (_shared.historyTime != null)
           WxChip(
@@ -1020,10 +1055,14 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             icon: Icons.history,
           ),
         if (staleLabel != null)
-          WxChip(
-            text: '$staleLabel OLD',
-            color: Wx.warn,
-            icon: Icons.schedule,
+          Tooltip(
+            message: 'The radar has published nothing newer. The gap is '
+                'upstream at the site or in the NOAA feed.',
+            child: WxChip(
+              text: 'NO NEW SCAN $staleLabel',
+              color: Wx.danger,
+              icon: Icons.cloud_off,
+            ),
           ),
         if (_shared.alertError != null)
           WxChip(
