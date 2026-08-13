@@ -49,6 +49,33 @@ void main() {
       });
     });
 
+    test('an isolated pane does not drive the others', () {
+      // The half that was missing. An isolated pane correctly ignored
+      // everyone else's radar changes, but changing *its* radar still
+      // dragged the rest along, which is a control that only works when you
+      // push on it from one side.
+      expect(
+        WorkspaceState.reachesGroup(sourceIsolated: true, linked: true),
+        isFalse,
+      );
+    });
+
+    test('a pane in the group drives the others when linked', () {
+      expect(
+        WorkspaceState.reachesGroup(sourceIsolated: false, linked: true),
+        isTrue,
+      );
+    });
+
+    test('nothing propagates when the group is unlinked', () {
+      for (final isolated in [true, false]) {
+        expect(
+          WorkspaceState.reachesGroup(sourceIsolated: isolated, linked: false),
+          isFalse,
+        );
+      }
+    });
+
     test('linked views with independent radars is still reachable', () {
       _withState((s) {
         s.setLinkSite(false);

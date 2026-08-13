@@ -174,17 +174,33 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     }
   }
 
+  /// The panes a command issued in [from] should also reach.
+  ///
+  /// Empty when [from] is isolated, which is the half that was missing: an
+  /// isolated pane refused to follow the others' radar changes but still
+  /// pushed its own onto them. Isolation cuts both directions or it is not
+  /// isolation.
+  Iterable<RadarPaneState> _groupWith(RadarPaneState? from, {
+    required bool linked,
+  }) sync* {
+    if (!WorkspaceState.reachesGroup(
+      sourceIsolated: from?.isolated ?? false,
+      linked: linked,
+    )) {
+      return;
+    }
+    for (final p in _livePanes) {
+      if (identical(p, from) || p.isolated) continue;
+      yield p;
+    }
+  }
+
   void _setSite(NexradSite s) {
     // The pane being worked in always changes: picking a radar is an
     // explicit command, so it lands even on an isolated pane.
     final focused = _active;
     focused?.selectSite(s, moveMap: true);
-    if (!_shared.propagatesSite) return;
-    for (final p in _livePanes) {
-      // An isolated pane is out of the group for the site too. It keeps its
-      // own radar and its own view, which stay consistent with each other —
-      // switching one without the other is what left panes blank.
-      if (identical(p, focused) || p.isolated) continue;
+    for (final p in _groupWith(focused, linked: _shared.propagatesSite)) {
       p.selectSite(s, moveMap: true);
     }
   }
@@ -225,13 +241,14 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       return;
     }
     _shared.setMyLocation(loc);
-    // The pane you are working in goes there even if it is locked — you just
-    // pressed the button. The rest follow only if they are not parked.
+    // The pane you are working in goes there even if it is isolated — you
+    // just pressed the button. The rest follow only if that pane is part of
+    // the group and the views are linked.
     final zoom = result.precise ? 8.0 : 7.0;
     final focused = _active;
     focused?.applyCamera(loc, zoom, force: true);
-    for (final p in _livePanes) {
-      if (!identical(p, focused)) p.applyCamera(loc, zoom);
+    for (final p in _groupWith(focused, linked: _shared.linkViews)) {
+      p.applyCamera(loc, zoom);
     }
     final nearest = _nearestSite(loc);
     if (focused != null && nearest.icao != focused.site.icao) {
@@ -328,12 +345,11 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     final b = alertBounds(a);
     if (b == null) return;
     // Picking an alert out of the list is a "show me this" command, so the
-    // focused pane goes there regardless of its lock.
+    // focused pane goes there regardless of its isolation.
     final focused = _active;
     focused?.frameBounds(b, force: true);
-    if (!_shared.linkViews) return;
-    for (final p in _livePanes) {
-      if (!identical(p, focused)) p.frameBounds(b);
+    for (final p in _groupWith(focused, linked: _shared.linkViews)) {
+      p.frameBounds(b);
     }
   }
 

@@ -327,6 +327,18 @@ class WorkspaceState extends ChangeNotifier {
   /// storm, for comparing coverage.
   bool get propagatesSite => linkViews && linkSite;
 
+  /// Whether a command issued in one pane should reach the rest of the group.
+  ///
+  /// Isolation is symmetric: a pane out of the group neither follows the
+  /// others nor drives them. Getting only half of that gave a control that
+  /// looked broken from one side — an isolated pane ignored everyone else's
+  /// radar changes but still forced its own onto them.
+  static bool reachesGroup({
+    required bool sourceIsolated,
+    required bool linked,
+  }) =>
+      linked && !sourceIsolated;
+
   void setLinkViews(bool v) {
     linkViews = v;
     _ping();
