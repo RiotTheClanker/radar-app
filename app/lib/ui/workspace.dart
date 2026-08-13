@@ -429,6 +429,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       onFocus: () => setState(() => _focused = id),
       onChanged: _onPaneChanged,
       onCameraMoved: _onCameraMoved,
+      onSitePicked: _setSite,
     );
   }
 
@@ -437,7 +438,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     final active = _active;
     final site = active?.site;
     final linked = _shared.linkSite || _shared.linkViews;
-    final lockedCount = _livePanes.where((p) => p.locked).length;
+    final isolatedCount = _livePanes.where((p) => p.isolated).length;
 
     return WxBar(
       leading: [
@@ -475,9 +476,9 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
                   _shared.setLinkViews(!_shared.linkViews);
                 case 'site':
                   _shared.setLinkSite(!_shared.linkSite);
-                case 'unlock':
+                case 'rejoin':
                   for (final p in _livePanes) {
-                    if (p.locked) p.toggleLock();
+                    if (p.isolated) p.toggleIsolate();
                   }
               }
             },
@@ -492,16 +493,16 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
                 label: 'Same radar site',
                 checked: _shared.linkSite,
               ),
-              // A pane locked and forgotten looks like a pane that stopped
-              // working, so the way out is offered where the linking lives
+              // A pane isolated and forgotten looks like a pane that stopped
+              // working, so the way back is offered where the linking lives
               // rather than only on the pane itself.
-              if (lockedCount > 0) ...[
+              if (isolatedCount > 0) ...[
                 const PopupMenuDivider(),
                 wxMenuItem(
-                  value: 'unlock',
-                  label: lockedCount == 1
-                      ? 'Release 1 locked pane'
-                      : 'Release $lockedCount locked panes',
+                  value: 'rejoin',
+                  label: isolatedCount == 1
+                      ? 'Rejoin 1 isolated pane'
+                      : 'Rejoin $isolatedCount isolated panes',
                   showCheck: true,
                   checked: false,
                 ),

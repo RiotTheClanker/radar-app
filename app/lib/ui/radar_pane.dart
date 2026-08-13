@@ -34,6 +34,7 @@ import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
 import 'alert_sheets.dart';
 import 'color_key.dart';
+import 'geo.dart';
 import 'hydro_legend.dart';
 import 'pane_models.dart';
 import 'volume3d_screen.dart';
@@ -75,6 +76,7 @@ class RadarPane extends StatefulWidget {
     required this.onFocus,
     required this.onChanged,
     required this.onCameraMoved,
+    required this.onSitePicked,
     required this.showHeader,
     required this.autoLoad,
     this.initialCenter,
@@ -99,6 +101,12 @@ class RadarPane extends StatefulWidget {
   /// A user gesture moved this pane's map. The workspace decides whether to
   /// pass that on to the others.
   final void Function(int paneId, LatLng center, double zoom) onCameraMoved;
+
+  /// A radar site marker on this pane's map was tapped. Routed up rather
+  /// than applied here so it goes through the same site linking as the
+  /// toolbar's picker — tapping a site on the map is the same request as
+  /// choosing it from the list, and should reach the same panes.
+  final void Function(NexradSite) onSitePicked;
 
   /// Panes label themselves once there is more than one of them; with a
   /// single pane the toolbar already says all of this.
@@ -188,16 +196,15 @@ class RadarPaneState extends State<RadarPane> {
   bool _cursorBusy = false;
   DateTime _cursorLast = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// A locked pane holds its own view against *passive* movement — another
-  /// pane being panned — so you can park one pane on a second storm and keep
-  /// working the others around it. It also stops broadcasting its own moves,
-  /// so locking detaches a pane from the group in both directions rather
-  /// than just muting one side.
+  /// An isolated pane is out of the linked group: it ignores the others'
+  /// panning and does not move them, so you can park one pane on a second
+  /// storm and keep working the rest around it.
   ///
-  /// It does not override commands aimed at the pane on purpose: picking a
-  /// radar, "my location", framing an alert. Those all still land, because a
-  /// control that silently does nothing reads as broken.
-  bool _locked = false;
+  /// Called isolated rather than locked because nothing is being held shut —
+  /// the pane still pans, zooms and follows commands aimed at it on purpose
+  /// (picking a radar, "my location", framing an alert). What changes is
+  /// only whether it is part of the group.
+  bool _isolated = false;
 
   bool _measuring = false;
   final List<LatLng> _measurePts = [];
@@ -256,7 +263,7 @@ class RadarPaneState extends State<RadarPane> {
   int get tilt => _tilt;
   bool get loading => _loading;
   String? get error => _error;
-  bool get locked => _locked;
+  bool get isolated => _isolated;
   bool get cursorOn => _cursor;
   bool get tracksOn => _tracks;
   bool get futureOn => _future;
@@ -393,8 +400,8 @@ class RadarPaneState extends State<RadarPane> {
     if (_tracks) unawaited(_updateTracks());
   }
 
-  void toggleLock() {
-    setState(() => _locked = !_locked);
+  void toggleIsolate() {
+    setState(() => _isolated = !_isolated);
     widget.onChanged();
   }
 
@@ -424,7 +431,7 @@ class RadarPaneState extends State<RadarPane> {
   /// pressed has to do something, even when the pane is locked.
   void applyCamera(LatLng center, double zoom, {bool force = false}) {
     if (!mounted || !_mapReady) return;
-    if (_locked && !force) return;
+    if (_isolated && !force) return;
     final cam = _mapController.camera;
     const eps = 1e-7;
     if ((cam.center.latitude - center.latitude).abs() < eps &&
@@ -437,7 +444,7 @@ class RadarPaneState extends State<RadarPane> {
 
   void frameBounds(LatLngBounds bounds, {bool force = false}) {
     if (!_mapReady) return;
-    if (_locked && !force) return;
+    if (_isolated && !force) return;
     _mapController.fitCamera(
       CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(48)),
     );
@@ -840,33 +847,6 @@ class RadarPaneState extends State<RadarPane> {
 
   // ------------------------------------------------------------- render ----
 
-  /// Beam center height above the radar (meters) at a slant range, using
-  /// the standard 4/3-earth refraction model.
-  double _beamHeightM(double rangeM, double elevationDeg) {
-    const keR = 6371000.0 * 4.0 / 3.0;
-    final el = elevationDeg * math.pi / 180.0;
-    return math.sqrt(
-          rangeM * rangeM + keR * keR + 2 * rangeM * keR * math.sin(el),
-        ) -
-        keR;
-  }
-
-  /// Great-circle distance (km) and initial bearing (deg) between two points.
-  (double, double) _distanceBearing(LatLng a, LatLng b) {
-    const r = 6371.0;
-    final la1 = a.latitude * math.pi / 180, la2 = b.latitude * math.pi / 180;
-    final dLat = la2 - la1;
-    final dLon = (b.longitude - a.longitude) * math.pi / 180;
-    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(la1) * math.cos(la2) * math.sin(dLon / 2) * math.sin(dLon / 2);
-    final d = 2 * r * math.asin(math.min(1.0, math.sqrt(h)));
-    final y = math.sin(dLon) * math.cos(la2);
-    final x = math.cos(la1) * math.sin(la2) -
-        math.sin(la1) * math.cos(la2) * math.cos(dLon);
-    var brg = math.atan2(y, x) * 180 / math.pi;
-    if (brg < 0) brg += 360;
-    return (d, brg);
-  }
 
   /// Visible box expanded slightly, clipped to the data extent, plus the
   /// pixel size to render it at.
@@ -1182,17 +1162,19 @@ class RadarPaneState extends State<RadarPane> {
             ),
           ),
           // Trailing edge, where a window's controls live. Lit when engaged
-          // so a glance across the grid says which panes are parked.
+          // so a glance across the grid says which panes are out of the
+          // group. Same link/link-off vocabulary as the workspace's Link
+          // menu, because this is the per-pane half of the same idea.
           WxButton(
-            icon: _locked ? Icons.lock : Icons.lock_open,
-            tooltip: _locked
-                ? 'Locked here — pans and site changes elsewhere leave this '
-                    'pane alone. Click to rejoin.'
-                : 'Lock this pane to its current view',
+            icon: _isolated ? Icons.link_off : Icons.link,
+            tooltip: _isolated
+                ? 'Isolated — this pane ignores the others and does not move '
+                    'them. Click to rejoin the linked panes.'
+                : 'Isolate this pane from the linked panes',
             height: _headerH,
             dense: true,
-            color: _locked ? Wx.accent : Wx.textFaint,
-            onTap: toggleLock,
+            color: _isolated ? Wx.accent : Wx.textFaint,
+            onTap: toggleIsolate,
           ),
         ],
       ),
@@ -1227,7 +1209,7 @@ class RadarPaneState extends State<RadarPane> {
           // move that arrived from another pane is how view linking turns
           // into an infinite loop between two maps. A locked pane says
           // nothing either — it is out of the group in both directions.
-          if (!_locked &&
+          if (!_isolated &&
               evt.source != MapEventSource.mapController &&
               evt.source != MapEventSource.fitCamera) {
             widget.onCameraMoved(
@@ -1348,23 +1330,19 @@ class RadarPaneState extends State<RadarPane> {
             ],
           ),
         if (_cursor && _cursorPos != null && _cursorSite != null) ...[
-          CircleLayer(
-            circles: [
-              CircleMarker(
-                point: _cursorSite!,
-                // Geometric, so the ring always passes exactly through the
-                // crosshair — even outside radar coverage, where there is no
-                // sample to take a distance from.
-                radius: _distanceBearing(_cursorSite!, _cursorPos!).$1 * 1000,
-                useRadiusInMeter: true,
-                color: Colors.transparent,
-                borderColor: Wx.warn.withValues(alpha: 0.85),
-                borderStrokeWidth: 1.5,
-              ),
-            ],
-          ),
           PolylineLayer(
             polylines: [
+              Polyline(
+                // Geometric, so the ring passes exactly through the
+                // crosshair at every bearing — even outside radar coverage,
+                // where there is no sample to take a distance from.
+                points: geodesicRing(
+                  _cursorSite!,
+                  distanceBearing(_cursorSite!, _cursorPos!).$1,
+                ),
+                color: Wx.warn.withValues(alpha: 0.85),
+                strokeWidth: 1.5,
+              ),
               Polyline(
                 points: [_cursorSite!, _cursorPos!],
                 color: Wx.warn.withValues(alpha: 0.9),
@@ -1542,7 +1520,7 @@ class RadarPaneState extends State<RadarPane> {
                   width: 10,
                   height: 10,
                   child: GestureDetector(
-                    onTap: () => selectSite(s, moveMap: true),
+                    onTap: () => widget.onSitePicked(s),
                     child: Container(
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
@@ -1617,8 +1595,8 @@ class RadarPaneState extends State<RadarPane> {
       final site = _cursorSite;
       final (km, brg) = site == null
           ? (c.distanceKm, c.azimuthDeg)
-          : _distanceBearing(site, _cursorPos!);
-      final kft = _beamHeightM(km * 1000, c.elevationDeg) * 3.28084 / 1000.0;
+          : distanceBearing(site, _cursorPos!);
+      final kft = beamHeightM(km * 1000, c.elevationDeg) * 3.28084 / 1000.0;
       rows.add(
         _readoutBar(
           accent: Wx.warn,
@@ -1634,7 +1612,7 @@ class RadarPaneState extends State<RadarPane> {
     }
 
     if (_measurePts.length == 2) {
-      final (d, b) = _distanceBearing(_measurePts[0], _measurePts[1]);
+      final (d, b) = distanceBearing(_measurePts[0], _measurePts[1]);
       rows.add(
         _readoutBar(
           accent: Wx.accent,

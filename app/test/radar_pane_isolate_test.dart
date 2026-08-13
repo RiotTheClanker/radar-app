@@ -10,7 +10,7 @@ import 'package:radar_app/ui/wx_theme.dart';
 /// Runs [body] against a pane with no data behind it.
 ///
 /// `autoLoad: false` is what the workspace passes before geolocation has
-/// settled, and it is what keeps this off the network — the lock is a
+/// settled, and it is what keeps this off the network — isolation is a
 /// question about the camera, not about frames.
 ///
 /// The shared state is disposed inside the body rather than through
@@ -40,6 +40,7 @@ Future<void> _withPane(
             onFocus: () {},
             onChanged: () {},
             onCameraMoved: onCameraMoved ?? (_, _, _) {},
+            onSitePicked: (_) {},
           ),
         ),
       ),
@@ -56,9 +57,9 @@ Future<void> _withPane(
 const _elsewhere = LatLng(41.5, -99.5);
 
 void main() {
-  testWidgets('an unlocked pane follows a linked pan', (tester) async {
+  testWidgets('a pane in the group follows a linked pan', (tester) async {
     await _withPane(tester, (pane) async {
-      expect(pane.locked, isFalse);
+      expect(pane.isolated, isFalse);
 
       pane.applyCamera(_elsewhere, 9);
       await tester.pump();
@@ -69,13 +70,13 @@ void main() {
     });
   });
 
-  testWidgets('a locked pane ignores another pane panning', (tester) async {
+  testWidgets('an isolated pane ignores another pane panning', (tester) async {
     await _withPane(tester, (pane) async {
       final before = pane.cameraOrNull!;
 
-      pane.toggleLock();
+      pane.toggleIsolate();
       await tester.pump();
-      expect(pane.locked, isTrue);
+      expect(pane.isolated, isTrue);
 
       pane.applyCamera(_elsewhere, 9);
       await tester.pump();
@@ -89,9 +90,9 @@ void main() {
     });
   });
 
-  testWidgets('a locked pane still takes an explicit command', (tester) async {
+  testWidgets('an isolated pane still takes an explicit command', (tester) async {
     await _withPane(tester, (pane) async {
-      pane.toggleLock();
+      pane.toggleIsolate();
       await tester.pump();
 
       // "My location" and zoom-to-alert are buttons the user just pressed. A
@@ -106,9 +107,9 @@ void main() {
     });
   });
 
-  testWidgets('a locked pane follows an explicit radar change', (tester) async {
+  testWidgets('an isolated pane follows an explicit radar change', (tester) async {
     await _withPane(tester, (pane) async {
-      pane.toggleLock();
+      pane.toggleIsolate();
       await tester.pump();
 
       final fws = nexradSites.firstWhere((s) => s.icao == 'KFWS');
@@ -124,10 +125,10 @@ void main() {
     });
   });
 
-  testWidgets('a locked pane sits still for a site change that does not '
+  testWidgets('an isolated pane sits still for a site change that does not '
       'move the map', (tester) async {
     await _withPane(tester, (pane) async {
-      pane.toggleLock();
+      pane.toggleIsolate();
       await tester.pump();
       final before = pane.cameraOrNull!;
 
@@ -144,7 +145,7 @@ void main() {
     });
   });
 
-  testWidgets('a locked pane stops broadcasting its own moves',
+  testWidgets('an isolated pane stops broadcasting its own moves',
       (tester) async {
     var broadcasts = 0;
     await _withPane(
@@ -153,34 +154,36 @@ void main() {
         await tester.drag(find.byType(RadarPane), const Offset(-60, -40));
         await tester.pump();
         expect(broadcasts, greaterThan(0),
-            reason: 'an unlocked pane leads the others');
+            reason: 'a pane in the group leads the others');
 
-        pane.toggleLock();
+        pane.toggleIsolate();
         await tester.pump();
         final quiet = broadcasts;
 
         await tester.drag(find.byType(RadarPane), const Offset(-60, -40));
         await tester.pump();
 
-        // Locking detaches in both directions — a parked pane neither follows
-        // nor drags everyone else along with it.
+        // Isolating detaches in both directions — a parked pane neither
+        // follows nor drags everyone else along with it.
         expect(broadcasts, quiet);
       },
       onCameraMoved: (_, _, _) => broadcasts++,
     );
   });
 
-  testWidgets('the header offers the lock and shows which state it is in',
+  testWidgets('the header shows whether the pane is in the group',
       (tester) async {
     await _withPane(tester, (pane) async {
-      expect(find.byIcon(Icons.lock_open), findsOneWidget);
-      expect(find.byIcon(Icons.lock), findsNothing);
+      // Link/link-off rather than a padlock: nothing is being held shut,
+      // the pane is simply in or out of the linked group.
+      expect(find.byIcon(Icons.link), findsOneWidget);
+      expect(find.byIcon(Icons.link_off), findsNothing);
 
-      await tester.tap(find.byIcon(Icons.lock_open));
+      await tester.tap(find.byIcon(Icons.link));
       await tester.pump();
 
-      expect(pane.locked, isTrue);
-      expect(find.byIcon(Icons.lock), findsOneWidget);
+      expect(pane.isolated, isTrue);
+      expect(find.byIcon(Icons.link_off), findsOneWidget);
     });
   });
 }
