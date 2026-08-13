@@ -72,6 +72,7 @@ class RadarPane extends StatefulWidget {
     required this.shared,
     required this.initialSite,
     required this.initialProduct,
+    this.initialTilt = 0,
     required this.focused,
     required this.onFocus,
     required this.onChanged,
@@ -90,6 +91,11 @@ class RadarPane extends StatefulWidget {
   final WorkspaceState shared;
   final NexradSite initialSite;
   final RadarProduct initialProduct;
+
+  /// The cut a pane opens on. Panes added by growing the layout inherit the
+  /// group's, so they arrive matching rather than at 0.5 while the rest are
+  /// somewhere else.
+  final int initialTilt;
 
   /// Whether the toolbar's actions currently land here.
   final bool focused;
@@ -155,7 +161,7 @@ class RadarPaneState extends State<RadarPane> {
 
   late NexradSite _site = widget.initialSite;
   late RadarProduct _product = widget.initialProduct;
-  int _tilt = 0;
+  late int _tilt = widget.initialTilt;
 
   List<_Frame> _frames = [];
 

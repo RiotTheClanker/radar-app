@@ -174,6 +174,28 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     }
   }
 
+  /// What a pane being built for the first time opens on.
+  ///
+  /// Taken from whatever the group is already looking at, not from the seed
+  /// captured at startup: going from two panes to four used to add the new
+  /// pair on the radar the app launched with, however far the first two had
+  /// since been moved. [_seedSites] is only the fallback for the very first
+  /// build, before any pane exists to ask.
+  NexradSite _seedSiteFor(int id) {
+    for (final p in _livePanes) {
+      if (!p.isolated) return p.site;
+    }
+    return _seedSites[id];
+  }
+
+  /// Likewise for the elevation cut, which linked panes share.
+  int _seedTilt() {
+    for (final p in _livePanes) {
+      if (!p.isolated) return p.tilt;
+    }
+    return 0;
+  }
+
   /// The panes a command issued in [from] should also reach.
   ///
   /// Empty when [from] is isolated, which is the half that was missing: an
@@ -511,7 +533,8 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       key: _paneKeys[id],
       paneId: id,
       shared: _shared,
-      initialSite: _seedSites[id],
+      initialSite: _seedSiteFor(id),
+      initialTilt: _seedTilt(),
       initialProduct: _seedProducts[id],
       focused: multi && _focused == id,
       showHeader: multi,
