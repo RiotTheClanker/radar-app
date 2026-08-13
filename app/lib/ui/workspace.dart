@@ -4,11 +4,16 @@
 /// the panes, and a status bar. Nothing floats over the map except the colour
 /// key and the tool readouts, which belong to a pane rather than to the app.
 ///
-/// Toolbar actions land on the *focused* pane, the one the pointer is over or
-/// was last pressed in, marked with an accent border once there is more than
-/// one. Site selection and map movement optionally apply to every pane at
-/// once — see [WorkspaceState.linkSite] and [WorkspaceState.linkViews] — since
-/// the usual reason to open four panes is one storm in four products.
+/// Toolbar actions land on the *focused* pane, the one last pressed in and
+/// marked with an accent border once there is more than one. Map movement and
+/// radar site optionally apply to every pane at once, since the usual reason
+/// to open four panes is one storm in four products.
+///
+/// Linkage runs one way: site follows view. Panes that are not panning
+/// together are not looking at the same weather, so moving them onto a
+/// different radar is as likely to throw away someone's view as to help —
+/// see [WorkspaceState.propagatesSite]. A pane can also drop out of the group
+/// on its own, which takes its view and its site with it.
 library;
 
 import 'dart:async';
@@ -170,12 +175,17 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   }
 
   void _setSite(NexradSite s) {
-    if (_shared.linkSite) {
-      for (final p in _livePanes) {
-        p.selectSite(s, moveMap: true);
-      }
-    } else {
-      _active?.selectSite(s, moveMap: true);
+    // The pane being worked in always changes: picking a radar is an
+    // explicit command, so it lands even on an isolated pane.
+    final focused = _active;
+    focused?.selectSite(s, moveMap: true);
+    if (!_shared.propagatesSite) return;
+    for (final p in _livePanes) {
+      // An isolated pane is out of the group for the site too. It keeps its
+      // own radar and its own view, which stay consistent with each other —
+      // switching one without the other is what left panes blank.
+      if (identical(p, focused) || p.isolated) continue;
+      p.selectSite(s, moveMap: true);
     }
   }
 
@@ -488,10 +498,16 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
                 label: 'Pan and zoom together',
                 checked: _shared.linkViews,
               ),
+              // Subordinate to the views: with panes panning separately a
+              // shared radar has nothing to keep them on, so this says so
+              // rather than sitting there ticked and doing nothing.
               wxMenuItem(
                 value: 'site',
-                label: 'Same radar site',
-                checked: _shared.linkSite,
+                label: _shared.linkViews
+                    ? 'Same radar site'
+                    : 'Same radar site (needs linked views)',
+                checked: _shared.propagatesSite,
+                enabled: _shared.linkViews,
               ),
               // A pane isolated and forgotten looks like a pane that stopped
               // working, so the way back is offered where the linking lives

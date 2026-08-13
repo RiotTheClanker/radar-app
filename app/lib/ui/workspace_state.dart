@@ -315,6 +315,18 @@ class WorkspaceState extends ChangeNotifier {
   bool linkViews = true;
   bool linkSite = true;
 
+  /// Whether a radar picked in one pane should reach the others.
+  ///
+  /// Site follows the view. Panes that are not panning together are not
+  /// looking at the same weather, so dragging them onto a different radar is
+  /// as likely to throw away the view someone set up as to help — and a pane
+  /// moved to a radar that cannot see where it is pointed shows nothing at
+  /// all. Unlinking the views therefore unlinks the sites with them, and
+  /// [linkSite] becomes the finer control for the case where the views *are*
+  /// linked but each pane should keep its own radar — two radars on one
+  /// storm, for comparing coverage.
+  bool get propagatesSite => linkViews && linkSite;
+
   void setLinkViews(bool v) {
     linkViews = v;
     _ping();

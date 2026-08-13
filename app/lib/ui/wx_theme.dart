@@ -460,10 +460,12 @@ PopupMenuItem<T> wxMenuItem<T>({
   String? code,
   bool checked = false,
   bool showCheck = true,
+  bool enabled = true,
   Color? color,
 }) {
   return PopupMenuItem<T>(
     value: value,
+    enabled: enabled,
     height: 30,
     child: Row(
       children: [
@@ -489,7 +491,9 @@ PopupMenuItem<T> wxMenuItem<T>({
           child: Text(
             label,
             overflow: TextOverflow.ellipsis,
-            style: Wx.label.copyWith(color: color ?? Wx.text),
+            style: Wx.label.copyWith(
+              color: color ?? (enabled ? Wx.text : Wx.textFaint),
+            ),
           ),
         ),
       ],
