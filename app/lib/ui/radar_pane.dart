@@ -14,8 +14,6 @@
 library;
 
 import 'dart:async';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -25,45 +23,19 @@ import 'package:latlong2/latlong.dart';
 import '../data/alerts_fetcher.dart';
 import '../data/hydrometeor.dart';
 import '../data/identity.dart';
-import '../data/level2_fetcher.dart';
-import '../data/level3_fetcher.dart';
 import '../data/lightning.dart';
-import '../data/mrms_fetcher.dart';
 import '../data/nexrad_sites.g.dart';
-import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
 import 'alert_sheets.dart';
 import 'color_key.dart';
 import 'geo.dart';
 import 'hydro_legend.dart';
+import '../state/pane_controller.dart';
 import 'pane_models.dart';
 import 'volume3d_screen.dart';
 import 'workspace_state.dart';
 import 'wx_theme.dart';
 
-class _Frame {
-  final RadarFrame meta;
-
-  /// Source bytes the frame was decoded from, kept for the inspector and
-  /// viewport re-renders.
-  final Uint8List raw;
-
-  /// Currently displayed overlay (swapped on viewport re-render).
-  MemoryImage image;
-  LatLngBounds bounds;
-
-  _Frame(this.meta, this.image, this.raw)
-      : bounds = LatLngBounds(
-          LatLng(meta.north, meta.west),
-          LatLng(meta.south, meta.east),
-        );
-
-  /// Full extent of the radar data disk (from the initial whole-disk render).
-  LatLngBounds get dataBounds => LatLngBounds(
-        LatLng(meta.north, meta.west),
-        LatLng(meta.south, meta.east),
-      );
-}
 
 class RadarPane extends StatefulWidget {
   const RadarPane({
@@ -140,6 +112,13 @@ class RadarPane extends StatefulWidget {
   State<RadarPane> createState() => RadarPaneState();
 }
 
+/// Draws one pane. Everything it draws lives in [PaneController]; this class
+/// owns only the things that need a `BuildContext` or the map camera — the
+/// map itself, the pane's measured size, the chrome, the sheets and the
+/// marker caches.
+///
+/// The public methods below are the workspace's handle on a pane (it holds
+/// `GlobalKey<RadarPaneState>`), and forward straight to the controller.
 class RadarPaneState extends State<RadarPane> {
   /// Height of the per-pane label strip.
   static const _headerH = 22.0;
@@ -159,33 +138,16 @@ class RadarPaneState extends State<RadarPane> {
   /// padding and unit caption, and a margin so it does not touch the edges.
   static const _keyChrome = 76.0;
 
+  late final PaneController _c = PaneController(
+    paneId: widget.paneId,
+    shared: widget.shared,
+    site: widget.initialSite,
+    product: widget.initialProduct,
+    tilt: widget.initialTilt,
+  );
+
   final _mapController = MapController();
   bool _mapReady = false;
-
-  late NexradSite _site = widget.initialSite;
-  late RadarProduct _product = widget.initialProduct;
-  late int _tilt = widget.initialTilt;
-
-  List<_Frame> _frames = [];
-
-  /// Storm tracks. Its own overlay, drawn over whatever product is up, so it
-  /// works the same on velocity or CC as on reflectivity. The cells are
-  /// always found in reflectivity — that is where storms are visible — which
-  /// is why this keeps its own pair of frames rather than using [_frames].
-  bool _tracks = false;
-  List<StormTrack> _stormTracks = [];
-  List<MesoHit> _mesos = [];
-  bool _tracksBusy = false;
-
-  bool _loading = false;
-  String? _error;
-  int _loadGeneration = 0;
-
-  /// Colour key for this pane's product. Cached per product so switching back
-  /// is instant, and rebuilt when a palette is imported since that changes
-  /// the colours on the map.
-  ColorScale? _keyScale;
-  String? _keyFor;
 
   final LayerHitNotifier<WeatherAlert> _alertHit = ValueNotifier(null);
 
@@ -195,63 +157,28 @@ class RadarPaneState extends State<RadarPane> {
   List<Marker>? _siteMarkers;
   String? _siteMarkersFor;
 
-  String? _sampleText;
-  LatLng? _samplePos;
-  Timer? _sampleClear;
-
   Timer? _viewDebounce;
-  int _viewGeneration = 0;
 
   /// The pane's own size, in logical pixels. Viewport re-rendering used to
   /// read this off [MediaQuery], which was the same thing while the map was
   /// the whole window. In a 2x2 it is four times too many pixels.
   Size _paneSize = Size.zero;
 
-  // Aiming cursor: live value + range/azimuth/height from the radar
-  bool _cursor = false;
-  LatLng? _cursorPos;
-  LatLng? _cursorSite;
-  SampleResult? _cursorSample;
-  bool _cursorPinned = false;
-  bool _cursorBusy = false;
-  DateTime _cursorLast = DateTime.fromMillisecondsSinceEpoch(0);
-
-  /// An isolated pane is out of the linked group: it ignores the others'
-  /// panning and does not move them, so you can park one pane on a second
-  /// storm and keep working the rest around it.
-  ///
-  /// Called isolated rather than locked because nothing is being held shut —
-  /// the pane still pans, zooms and follows commands aimed at it on purpose
-  /// (picking a radar, "my location", framing an alert). What changes is
-  /// only whether it is part of the group.
-  bool _isolated = false;
-
-  // ------------------------------------------------- local animation ----
-  // An isolated pane runs its own loop. It keeps its own timer rather than
-  // stepping off the workspace's, so a pane sitting still costs nothing and
-  // the shared clock does not have to know which panes left the group.
-  int _localIndex = 0;
-  bool _localPlaying = false;
-  int _localFrameCount = 1;
-  Timer? _localAnim;
-
-  bool _measuring = false;
-  final List<LatLng> _measurePts = [];
-
-  // Future radar (on-device nowcast)
-  bool _future = false;
-  double _futureMinutes = 30;
-  _Frame? _futureFrame;
-  bool _futureBusy = false;
-
   @override
   void initState() {
     super.initState();
+    _c
+      ..viewport = _readViewport
+      ..onMoveMap = _moveCamera
+      // Read through `widget` each time rather than captured once, so the
+      // callback stays correct across a parent rebuild.
+      ..onChanged = (() => widget.onChanged())
+      ..addListener(_onPane);
     widget.shared.addListener(_onShared);
-    // Deferred: [loadFrames] calls setState before its first await, and doing
-    // that while the State is still being constructed is an error.
+    // Deferred: [PaneController.loadFrames] notifies before its first await,
+    // and rebuilding while the State is still being constructed is an error.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.autoLoad) unawaited(loadFrames());
+      if (mounted && widget.autoLoad) unawaited(_c.loadFrames());
     });
   }
 
@@ -261,18 +188,18 @@ class RadarPaneState extends State<RadarPane> {
     // The workspace has settled on a site; this is the first honest load.
     if (widget.autoLoad &&
         !oldWidget.autoLoad &&
-        _frames.isEmpty &&
-        !_loading) {
-      unawaited(loadFrames());
+        _c.frameCountLoaded == 0 &&
+        !_c.loading) {
+      unawaited(_c.loadFrames());
     }
   }
 
   @override
   void dispose() {
     widget.shared.removeListener(_onShared);
-    widget.shared.forgetPane(widget.paneId);
-    _localAnim?.cancel();
-    _sampleClear?.cancel();
+    _c.removeListener(_onPane);
+    // Also cancels the pane's own ticker and drops it from the shared clock.
+    _c.dispose();
     _viewDebounce?.cancel();
     _alertHit.dispose();
     _mapController.dispose();
@@ -286,20 +213,89 @@ class RadarPaneState extends State<RadarPane> {
     if (mounted) setState(() {});
   }
 
-  // ------------------------------------------------------ what we are on ----
+  /// This pane's own state moved.
+  void _onPane() {
+    if (mounted) setState(() {});
+  }
 
-  NexradSite get site => _site;
-  RadarProduct get product => _product;
-  int get tilt => _tilt;
-  bool get loading => _loading;
-  String? get error => _error;
-  bool get isolated => _isolated;
-  bool get cursorOn => _cursor;
-  bool get tracksOn => _tracks;
-  bool get futureOn => _future;
-  bool get measuringOn => _measuring;
-  int get frameCountLoaded => _frames.length;
+  /// What the controller can see of the map. Null until the map is attached
+  /// and the pane has been measured, which is the controller's cue to skip
+  /// viewport work rather than guess at a size.
+  /// An unmeasured pane still reports. [PaneController] reads `zoom` off this
+  /// for the site-change recentre and the mosaic hand-over, neither of which
+  /// cares how wide the pane is, and `_viewBox` already refuses to render at
+  /// a `pixelWidth` of zero, so a width guard here would be both redundant
+  /// and reaching into decisions it has no part in.
+  ///
+  /// Nothing is broken today — `_mapReady` is set in `onMapReady`, which
+  /// cannot fire before the `LayoutBuilder` has set `_paneSize` — so this is
+  /// a trap removed rather than a bug fixed.
+  PaneViewport? _readViewport() {
+    if (!mounted || !_mapReady) return null;
+    try {
+      final cam = _mapController.camera;
+      final vis = cam.visibleBounds;
+      return PaneViewport(
+        north: vis.north,
+        south: vis.south,
+        east: vis.east,
+        west: vis.west,
+        zoom: cam.zoom,
+        pixelWidth: _paneSize.width * MediaQuery.of(context).devicePixelRatio,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _moveCamera(LatLng center, double zoom) {
+    if (_mapReady) _mapController.move(center, zoom);
+  }
+
+  // ------------------------------------------------- the pane's handle ----
+  // The workspace drives panes through these; they are the controller's API
+  // with the camera-shaped parts kept here, where the camera is.
+
+  PaneController get controller => _c;
+  WorkspaceState get shared => widget.shared;
   MapController get mapController => _mapController;
+
+  NexradSite get site => _c.site;
+  RadarProduct get product => _c.product;
+  int get tilt => _c.tilt;
+  bool get loading => _c.loading;
+  String? get error => _c.error;
+  bool get isolated => _c.isolated;
+  bool get cursorOn => _c.cursorOn;
+  bool get tracksOn => _c.tracksOn;
+  bool get futureOn => _c.futureOn;
+  bool get measuringOn => _c.measuringOn;
+  int get frameCountLoaded => _c.frameCountLoaded;
+  int get loopLength => _c.loopLength;
+  int get frameIndex => _c.frameIndex;
+  bool get playing => _c.playing;
+  int get frameCount => _c.frameCount;
+  DateTime? get frameTime => _c.frameTime;
+  Duration? get dataAge => _c.dataAge;
+  bool get isStale => _c.isStale;
+  double? get elevationDeg => _c.elevationDeg;
+
+  void togglePlay() => _c.togglePlay();
+  void step(int delta) => _c.step(delta);
+  void setFrameCount(int n) => _c.setFrameCount(n);
+  void setProduct(RadarProduct p) => _c.setProduct(p);
+  void setTilt(int t) => _c.setTilt(t);
+  void selectSite(NexradSite s, {bool moveMap = false}) =>
+      _c.selectSite(s, moveMap: moveMap);
+  void toggleCursor() => _c.toggleCursor();
+  void toggleTracks() => _c.toggleTracks();
+  void syncTo({NexradSite? site, int? tilt}) =>
+      _c.syncTo(site: site, tilt: tilt);
+  void toggleIsolate() => _c.toggleIsolate();
+  void toggleMeasure() => _c.toggleMeasure();
+  void toggleFuture() => _c.toggleFuture();
+  Future<void> loadFrames() => _c.loadFrames();
+  String? saveFrameSnapshot() => _c.saveFrameSnapshot();
 
   /// Where this pane is looking, or null before the map is attached.
   ({LatLng center, double zoom})? get cameraOrNull {
@@ -308,84 +304,79 @@ class RadarPaneState extends State<RadarPane> {
     return (center: c.center, zoom: c.zoom);
   }
 
-  _Frame? get _displayFrame => _future && _futureFrame != null
-      ? _futureFrame
-      : (_frames.isEmpty ? null : _frames[_shownFrame]);
-
-  int get _shownFrame {
-    if (_frames.isEmpty) return 0;
-    final i = _isolated ? _localIndex : widget.shared.frameIndex;
-    if (i < 0) return 0;
-    return i >= _frames.length ? _frames.length - 1 : i;
-  }
-
-  /// The workspace state this pane reads from. Exposed so the chrome (and
-  /// tests) can ask which clock a pane is on without duplicating the rule.
-  WorkspaceState get shared => widget.shared;
-
-  /// How many frames this pane's loop runs over.
-  int get loopLength =>
-      _isolated ? _frames.length : widget.shared.loopLength;
-
-  /// Where in that loop it currently is.
-  int get frameIndex => _shownFrame;
-
-  bool get playing => _isolated ? _localPlaying : widget.shared.playing;
-
-  /// How many frames to fetch. Isolated panes carry their own, so a pane
-  /// parked on a second storm can hold a long loop while the group shows
-  /// only the latest scan.
-  int get frameCount =>
-      _isolated ? _localFrameCount : widget.shared.frameCount;
-
-  void togglePlay() {
-    setState(() => _localPlaying = !_localPlaying);
-    _syncLocalAnim();
-    widget.onChanged();
-  }
-
-  void step(int delta) {
-    final n = _frames.length;
-    if (n == 0) return;
-    setState(() {
-      _localPlaying = false;
-      _localIndex = (_localIndex.clamp(0, n - 1) + delta) % n;
-      if (_localIndex < 0) _localIndex += n;
-    });
-    _syncLocalAnim();
-    widget.onChanged();
-  }
-
-  void setFrameCount(int n) {
-    if (_localFrameCount == n) return;
-    setState(() {
-      _localFrameCount = n;
-      _localPlaying = n > 1;
-    });
-    _syncLocalAnim();
-    widget.onChanged();
-    unawaited(loadFrames());
-  }
-
-  /// Starts or stops this pane's own ticker. Only runs while the pane is
-  /// both isolated and playing.
-  void _syncLocalAnim() {
-    final wanted = _isolated && _localPlaying;
-    if (wanted && _localAnim == null) {
-      _localAnim = Timer.periodic(const Duration(milliseconds: 350), (_) {
-        final n = _frames.length;
-        if (n < 2 || !mounted) return;
-        // Dwell on the newest frame for a few ticks before looping, the
-        // same as the shared clock.
-        setState(() {
-          _localIndex = _localIndex >= n - 1 + 3 ? 0 : _localIndex + 1;
-        });
-      });
-    } else if (!wanted) {
-      _localAnim?.cancel();
-      _localAnim = null;
+  /// Move this pane's camera without echoing the move back to the workspace.
+  /// Used for view linking; guarded so a pane that is already there does not
+  /// start a ping-pong of moves between panes.
+  ///
+  /// A locked pane ignores this. [force] is for the explicit "take me there"
+  /// commands aimed at this pane in particular — a button the user just
+  /// pressed has to do something, even when the pane is locked.
+  void applyCamera(LatLng center, double zoom, {bool force = false}) {
+    if (!mounted || !_mapReady) return;
+    if (_c.isolated && !force) return;
+    final cam = _mapController.camera;
+    const eps = 1e-7;
+    if ((cam.center.latitude - center.latitude).abs() < eps &&
+        (cam.center.longitude - center.longitude).abs() < eps &&
+        (cam.zoom - zoom).abs() < eps) {
+      return;
     }
+    _mapController.move(center, zoom);
   }
+
+  void frameBounds(LatLngBounds bounds, {bool force = false}) {
+    if (!_mapReady) return;
+    if (_c.isolated && !force) return;
+    _mapController.fitCamera(
+      CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(48)),
+    );
+  }
+
+  /// Open the 3D volume view on the Level 2 volume for this site, at the
+  /// moment currently being shown. The controller fetches; navigating is the
+  /// widget's half of the job.
+  Future<void> open3D() async {
+    final bytes = await _c.prepareVolume();
+    if (bytes == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Volume3DScreen(
+          volumeBytes: bytes,
+          siteId: _c.site.icao,
+          basemapUrl: widget.shared.basemap.url,
+        ),
+      ),
+    );
+  }
+
+  /// A tap with the cursor active either releases the pin (when it landed on
+  /// the pin itself) or re-aims. The 24 px hit test needs the camera, which
+  /// is why it lives here rather than in the controller.
+  void _onCursorTap(LatLng p) {
+    final existing = _c.cursorPos;
+    if (_c.cursorPinned && existing != null && _mapReady) {
+      final cam = _mapController.camera;
+      final d =
+          (cam.latLngToScreenOffset(existing) - cam.latLngToScreenOffset(p))
+              .distance;
+      if (d < 24) {
+        _c.unpinCursor();
+        return;
+      }
+    }
+    _c.aimCursor(p, fromTap: true);
+  }
+
+  /// Zoomed out past a single radar's useful range, hand over to the
+  /// national mosaic.
+  ///
+  /// Labelled panes means there is more than one of them. Asking the
+  /// workspace which layout it wants would be the wrong question: what
+  /// matters is how many panes are actually on screen, which is what the
+  /// label strip already tracks.
+  void _maybeSwitchMosaic() => _c.maybeSwitchMosaic(multiPane: widget.showHeader);
+
+  // ------------------------------------------------------ chrome sizing ----
 
   /// Whether there is room for a colour key in this pane at all. A pane too
   /// small for one is better off showing the weather.
@@ -403,796 +394,9 @@ class RadarPaneState extends State<RadarPane> {
     return room.clamp(70.0, 168.0);
   }
 
-  /// UTC timestamp of the frame on screen, for the status bar.
-  DateTime? get frameTime {
-    final f = _displayFrame;
-    if (f == null) return null;
-    return DateTime.fromMillisecondsSinceEpoch(
-      f.meta.timestamp.toInt() * 1000,
-      isUtc: true,
-    );
-  }
-
-  /// Age of the newest frame we hold, regardless of where the loop is.
-  Duration? get dataAge {
-    if (_frames.isEmpty) return null;
-    return DateTime.now().toUtc().difference(
-          DateTime.fromMillisecondsSinceEpoch(
-            _frames.last.meta.timestamp.toInt() * 1000,
-            isUtc: true,
-          ),
-        );
-  }
-
   static String _ageLabel(Duration age) =>
       age.inHours >= 1 ? '${age.inHours}h' : '${age.inMinutes}m';
 
-  /// Whether the newest scan is old enough to say so. Never during replay:
-  /// data from 1998 is meant to be old.
-  bool get isStale {
-    if (widget.shared.historyTime != null) return false;
-    final age = dataAge;
-    return age != null && age > staleAfter;
-  }
-
-  double? get elevationDeg {
-    final f = _displayFrame;
-    if (f == null || !_product.hasTilts) return null;
-    return f.meta.elevationDeg;
-  }
-
-  // ----------------------------------------------------------- commands ----
-
-  void setProduct(RadarProduct p) {
-    if (identical(p, _product)) return;
-    setState(() {
-      _product = p;
-      _futureFrame = null;
-    });
-    widget.onChanged();
-    unawaited(loadFrames());
-  }
-
-  void setTilt(int t) {
-    if (t == _tilt) return;
-    setState(() {
-      _tilt = t;
-      _futureFrame = null;
-    });
-    widget.onChanged();
-    unawaited(loadFrames());
-  }
-
-  void selectSite(NexradSite s, {bool moveMap = false}) {
-    if (s.icao == _site.icao) return;
-    setState(() {
-      _site = s;
-      _futureFrame = null;
-    });
-    // Locked panes move too. Picking a radar is an explicit command, the
-    // same class as "my location" and zoom-to-alert, which already override
-    // the lock. Holding a locked pane's framing across a site change left it
-    // pointed at ground the new radar cannot see, so it went blank — which
-    // reads as the pane having failed to switch at all.
-    if (moveMap && _mapReady) {
-      _mapController.move(LatLng(s.lat, s.lon), _mapController.camera.zoom);
-    }
-    widget.onChanged();
-    unawaited(loadFrames());
-  }
-
-  void toggleCursor() {
-    setState(() {
-      _cursor = !_cursor;
-      if (!_cursor) {
-        _cursorPos = null;
-        _cursorSample = null;
-        _cursorPinned = false;
-      }
-    });
-    widget.onChanged();
-    if (_cursor) unawaited(_openCursorSession());
-  }
-
-  void toggleTracks() {
-    setState(() {
-      _tracks = !_tracks;
-      if (!_tracks) {
-        _stormTracks = [];
-        _mesos = [];
-      }
-    });
-    widget.onChanged();
-    if (_tracks) unawaited(_updateTracks());
-  }
-
-  /// Adopt another pane's site and tilt in one step.
-  ///
-  /// Separate from [selectSite] and [setTilt] so rejoining a group costs one
-  /// reload rather than two, and so a pane that is already in step does
-  /// nothing at all.
-  void syncTo({NexradSite? site, int? tilt}) {
-    final newSite = (site != null && site.icao != _site.icao) ? site : null;
-    final newTilt = (tilt != null && tilt != _tilt) ? tilt : null;
-    if (newSite == null && newTilt == null) return;
-    setState(() {
-      if (newSite != null) _site = newSite;
-      if (newTilt != null) _tilt = newTilt;
-      _futureFrame = null;
-    });
-    widget.onChanged();
-    unawaited(loadFrames());
-  }
-
-  void toggleIsolate() {
-    // Carry the frame across so the picture does not jump at the moment the
-    // pane changes hands between the two clocks.
-    final carried = _shownFrame;
-    setState(() {
-      _isolated = !_isolated;
-      if (_isolated) {
-        _localIndex = carried;
-        _localFrameCount = widget.shared.frameCount;
-        _localPlaying = widget.shared.playing;
-      } else {
-        _localPlaying = false;
-      }
-    });
-    if (_isolated) {
-      // Out of the group: stop stretching the shared loop's length.
-      widget.shared.forgetPane(widget.paneId);
-    } else {
-      widget.shared.reportFrames(widget.paneId, _frames.length);
-    }
-    _syncLocalAnim();
-    widget.onChanged();
-  }
-
-  void toggleMeasure() {
-    setState(() {
-      _measuring = !_measuring;
-      _measurePts.clear();
-    });
-    widget.onChanged();
-  }
-
-  void toggleFuture() {
-    setState(() {
-      _future = !_future;
-      if (!_future) _futureFrame = null;
-    });
-    widget.onChanged();
-    if (_future) unawaited(_renderFuture());
-  }
-
-  /// Move this pane's camera without echoing the move back to the workspace.
-  /// Used for view linking; guarded so a pane that is already there does not
-  /// start a ping-pong of moves between panes.
-  ///
-  /// A locked pane ignores this. [force] is for the explicit "take me there"
-  /// commands aimed at this pane in particular — a button the user just
-  /// pressed has to do something, even when the pane is locked.
-  void applyCamera(LatLng center, double zoom, {bool force = false}) {
-    if (!mounted || !_mapReady) return;
-    if (_isolated && !force) return;
-    final cam = _mapController.camera;
-    const eps = 1e-7;
-    if ((cam.center.latitude - center.latitude).abs() < eps &&
-        (cam.center.longitude - center.longitude).abs() < eps &&
-        (cam.zoom - zoom).abs() < eps) {
-      return;
-    }
-    _mapController.move(center, zoom);
-  }
-
-  void frameBounds(LatLngBounds bounds, {bool force = false}) {
-    if (!_mapReady) return;
-    if (_isolated && !force) return;
-    _mapController.fitCamera(
-      CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(48)),
-    );
-  }
-
-  // --------------------------------------------------------------- data ----
-
-  Future<void> loadFrames() async {
-    final generation = ++_loadGeneration;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    widget.onChanged();
-    try {
-      final frames = _product.isMrms
-          ? await _loadMrmsFrames()
-          : _product.isLevel2
-              ? await _loadLevel2Frames()
-              : await _loadLevel3Frames();
-      if (generation != _loadGeneration || !mounted) return;
-      for (final f in frames) {
-        // Warm the image cache so animation doesn't flicker.
-        // ignore: use_build_context_synchronously
-        await precacheImage(f.image, context);
-      }
-      if (generation != _loadGeneration || !mounted) return;
-      setState(() {
-        _frames = frames;
-        _loading = false;
-      });
-      if (!_isolated) {
-        widget.shared.reportFrames(widget.paneId, frames.length);
-      }
-      widget.onChanged();
-      // Sharpen for the current viewport right away.
-      unawaited(_renderViewport());
-      unawaited(_updateTracks());
-      unawaited(_loadColorKey(frames.isEmpty ? null : frames.last));
-      if (_cursor) unawaited(_openCursorSession());
-    } catch (e) {
-      if (generation != _loadGeneration || !mounted) return;
-      setState(() {
-        _loading = false;
-        _error = e.toString();
-      });
-      if (!_isolated) widget.shared.reportFrames(widget.paneId, 0);
-      widget.onChanged();
-    }
-  }
-
-  Future<List<_Frame>> _loadLevel3Frames() async {
-    final productCode = _product.code(_tilt);
-    final keys = await listRecentKeys(
-      _site.shortId,
-      productCode,
-      count: frameCount,
-      before: widget.shared.historyTime,
-    );
-    if (keys.isEmpty) {
-      throw Exception('no recent $productCode data for ${_site.icao}');
-    }
-    return Future.wait(keys.map((key) async {
-      final bytes = Uint8List.fromList(await fetchObject(key));
-      final frame = await renderLevel3Frame(data: bytes, imageSize: 1024);
-      return _Frame(frame, MemoryImage(frame.png), bytes);
-    }));
-  }
-
-  /// The national mosaic is one CONUS grid per file; decode covers the whole
-  /// country, so the initial render just uses the grid's own bounds.
-  Future<List<_Frame>> _loadMrmsFrames() async {
-    final keys = await listRecentMosaics(
-      count: math.min(frameCount, 6),
-      before: widget.shared.historyTime,
-    );
-    if (keys.isEmpty) throw Exception('no recent MRMS mosaics');
-    final frames = <_Frame>[];
-    for (final key in keys) {
-      final bytes = await fetchMosaic(key);
-      final frame = await renderMrmsView(
-        data: bytes,
-        north: 55,
-        south: 20,
-        east: -60,
-        west: -130,
-        width: 1400,
-        height: 900,
-      );
-      frames.add(
-        _Frame(frame, MemoryImage(frame.png), bytes),
-      );
-    }
-    return frames;
-  }
-
-  /// Level 2 volumes are big (5-15 MB), so cap the loop length and cache the
-  /// raw bytes so tilt/moment switches don't re-download.
-  /// The recent-volume listing for this pane's site, shared so four panes
-  /// asking at the same moment issue one request.
-  Future<List<String>> _volumeKeys(int count) {
-    final before = widget.shared.historyTime;
-    return widget.shared.listing(
-      'vol|${_site.icao}|$count|${before?.toIso8601String() ?? ''}',
-      () => listRecentVolumes(_site.icao, count: count, before: before),
-    );
-  }
-
-  Future<List<_Frame>> _loadLevel2Frames() async {
-    final count = math.min(frameCount, 4);
-    final keys = await _volumeKeys(count);
-    if (keys.isEmpty) {
-      throw Exception('no recent Level 2 volumes for ${_site.icao}');
-    }
-    final frames = <_Frame>[];
-    for (final key in keys) {
-      // Shared across panes: the L2 products a 2x2 compares all read the
-      // same volume, so this is one download for all of them.
-      final bytes = await widget.shared.volume(key, () => fetchVolume(key));
-      final frame = await renderLevel2Frame(
-        data: bytes,
-        moment: _product.l2Moment!,
-        elevationIndex: _product.hasTilts ? _tilt : 0,
-        imageSize: 1024,
-      );
-      frames.add(_Frame(frame, MemoryImage(frame.png), bytes));
-    }
-    return frames;
-  }
-
-  /// Fetch NOAA's storm tracks for this site.
-  ///
-  /// These come from the NWS's own SCIT, published as Level 3 STI, rather
-  /// than being worked out here: it runs across seven reflectivity thresholds
-  /// with full vertical integration and gives a forecast error estimate, none
-  /// of which is reachable from one 2D field on device.
-  ///
-  /// Independent of the displayed product, so the overlay works the same over
-  /// velocity or CC as over reflectivity.
-  Future<void> _updateTracks() async {
-    if (!_tracks || _tracksBusy) return;
-    _tracksBusy = true;
-    try {
-      final keys = await listRecentKeys(
-        _site.shortId,
-        'NST',
-        count: 1,
-        before: widget.shared.historyTime,
-      );
-      if (keys.isEmpty) {
-        if (mounted && _tracks) setState(() => _stormTracks = []);
-        return;
-      }
-      final bytes = Uint8List.fromList(await fetchObject(keys.last));
-      final tracks = await stormTracks(data: bytes);
-
-      // Mesocyclones ride along: same overlay, same product family, and the
-      // circulation table carries the storm id so the two tie together. A
-      // volume with no rotation publishes an empty product, which is an
-      // answer rather than a failure.
-      var circs = <MesoHit>[];
-      try {
-        final mdKeys = await listRecentKeys(
-          _site.shortId,
-          'NMD',
-          count: 1,
-          before: widget.shared.historyTime,
-        );
-        if (mdKeys.isNotEmpty) {
-          circs = await mesocyclones(
-            data: Uint8List.fromList(await fetchObject(mdKeys.last)),
-          );
-        }
-      } catch (_) {
-        // Tracks are still worth showing without rotation data.
-      }
-
-      if (!mounted || !_tracks) return;
-      setState(() {
-        _stormTracks = tracks;
-        _mesos = circs;
-      });
-    } catch (_) {
-      // Tracks are an extra: a failure here must not disturb the radar. A
-      // site with no storms publishes no cells, which is not an error.
-      if (mounted && _tracks) {
-        setState(() {
-          _stormTracks = [];
-          _mesos = [];
-        });
-      }
-    } finally {
-      _tracksBusy = false;
-    }
-  }
-
-  /// Fetch the colour scale for whatever is on screen. Keyed by product plus
-  /// palette generation so an imported `.pal` refreshes the key too.
-  Future<void> _loadColorKey(_Frame? frame) async {
-    final id = '${_product.short}|${widget.shared.paletteGeneration}';
-    if (_keyFor == id) return;
-    try {
-      final scale = await colorScale(
-        productCode: _product.isLevel2 || _product.isMrms
-            ? 0
-            : (frame?.meta.productCode ?? 0),
-        moment: _product.l2Moment ?? '',
-      );
-      if (!mounted) return;
-      setState(() {
-        _keyScale = scale;
-        _keyFor = id;
-      });
-    } catch (_) {
-      // The map is still readable without a key.
-    }
-  }
-
-  // ------------------------------------------------------------- cursor ----
-
-  /// Point the cursor at the frame currently on screen. Cheap to call: the
-  /// engine keeps the decoded sweep so each aim is just a lookup.
-  Future<void> _openCursorSession() async {
-    if (!_cursor || _frames.isEmpty || _product.isMrms) return;
-    final frame = _frames[_shownFrame];
-    try {
-      if (_product.isLevel2) {
-        await inspectOpenLevel2(
-          data: frame.raw,
-          moment: _product.l2Moment!,
-          elevationIndex: _product.hasTilts ? _tilt : 0,
-        );
-      } else {
-        await inspectOpenLevel3(data: frame.raw);
-      }
-      final site = await inspectSite();
-      if (!mounted) return;
-      setState(() {
-        _cursorSite = site.length >= 2 ? LatLng(site[0], site[1]) : null;
-      });
-      // Keep a pinned readout current as frames advance.
-      final at = _cursorPos;
-      if (at != null) {
-        final s = await inspectSample(lat: at.latitude, lon: at.longitude);
-        if (mounted) setState(() => _cursorSample = s);
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    }
-  }
-
-  /// Aim at a point and read the value there. Throttled so a moving pointer
-  /// doesn't queue up work. A tap pins the cursor so it stays put (tapping
-  /// it again releases it); while pinned, hovering does not move it.
-  Future<void> _aimCursor(LatLng p, {bool fromTap = false}) async {
-    if (!_cursor) return;
-    if (fromTap) {
-      final existing = _cursorPos;
-      if (_cursorPinned && existing != null && _mapReady) {
-        final cam = _mapController.camera;
-        final d =
-            (cam.latLngToScreenOffset(existing) - cam.latLngToScreenOffset(p))
-                .distance;
-        if (d < 24) {
-          // Tapped the pin itself: release it.
-          setState(() => _cursorPinned = false);
-          return;
-        }
-      }
-      setState(() => _cursorPinned = true);
-    } else if (_cursorPinned) {
-      return; // pinned: ignore pointer movement
-    }
-    setState(() => _cursorPos = p);
-    final now = DateTime.now();
-    if (!fromTap &&
-        (_cursorBusy || now.difference(_cursorLast).inMilliseconds < 60)) {
-      return;
-    }
-    _cursorBusy = true;
-    _cursorLast = now;
-    try {
-      final s = await inspectSample(lat: p.latitude, lon: p.longitude);
-      if (mounted) setState(() => _cursorSample = s);
-    } catch (_) {
-      // No session yet (product switch in flight); next aim will retry.
-    } finally {
-      _cursorBusy = false;
-    }
-  }
-
-  // -------------------------------------------------------------- tools ----
-
-  /// Write the current radar image to ~/Pictures/taa-yuku-radar. Named apart
-  /// from the `saveSnapshot` it calls: a method of the same name would win
-  /// over the library function inside this class and recurse.
-  String? saveFrameSnapshot() {
-    final frame = _displayFrame;
-    if (frame == null) return null;
-    try {
-      final f = saveSnapshot(
-        frame.meta.png,
-        '${_product.isMrms ? 'MRMS' : _site.icao}_${_product.short}'
-            .replaceAll(' ', ''),
-      );
-      return f.path;
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-      return null;
-    }
-  }
-
-  /// Open the 3D volume view on the Level 2 volume for this site, at the
-  /// moment currently being shown.
-  ///
-  /// `before` matters: without it replay showed the chosen time on the map
-  /// while 3D silently jumped to now, which is worse than not replaying at
-  /// all because nothing on screen says the two disagree.
-  Future<void> open3D() async {
-    setState(() => _loading = true);
-    widget.onChanged();
-    try {
-      final keys = await _volumeKeys(1);
-      if (keys.isEmpty) throw Exception('no volume for ${_site.icao}');
-      final bytes =
-          await widget.shared.volume(keys.last, () => fetchVolume(keys.last));
-      if (!mounted) return;
-      setState(() => _loading = false);
-      widget.onChanged();
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => Volume3DScreen(
-            volumeBytes: bytes,
-            siteId: _site.icao,
-            basemapUrl: widget.shared.basemap.url,
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = e.toString();
-      });
-      widget.onChanged();
-    }
-  }
-
-  void _onMeasureTap(LatLng p) {
-    setState(() {
-      if (_measurePts.length >= 2) _measurePts.clear();
-      _measurePts.add(p);
-    });
-  }
-
-  Future<void> _inspect(LatLng p) async {
-    if (_frames.isEmpty || _product.isMrms) return;
-    final frame = _frames[_shownFrame];
-    try {
-      final s = _product.isLevel2
-          ? await sampleLevel2(
-              data: frame.raw,
-              moment: _product.l2Moment!,
-              elevationIndex: _product.hasTilts ? _tilt : 0,
-              lat: p.latitude,
-              lon: p.longitude,
-            )
-          : await sampleLevel3(
-              data: frame.raw,
-              lat: p.latitude,
-              lon: p.longitude,
-            );
-      final beamKft = s.beamHeightM * 3.28084 / 1000.0;
-      final valueText = s.rangeFolded
-          ? 'RF'
-          : s.value == null
-              ? 'no data'
-              : '${s.value!.toStringAsFixed(1)} ${s.unit}'.trim();
-      if (!mounted) return;
-      setState(() {
-        _samplePos = p;
-        _sampleText = s.distanceKm <= 0
-            ? 'outside radar coverage'
-            : '$valueText  ·  ${s.distanceKm.toStringAsFixed(0)} km'
-                '  ·  beam ${beamKft.toStringAsFixed(1)} kft';
-      });
-      _sampleClear?.cancel();
-      _sampleClear = Timer(const Duration(seconds: 8), () {
-        if (mounted) {
-          setState(() {
-            _sampleText = null;
-            _samplePos = null;
-          });
-        }
-      });
-    } catch (_) {
-      // Sampling is best-effort.
-    }
-  }
-
-  // ------------------------------------------------------------- render ----
-
-
-  /// Visible box expanded slightly, clipped to the data extent, plus the
-  /// pixel size to render it at.
-  ({double n, double s, double e, double w, int width, int height})?
-      _viewBox() {
-    if (_frames.isEmpty || !mounted || !_mapReady) return null;
-    if (_paneSize.width <= 0) return null;
-    final cam = _mapController.camera;
-    final vis = cam.visibleBounds;
-    final dLat = (vis.north - vis.south) * 0.25;
-    final dLon = (vis.east - vis.west) * 0.25;
-    var north = vis.north + dLat;
-    var south = vis.south - dLat;
-    var east = vis.east + dLon;
-    var west = vis.west - dLon;
-    final d = _frames.first.dataBounds;
-    north = math.min(north, d.north);
-    south = math.max(south, d.south);
-    east = math.min(east, d.east);
-    west = math.max(west, d.west);
-    if (north <= south || east <= west) return null;
-
-    // Pixel size: match this pane's on-screen density, capped to keep
-    // renders fast. Four panes at a quarter of the area each therefore ask
-    // for a quarter of the pixels, rather than four full-window renders.
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final pxPerLon = _paneSize.width * dpr / (vis.east - vis.west);
-    final width = ((east - west) * pxPerLon).round().clamp(256, 2200);
-    double mercY(double latDeg) {
-      final lat = latDeg * math.pi / 180.0;
-      return math.log(math.tan(math.pi / 4 + lat / 2));
-    }
-
-    final aspect =
-        (mercY(north) - mercY(south)) / ((east - west) * math.pi / 180.0);
-    final height = (width * aspect).round().clamp(256, 2200);
-    return (n: north, s: south, e: east, w: west, width: width, height: height);
-  }
-
-  /// Extrapolate the two most recent frames forward on-device.
-  Future<void> _renderFuture() async {
-    if (!_future || _futureBusy) return;
-    if (_product.isLevel2) {
-      setState(() => _error = 'Future radar needs a Level 3 or mosaic product');
-      widget.onChanged();
-      return;
-    }
-    if (_frames.length < 2) {
-      // Need a previous scan to measure motion against.
-      if (frameCount < 4) {
-        if (_isolated) {
-          setFrameCount(4);
-        } else {
-          widget.shared.setFrameCount(4);
-        }
-        await loadFrames();
-      }
-      if (_frames.length < 2 || !_future) return;
-    }
-    final box = _viewBox();
-    if (box == null) return;
-    _futureBusy = true;
-    try {
-      final r = await nowcastView(
-        prev: _frames[_frames.length - 2].raw,
-        latest: _frames.last.raw,
-        source: _product.isMrms ? 'MRMS' : 'L3',
-        minutes: _futureMinutes,
-        north: box.n,
-        south: box.s,
-        east: box.e,
-        west: box.w,
-        width: box.width,
-        height: box.height,
-      );
-      if (!mounted || !_future) return;
-      final img = MemoryImage(r.png);
-      // ignore: use_build_context_synchronously
-      await precacheImage(img, context);
-      if (!mounted || !_future) return;
-      setState(() => _futureFrame = _Frame(r, img, Uint8List(0)));
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    } finally {
-      _futureBusy = false;
-    }
-  }
-
-  /// Zoomed out past a single radar's useful range, hand over to the
-  /// national mosaic; zoom back in and the site radar returns.
-  ///
-  /// Only in the single-pane layout. In a multi-panel comparison this would
-  /// be actively hostile: zooming out to see the whole line would silently
-  /// replace the velocity and dual-pol panes with four copies of the same
-  /// mosaic, throwing away the arrangement the user built.
-  void _maybeSwitchMosaic() {
-    if (_loading || !_mapReady) return;
-    // Labelled panes means there is more than one of them. Asking the
-    // workspace which layout it wants would be the wrong question: what
-    // matters is how many panes are actually on screen, which is what the
-    // label strip already tracks.
-    if (widget.showHeader) return;
-    final z = _mapController.camera.zoom;
-    if (z < 6.0 && identical(_product, productRef)) {
-      setProduct(mrmsProduct);
-    } else if (z >= 6.5 && _product.isMrms) {
-      setProduct(productRef);
-    }
-  }
-
-  /// Re-render all loaded frames for the current viewport at (roughly)
-  /// screen resolution, so 250 m gates stay sharp when zoomed in.
-  /// Re-render the loaded frames for the current viewport, so 250 m gates
-  /// stay sharp when zoomed in.
-  ///
-  /// The frame on screen goes first and is swapped in on its own, because
-  /// that is the one being waited on. The rest of the loop follows. Doing
-  /// the whole loop before showing anything meant a twelve-frame animation
-  /// took twelve renders to sharpen — and for Level 2, twelve re-decodes of
-  /// a 5-15 MB volume.
-  Future<void> _renderViewport() async {
-    if (_frames.isEmpty || !mounted) return;
-    final box = _viewBox();
-    if (box == null) return;
-    final generation = ++_viewGeneration;
-    final bounds = LatLngBounds(LatLng(box.n, box.w), LatLng(box.s, box.e));
-
-    Future<MemoryImage?> renderOne(_Frame f) async {
-      try {
-        final r = _product.isMrms
-            ? await renderMrmsView(
-                data: f.raw,
-                north: box.n,
-                south: box.s,
-                east: box.e,
-                west: box.w,
-                width: box.width,
-                height: box.height,
-              )
-            : _product.isLevel2
-                ? await renderLevel2View(
-                    data: f.raw,
-                    moment: _product.l2Moment!,
-                    elevationIndex: _product.hasTilts ? _tilt : 0,
-                    north: box.n,
-                    south: box.s,
-                    east: box.e,
-                    west: box.w,
-                    width: box.width,
-                    height: box.height,
-                  )
-                : await renderLevel3View(
-                    data: f.raw,
-                    north: box.n,
-                    south: box.s,
-                    east: box.e,
-                    west: box.w,
-                    width: box.width,
-                    height: box.height,
-                  );
-        return MemoryImage(r.png);
-      } catch (_) {
-        // One bad frame must not cost the rest of the loop its sharpening.
-        return null;
-      }
-    }
-
-    final shown = _shownFrame;
-    final first = await renderOne(_frames[shown]);
-    if (generation != _viewGeneration || !mounted) return;
-    if (first != null) {
-      await precacheImage(first, context);
-      if (generation != _viewGeneration || !mounted) return;
-      setState(() {
-        _frames[shown].image = first;
-        _frames[shown].bounds = bounds;
-      });
-    }
-
-    final rest = [
-      for (var i = 0; i < _frames.length; i++)
-        if (i != shown) i,
-    ];
-    if (rest.isNotEmpty) {
-      final images = await Future.wait(rest.map((i) => renderOne(_frames[i])));
-      if (generation != _viewGeneration || !mounted) return;
-      await Future.wait([
-        for (final img in images)
-          if (img != null) precacheImage(img, context),
-      ]);
-      if (generation != _viewGeneration || !mounted) return;
-      setState(() {
-        for (var k = 0; k < rest.length; k++) {
-          final img = images[k];
-          if (img == null) continue;
-          _frames[rest[k]].image = img;
-          _frames[rest[k]].bounds = bounds;
-        }
-      });
-    }
-
-    if (_future) unawaited(_renderFuture());
-  }
 
   /// Colour for a strike by age: bright white-yellow when fresh, fading to
   /// dim orange over twenty minutes.
@@ -1246,7 +450,7 @@ class RadarPaneState extends State<RadarPane> {
   @override
   Widget build(BuildContext context) {
     final shared = widget.shared;
-    final frame = _displayFrame;
+    final frame = _c.displayFrame;
 
     return LayoutBuilder(builder: (context, constraints) {
       // Recording the pane's size here is what lets viewport re-renders ask
@@ -1258,7 +462,7 @@ class RadarPaneState extends State<RadarPane> {
         _paneSize = size;
         if (had != Size.zero) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) unawaited(_renderViewport());
+            if (mounted) unawaited(_c.renderViewport());
           });
         }
       }
@@ -1284,7 +488,7 @@ class RadarPaneState extends State<RadarPane> {
                 Positioned.fill(child: _map(shared, frame)),
                 if (widget.showHeader)
                   Positioned(top: 0, left: 0, right: 0, child: _header(shared)),
-                if (_loading)
+                if (_c.loading)
                   Positioned(
                     // Under the label strip rather than through it.
                     top: widget.showHeader ? _headerH : 0,
@@ -1297,19 +501,19 @@ class RadarPaneState extends State<RadarPane> {
                 // labelled with class ids, which are not a quantity and mean
                 // nothing to read off. The colours are the NWS's own, not our
                 // 3D classifier's, because this is their product on screen.
-                if (_keyFits && (_product.short == 'HCA' || _keyScale != null))
+                if (_keyFits && (_c.product.short == 'HCA' || _c.keyScale != null))
                   Positioned(
                     right: 4,
                     top: 0,
                     bottom: 0,
                     child: Center(
-                      child: _product.short == 'HCA'
+                      child: _c.product.short == 'HCA'
                           ? const HydroLegend(classes: nwsHydrometeorClasses)
                           : ColorKey(
-                              scale: _keyScale!,
+                              scale: _c.keyScale!,
                               barHeight: _keyBarHeight,
-                              rangeFolded: _product.short.contains('VEL') ||
-                                  _product.short.contains('SRM'),
+                              rangeFolded: _c.product.short.contains('VEL') ||
+                                  _c.product.short.contains('SRM'),
                             ),
                     ),
                   ),
@@ -1351,14 +555,14 @@ class RadarPaneState extends State<RadarPane> {
       child: Row(
         children: [
           Text(
-            _product.isMrms ? 'CONUS' : _site.icao,
+            _c.product.isMrms ? 'CONUS' : _c.site.icao,
             style: Wx.label.copyWith(
               fontWeight: FontWeight.w700,
               color: widget.focused ? Wx.accent : Wx.text,
             ),
           ),
           const SizedBox(width: 6),
-          Text(_product.bareShort, style: Wx.labelDim),
+          Text(_c.product.bareShort, style: Wx.labelDim),
           if (el != null) ...[
             const SizedBox(width: 5),
             Text('${el.toStringAsFixed(1)}°', style: Wx.labelDim),
@@ -1376,9 +580,9 @@ class RadarPaneState extends State<RadarPane> {
                 child: Icon(Icons.cloud_off, size: 12, color: Wx.danger),
               ),
             ),
-          if (_error != null)
+          if (_c.error != null)
             Tooltip(
-              message: _error!,
+              message: _c.error!,
               child: const Padding(
                 padding: EdgeInsets.only(right: 5),
                 child: Icon(Icons.error_outline, size: 12, color: Wx.warn),
@@ -1396,14 +600,14 @@ class RadarPaneState extends State<RadarPane> {
           // group. Same link/link-off vocabulary as the workspace's Link
           // menu, because this is the per-pane half of the same idea.
           WxButton(
-            icon: _isolated ? Icons.link_off : Icons.link,
-            tooltip: _isolated
+            icon: _c.isolated ? Icons.link_off : Icons.link,
+            tooltip: _c.isolated
                 ? 'Isolated — this pane ignores the others and does not move '
                     'them. Click to rejoin the linked panes.'
                 : 'Isolate this pane from the linked panes',
             height: _headerH,
             dense: true,
-            color: _isolated ? Wx.accent : Wx.textFaint,
+            color: _c.isolated ? Wx.accent : Wx.textFaint,
             onTap: widget.onIsolateToggled,
           ),
         ],
@@ -1411,23 +615,23 @@ class RadarPaneState extends State<RadarPane> {
     );
   }
 
-  Widget _map(WorkspaceState shared, _Frame? frame) {
+  Widget _map(WorkspaceState shared, DisplayFrame? frame) {
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: widget.initialCenter ?? LatLng(_site.lat, _site.lon),
+        initialCenter: widget.initialCenter ?? LatLng(_c.site.lat, _c.site.lon),
         initialZoom: widget.initialZoom ?? 7,
         minZoom: 3,
         maxZoom: 15,
         onMapReady: () => _mapReady = true,
         onTap: (tapPos, latlng) {
-          if (_measuring) _onMeasureTap(latlng);
-          if (_cursor) unawaited(_aimCursor(latlng, fromTap: true));
+          if (_c.measuringOn) _c.addMeasurePoint(latlng);
+          if (_c.cursorOn) _onCursorTap(latlng);
         },
         onPointerHover: (event, latlng) {
-          if (_cursor) unawaited(_aimCursor(latlng));
+          if (_c.cursorOn) unawaited(_c.aimCursor(latlng));
         },
-        onLongPress: (tapPos, latlng) => unawaited(_inspect(latlng)),
+        onLongPress: (tapPos, latlng) => unawaited(_c.inspect(latlng)),
         // Pinch-zoom and drag, but no accidental two-finger rotation:
         // a twisted radar map is disorienting and hard to undo on touch.
         interactionOptions: const InteractionOptions(
@@ -1439,7 +643,7 @@ class RadarPaneState extends State<RadarPane> {
           // move that arrived from another pane is how view linking turns
           // into an infinite loop between two maps. A locked pane says
           // nothing either — it is out of the group in both directions.
-          if (!_isolated &&
+          if (!_c.isolated &&
               evt.source != MapEventSource.mapController &&
               evt.source != MapEventSource.fitCamera) {
             widget.onCameraMoved(
@@ -1455,7 +659,7 @@ class RadarPaneState extends State<RadarPane> {
           // gesture would be network for nothing.
           _viewDebounce = Timer(
             const Duration(milliseconds: 350),
-            () => unawaited(_renderViewport()),
+            () => unawaited(_c.renderViewport()),
           );
         },
         backgroundColor: Wx.bg0,
@@ -1557,7 +761,7 @@ class RadarPaneState extends State<RadarPane> {
                 ),
             ],
           ),
-        if (_cursor && _cursorPos != null && _cursorSite != null) ...[
+        if (_c.cursorOn && _c.cursorPos != null && _c.cursorSite != null) ...[
           PolylineLayer(
             polylines: [
               Polyline(
@@ -1565,14 +769,14 @@ class RadarPaneState extends State<RadarPane> {
                 // crosshair at every bearing — even outside radar coverage,
                 // where there is no sample to take a distance from.
                 points: geodesicRing(
-                  _cursorSite!,
-                  distanceBearing(_cursorSite!, _cursorPos!).$1,
+                  _c.cursorSite!,
+                  distanceBearing(_c.cursorSite!, _c.cursorPos!).$1,
                 ),
                 color: Wx.warn.withValues(alpha: 0.85),
                 strokeWidth: 1.5,
               ),
               Polyline(
-                points: [_cursorSite!, _cursorPos!],
+                points: [_c.cursorSite!, _c.cursorPos!],
                 color: Wx.warn.withValues(alpha: 0.9),
                 strokeWidth: 1.5,
               ),
@@ -1581,13 +785,13 @@ class RadarPaneState extends State<RadarPane> {
           MarkerLayer(
             markers: [
               Marker(
-                point: _cursorPos!,
+                point: _c.cursorPos!,
                 width: 26,
                 height: 26,
                 child: IgnorePointer(
                   child: Icon(
-                    _cursorPinned ? Icons.gps_fixed : Icons.add,
-                    size: _cursorPinned ? 22 : 26,
+                    _c.cursorPinned ? Icons.gps_fixed : Icons.add,
+                    size: _c.cursorPinned ? 22 : 26,
                     color: Wx.warn,
                     shadows: const [
                       Shadow(blurRadius: 3, color: Colors.black),
@@ -1598,20 +802,20 @@ class RadarPaneState extends State<RadarPane> {
             ],
           ),
         ],
-        if (_measurePts.length == 2)
+        if (_c.measurePts.length == 2)
           PolylineLayer(
             polylines: [
               Polyline(
-                points: _measurePts,
+                points: _c.measurePts,
                 color: Wx.accent,
                 strokeWidth: 2,
               ),
             ],
           ),
-        if (_measuring)
+        if (_c.measuringOn)
           MarkerLayer(
             markers: [
-              for (final p in _measurePts)
+              for (final p in _c.measurePts)
                 Marker(
                   point: p,
                   width: 12,
@@ -1620,11 +824,11 @@ class RadarPaneState extends State<RadarPane> {
                 ),
             ],
           ),
-        if (_samplePos != null)
+        if (_c.samplePos != null)
           MarkerLayer(
             markers: [
               Marker(
-                point: _samplePos!,
+                point: _c.samplePos!,
                 width: 18,
                 height: 18,
                 child: const Icon(
@@ -1635,11 +839,11 @@ class RadarPaneState extends State<RadarPane> {
               ),
             ],
           ),
-        if (_tracks) ...[
+        if (_c.tracksOn) ...[
           // Projected path, then the cell itself on top of it.
           PolylineLayer(
             polylines: [
-              for (final s in _stormTracks)
+              for (final s in _c.stormTracks)
                 if (s.forecast.isNotEmpty)
                   Polyline(
                     points: [
@@ -1653,7 +857,7 @@ class RadarPaneState extends State<RadarPane> {
           ),
           MarkerLayer(
             markers: [
-              for (final s in _stormTracks) ...[
+              for (final s in _c.stormTracks) ...[
                 for (final f in s.forecast)
                   Marker(
                     point: LatLng(f.lat, f.lon),
@@ -1706,7 +910,7 @@ class RadarPaneState extends State<RadarPane> {
           ),
           MarkerLayer(
             markers: [
-              for (final m in _mesos)
+              for (final m in _c.mesos)
                 Marker(
                   point: LatLng(m.lat, m.lon),
                   width: 74,
@@ -1761,7 +965,7 @@ class RadarPaneState extends State<RadarPane> {
 
   List<Marker> _sites() {
     final cached = _siteMarkers;
-    if (cached != null && _siteMarkersFor == _site.icao) return cached;
+    if (cached != null && _siteMarkersFor == _c.site.icao) return cached;
     final built = [
       for (final s in nexradSites)
         if (!s.isTdwr)
@@ -1774,7 +978,7 @@ class RadarPaneState extends State<RadarPane> {
               child: Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: s.icao == _site.icao ? Wx.accent : Colors.white24,
+                  color: s.icao == _c.site.icao ? Wx.accent : Colors.white24,
                   border: Border.all(color: Colors.black45),
                 ),
               ),
@@ -1782,7 +986,7 @@ class RadarPaneState extends State<RadarPane> {
           ),
     ];
     _siteMarkers = built;
-    _siteMarkersFor = _site.icao;
+    _siteMarkersFor = _c.site.icao;
     return built;
   }
 
@@ -1791,7 +995,7 @@ class RadarPaneState extends State<RadarPane> {
   Widget _readouts() {
     final rows = <Widget>[];
 
-    if (_future) {
+    if (_c.futureOn) {
       rows.add(
         Container(
           height: 30,
@@ -1802,16 +1006,16 @@ class RadarPaneState extends State<RadarPane> {
               const Icon(Icons.fast_forward, size: 13, color: Wx.good),
               const SizedBox(width: 6),
               Text(
-                _futureMinutes == 0 ? 'now' : '+${_futureMinutes.round()} min',
+                _c.futureMinutes == 0 ? 'now' : '+${_c.futureMinutes.round()} min',
                 style: Wx.mono.copyWith(color: Wx.good),
               ),
               Expanded(
                 child: Slider(
-                  value: _futureMinutes,
+                  value: _c.futureMinutes,
                   max: 60,
                   divisions: 12,
-                  onChanged: (v) => setState(() => _futureMinutes = v),
-                  onChangeEnd: (_) => unawaited(_renderFuture()),
+                  onChanged: _c.setFutureMinutes,
+                  onChangeEnd: (_) => _c.commitFutureMinutes(),
                 ),
               ),
               const Text('forecast', style: Wx.labelDim),
@@ -1821,8 +1025,8 @@ class RadarPaneState extends State<RadarPane> {
       );
     }
 
-    if (_cursor && _cursorPos != null && _cursorSample != null) {
-      final c = _cursorSample!;
+    if (_c.cursorOn && _c.cursorPos != null && _c.cursorSample != null) {
+      final c = _c.cursorSample!;
       final value = c.rangeFolded
           ? 'RF'
           : c.value == null
@@ -1831,15 +1035,15 @@ class RadarPaneState extends State<RadarPane> {
       // Range and heading come from the cursor's actual position so they
       // always agree with the ring; the sample supplies the value and the
       // sweep's elevation.
-      final site = _cursorSite;
+      final site = _c.cursorSite;
       final (km, brg) = site == null
           ? (c.distanceKm, c.azimuthDeg)
-          : distanceBearing(site, _cursorPos!);
+          : distanceBearing(site, _c.cursorPos!);
       final kft = beamHeightM(km * 1000, c.elevationDeg) * 3.28084 / 1000.0;
       rows.add(
         _readoutBar(
           accent: Wx.warn,
-          leading: _cursorPinned ? Icons.push_pin : Icons.ads_click,
+          leading: _c.cursorPinned ? Icons.push_pin : Icons.ads_click,
           value: value,
           detail: '${km.toStringAsFixed(1)} km '
               '(${(km * 0.621371).toStringAsFixed(1)} mi)'
@@ -1850,8 +1054,8 @@ class RadarPaneState extends State<RadarPane> {
       );
     }
 
-    if (_measurePts.length == 2) {
-      final (d, b) = distanceBearing(_measurePts[0], _measurePts[1]);
+    if (_c.measurePts.length == 2) {
+      final (d, b) = distanceBearing(_c.measurePts[0], _c.measurePts[1]);
       rows.add(
         _readoutBar(
           accent: Wx.accent,
@@ -1862,7 +1066,7 @@ class RadarPaneState extends State<RadarPane> {
       );
     }
 
-    final sample = _sampleText;
+    final sample = _c.sampleText;
     if (sample != null) {
       rows.add(
         _readoutBar(
