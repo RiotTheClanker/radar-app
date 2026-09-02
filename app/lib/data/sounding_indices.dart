@@ -12,6 +12,45 @@ import 'dart:math' as math;
 import 'sounding_fetcher.dart';
 
 /// Everything derived from one sounding.
+/// What each abbreviation in the indices panel stands for.
+///
+/// Fourteen bare acronyms mean nothing to someone who has not met them
+/// before (#46), so each one says what its letters expand to and what is
+/// being measured.
+///
+/// Deliberately descriptive and never prescriptive. None of these say what a
+/// given value implies for the weather, because this app is explicitly not
+/// anyone's only source of warnings, and a threshold quoted here with
+/// confidence is how somebody talks themselves out of taking shelter. A test
+/// holds that line by rejecting numbers in these strings.
+const soundingIndexHelp = <String, String>{
+  'CAPE': 'Convective available potential energy — the energy a lifted parcel '
+      'can draw on',
+  'CIN': 'Convective inhibition — the energy needed before a parcel can rise '
+      'freely',
+  'MUCAPE': 'CAPE for the most unstable parcel found, rather than one lifted '
+      'from the surface',
+  'LI': 'Lifted index — a lifted parcel\'s temperature against the air around '
+      'it; negative is warmer than its surroundings',
+  'LCL': 'Lifting condensation level — the height a lifted parcel saturates, '
+      'roughly cloud base',
+  'LFC': 'Level of free convection — the height above which a parcel rises on '
+      'its own',
+  'EL': 'Equilibrium level — the height a rising parcel stops being buoyant, '
+      'roughly storm top',
+  '0°C': 'Height of the freezing level',
+  'PWAT': 'Precipitable water — the depth of water if the whole column were '
+      'condensed out',
+  '0-1 SHR': 'Bulk wind shear, surface to 1 km — how much the wind changes '
+      'with height',
+  '0-6 SHR': 'Bulk wind shear, surface to 6 km',
+  'SRH1': 'Storm-relative helicity, surface to 1 km — the spin available to a '
+      'storm moving with the wind',
+  'SRH3': 'Storm-relative helicity, surface to 3 km',
+  'STORM': 'Estimated storm motion — the direction it comes from, and its '
+      'speed',
+};
+
 class SoundingIndices {
   /// Convective available potential energy and inhibition, J/kg, for a parcel
   /// lifted from the surface.

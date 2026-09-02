@@ -175,4 +175,90 @@ void main() {
       expect(i.srh3km, isNull);
     });
   });
+
+  /// The indices panel (#46). Fourteen bare acronyms meant nothing to a
+  /// newcomer; these are what the letters expand to.
+  group('index help text', () {
+    /// Every abbreviation the panel can draw must have words behind it, or
+    /// the long-press does nothing and the label is bare again for that one.
+    test('covers every index the panel shows', () {
+      const shown = [
+        'CAPE', 'CIN', 'MUCAPE', 'LI', 'LCL', 'LFC', 'EL', '0°C',
+        'PWAT', '0-1 SHR', '0-6 SHR', 'SRH1', 'SRH3', 'STORM',
+      ];
+      for (final label in shown) {
+        expect(soundingIndexHelp.containsKey(label), isTrue,
+            reason: '$label has no explanation');
+        expect(soundingIndexHelp[label]!.trim(), isNotEmpty);
+      }
+      expect(soundingIndexHelp.length, shown.length,
+          reason: 'no explanations for indices that are not displayed');
+    });
+
+    /// The line this app should not cross. Saying what CAPE measures is
+    /// help; saying what 3000 J/kg means for this afternoon is a forecast,
+    /// from a tool whose own README says never to rely on it as your only
+    /// source of warnings. Digits are a blunt proxy for a threshold, and a
+    /// blunt proxy is what makes this catchable.
+    test('describes what is measured, never what a value implies', () {
+      for (final entry in soundingIndexHelp.entries) {
+        // Naming a layer ("surface to 1 km") is describing where something is
+        // measured, not asserting what a reading means, so it is the one
+        // numeric form these are allowed.
+        final claims = entry.value.replaceAll(RegExp(r'\d+ km'), 'a layer');
+        expect(
+          RegExp(r'\d').hasMatch(claims),
+          isFalse,
+          reason: '${entry.key} quotes a number: "${entry.value}"',
+        );
+      }
+    });
+
+    test('reads as a sentence, not another abbreviation', () {
+      for (final entry in soundingIndexHelp.entries) {
+        expect(entry.value.length, greaterThan(20),
+            reason: '${entry.key} is too terse to help');
+      }
+    });
+  });
+
+  /// Choosing a launch site (#48). Seventy sites in table order is a scroll
+  /// through half a continent; nearest-first puts the one over the storm you
+  /// are looking at at the top.
+  group('launch site ordering', () {
+    // Norman, Oklahoma, whose own launch site is OUN.
+    const lat = 35.2, lon = -97.4;
+
+    test('nearest first', () {
+      final ranked = raobSitesByDistance(lat, lon);
+      expect(ranked.first.id, 'OUN');
+      expect(ranked.length, raobSites.length,
+          reason: 'ordering, not filtering — every site stays reachable');
+    });
+
+    test('distances come out ascending', () {
+      final ranked = raobSitesByDistance(lat, lon);
+      var previous = -1.0;
+      for (final s in ranked) {
+        final d = raobDistanceKm(lat, lon, s);
+        expect(d, greaterThanOrEqualTo(previous));
+        previous = d;
+      }
+    });
+
+    test('nearestRaobSite still agrees with the ordering', () {
+      expect(nearestRaobSite(lat, lon).id, raobSitesByDistance(lat, lon).first.id);
+    });
+
+    /// The number shown beside each name. OUN to LMN (Lamont) is about 165 km
+    /// on the ground, and a flat approximation over that distance should not
+    /// be visibly wrong.
+    test('the distance shown is about right', () {
+      final oun = raobSites.firstWhere((s) => s.id == 'OUN');
+      final lmn = raobSites.firstWhere((s) => s.id == 'LMN');
+      final d = raobDistanceKm(oun.lat, oun.lon, lmn);
+      expect(d, inInclusiveRange(150, 185));
+      expect(raobDistanceKm(oun.lat, oun.lon, oun), lessThan(1));
+    });
+  });
 }

@@ -77,12 +77,23 @@ class _SoundingScreenState extends State<SoundingScreen> {
               setState(() => _site = site);
               _load();
             },
+            // Ordered outward from whichever site is open, which on arrival
+            // is the one nearest the radar you were watching — so the sites
+            // over the same weather are at the top instead of wherever the
+            // table happened to list them (#48). Picking one re-orders the
+            // list around it, which is what you want when working along a
+            // line of storms.
             itemBuilder: (context) => [
-              for (final site in raobSites)
+              for (final site in raobSitesByDistance(_site.lat, _site.lon))
                 CheckedPopupMenuItem(
                   value: site,
                   checked: site.id == _site.id,
-                  child: Text('${site.id} — ${site.name}'),
+                  child: Text(
+                    site.id == _site.id
+                        ? '${site.id} — ${site.name}'
+                        : '${site.id} — ${site.name}  ·  '
+                            '${raobDistanceKm(_site.lat, _site.lon, site).round()} km',
+                  ),
                 ),
             ],
           ),
@@ -143,9 +154,9 @@ class _SoundingScreenState extends State<SoundingScreen> {
           ),
         ],
         actions: const [
-          _Swatch(color: Color(0xFFFF5252), label: 'temp'),
+          _Swatch(color: Color(0xFFFF5252), label: 'Temperature'),
           SizedBox(width: 10),
-          _Swatch(color: Color(0xFF69F0AE), label: 'dewpt'),
+          _Swatch(color: Color(0xFF69F0AE), label: 'Dew point'),
         ],
       ),
     );
@@ -163,26 +174,29 @@ class _Indices extends StatelessWidget {
     String n(double? v, {int dp = 0, String unit = ''}) =>
         v == null ? '—' : '${v.toStringAsFixed(dp)}$unit';
 
+    // Acronym and value; the words behind the acronym come from
+    // soundingIndexHelp in the data layer, where they can be reviewed and
+    // tested as content rather than buried in a widget (#46).
     final cells = <(String, String)>[
-      ('CAPE', n(indices.capeJkg)),
-      ('CIN', n(indices.cinJkg)),
-      ('MUCAPE', n(indices.muCapeJkg)),
-      ('LI', n(indices.liC, dp: 1)),
-      ('LCL', n(indices.lclM, unit: 'm')),
-      ('LFC', n(indices.lfcM, unit: 'm')),
-      ('EL', n(indices.elM, unit: 'm')),
-      ('0°C', n(indices.freezingM, unit: 'm')),
-      ('PWAT', n(indices.pwatMm, dp: 1, unit: 'mm')),
-      ('0-1 SHR', n(indices.shear1kmKt, unit: 'kt')),
-      ('0-6 SHR', n(indices.shear6kmKt, unit: 'kt')),
-      ('SRH1', n(indices.srh1km)),
-      ('SRH3', n(indices.srh3km)),
+      ('CAPE', n(indices.capeJkg, unit: ' J/kg')),
+      ('CIN', n(indices.cinJkg, unit: ' J/kg')),
+      ('MUCAPE', n(indices.muCapeJkg, unit: ' J/kg')),
+      ('LI', n(indices.liC, dp: 1, unit: '°C')),
+      ('LCL', n(indices.lclM, unit: ' m')),
+      ('LFC', n(indices.lfcM, unit: ' m')),
+      ('EL', n(indices.elM, unit: ' m')),
+      ('0°C', n(indices.freezingM, unit: ' m')),
+      ('PWAT', n(indices.pwatMm, dp: 1, unit: ' mm')),
+      ('0-1 SHR', n(indices.shear1kmKt, unit: ' kt')),
+      ('0-6 SHR', n(indices.shear6kmKt, unit: ' kt')),
+      ('SRH1', n(indices.srh1km, unit: ' m²/s²')),
+      ('SRH3', n(indices.srh3km, unit: ' m²/s²')),
       (
         'STORM',
         indices.stormDirDeg == null
             ? '—'
             : '${indices.stormDirDeg!.round()}° '
-                '${indices.stormKt!.round()}kt'
+                '${indices.stormKt!.round()} kt'
       ),
     ];
 
@@ -196,27 +210,34 @@ class _Indices extends StatelessWidget {
         children: [
           for (final (label, value) in cells)
             SizedBox(
-              width: 74,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: Colors.white38,
-                      fontWeight: FontWeight.bold,
+              width: 84,
+              // Long-press on touch, hover on desktop. The panel stays a row
+              // of numbers you can read at a glance; the words are there for
+              // the first time you meet one.
+              child: Tooltip(
+                message: '$label\n${soundingIndexHelp[label] ?? ''}',
+                triggerMode: TooltipTriggerMode.longPress,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: Colors.white38,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
         ],
@@ -318,6 +339,28 @@ class _SoundingPainter extends CustomPainter {
       ..strokeWidth = 1;
     final label = TextPainter(textDirection: TextDirection.ltr);
 
+    /// Every number on this plot used to be bare -- pressures without hPa,
+    /// isotherms without degrees, wind without knots -- which reads fine if
+    /// you already know what a sounding is and not at all if you do not
+    /// (#46). Drawn once per axis rather than on every tick, so the axes say
+    /// what they are without the gridlines turning into a wall of units.
+    void caption(String text, Offset at) {
+      label
+        ..text = TextSpan(
+          text: text,
+          style: const TextStyle(
+            fontSize: 9,
+            color: Colors.white54,
+            fontWeight: FontWeight.bold,
+          ),
+        )
+        ..layout();
+      label.paint(canvas, at);
+    }
+
+    caption('hPa', const Offset(2, 2));
+    if (_windCol > 14) caption('kt', Offset(right + 4, 2));
+
     // Pressure gridlines at the levels people actually quote.
     for (final p in const [1000.0, 850.0, 700.0, 500.0, 300.0, 200.0, 100.0]) {
       final y = _y(p, size.height);
@@ -355,6 +398,7 @@ class _SoundingPainter extends CustomPainter {
         ..layout();
       label.paint(canvas, Offset(xx - label.width / 2, size.height - 12));
     }
+    caption('°C', Offset(left + 2, size.height - 12));
 
     void trace(double? Function(SoundingLevel) pick, Color color) {
       final path = Path();

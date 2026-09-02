@@ -972,15 +972,27 @@ class RadarPaneState extends State<RadarPane> {
         if (!s.isTdwr)
           Marker(
             point: LatLng(s.lat, s.lon),
-            width: 10,
-            height: 10,
+            width: Wx.siteHit,
+            height: Wx.siteHit,
             child: GestureDetector(
+              // The box is transparent and the whole of it is tappable, so
+              // the dot can stay the size it needs to be to read as a dot.
+              behavior: HitTestBehavior.opaque,
               onTap: () => widget.onSitePicked(s),
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: s.icao == _c.site.icao ? Wx.accent : Colors.white24,
-                  border: Border.all(color: Colors.black45),
+              child: Center(
+                child: Container(
+                  width: Wx.siteDot,
+                  height: Wx.siteDot,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    // Was white at 24% — under a translucent radar overlay,
+                    // on a dark basemap, at night, which is when this app
+                    // gets used. The dark ring is what keeps it legible on
+                    // the satellite and topographic basemaps too, where a
+                    // pale dot on pale ground would otherwise disappear.
+                    color: s.icao == _c.site.icao ? Wx.accent : Wx.text,
+                    border: Border.all(color: Wx.bg0, width: 1.5),
+                  ),
                 ),
               ),
             ),
