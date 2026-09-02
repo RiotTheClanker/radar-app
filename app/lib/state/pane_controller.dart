@@ -153,6 +153,16 @@ class PaneController extends ChangeNotifier {
   bool _cursorBusy = false;
   DateTime _cursorLast = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Handle for this pane's decoded sweep in the engine, or null when no
+  /// session is open. Every pane holds its own, so two panes with a cursor up
+  /// read their own product rather than whichever opened last.
+  int? _cursorSession;
+
+  /// Bumped on each open so a slow one that lands after a newer one has
+  /// started can tell it lost, and close what it opened instead of installing
+  /// a session for a frame the pane has moved off.
+  int _cursorSessionGeneration = 0;
+
   /// An isolated pane is out of the linked group: it ignores the others'
   /// panning and does not move them, so you can park one pane on a second
   /// storm and keep working the rest around it.
@@ -197,6 +207,7 @@ class PaneController extends ChangeNotifier {
     _disposed = true;
     _localAnim?.cancel();
     _sampleClear?.cancel();
+    _closeCursorSession();
     shared.forgetPane(paneId);
     super.dispose();
   }
@@ -370,6 +381,7 @@ class PaneController extends ChangeNotifier {
       _cursorPos = null;
       _cursorSample = null;
       _cursorPinned = false;
+      _closeCursorSession();
     }
     _notifyAll();
     if (_cursor) unawaited(openCursorSession());
@@ -677,25 +689,38 @@ class PaneController extends ChangeNotifier {
   Future<void> openCursorSession() async {
     if (!_cursor || _frames.isEmpty || _product.isMrms) return;
     final frame = _frames[shownFrame];
+    final generation = ++_cursorSessionGeneration;
     try {
-      if (_product.isLevel2) {
-        await inspectOpenLevel2(
-          data: frame.raw,
-          moment: _product.l2Moment!,
-          elevationIndex: _product.hasTilts ? _tilt : 0,
-        );
-      } else {
-        await inspectOpenLevel3(data: frame.raw);
+      final session = _product.isLevel2
+          ? await inspectOpenLevel2(
+              data: frame.raw,
+              moment: _product.l2Moment!,
+              elevationIndex: _product.hasTilts ? _tilt : 0,
+            )
+          : await inspectOpenLevel3(data: frame.raw);
+      // Another open (or a dispose) overtook this one while it decoded: the
+      // sweep just built is for a frame nobody is looking at any more.
+      if (_disposed || generation != _cursorSessionGeneration) {
+        unawaited(inspectClose(session: session));
+        return;
       }
-      final site = await inspectSite();
-      if (_disposed) return;
+      final previous = _cursorSession;
+      _cursorSession = session;
+      if (previous != null) unawaited(inspectClose(session: previous));
+
+      final site = await inspectSite(session: session);
+      if (_disposed || _cursorSession != session) return;
       _cursorSite = site.length >= 2 ? LatLng(site[0], site[1]) : null;
       _notify();
       // Keep a pinned readout current as frames advance.
       final at = _cursorPos;
       if (at != null) {
-        final s = await inspectSample(lat: at.latitude, lon: at.longitude);
-        if (_disposed) return;
+        final s = await inspectSample(
+          session: session,
+          lat: at.latitude,
+          lon: at.longitude,
+        );
+        if (_disposed || _cursorSession != session) return;
         _cursorSample = s;
         _notify();
       }
@@ -704,6 +729,17 @@ class PaneController extends ChangeNotifier {
       _error = e.toString();
       _notify();
     }
+  }
+
+  /// Hand this pane's sweep back to the engine. Safe to call when nothing is
+  /// open, and safe to call twice.
+  void _closeCursorSession() {
+    final session = _cursorSession;
+    _cursorSession = null;
+    // Retire any open still in flight along with it, so it closes itself
+    // rather than installing a session on a pane that has finished with one.
+    _cursorSessionGeneration++;
+    if (session != null) unawaited(inspectClose(session: session));
   }
 
   /// Aim at a point and read the value there. Throttled so a moving pointer
@@ -727,15 +763,23 @@ class PaneController extends ChangeNotifier {
         (_cursorBusy || now.difference(_cursorLast).inMilliseconds < 60)) {
       return;
     }
+    final session = _cursorSession;
+    if (session == null) return; // open still in flight; it will sample once done
     _cursorBusy = true;
     _cursorLast = now;
     try {
-      final s = await inspectSample(lat: p.latitude, lon: p.longitude);
-      if (_disposed) return;
+      final s = await inspectSample(
+        session: session,
+        lat: p.latitude,
+        lon: p.longitude,
+      );
+      // A reload may have swapped the session out from under this sample, in
+      // which case the value is from a frame that is no longer on screen.
+      if (_disposed || _cursorSession != session) return;
       _cursorSample = s;
       _notify();
     } catch (_) {
-      // No session yet (product switch in flight); next aim will retry.
+      // Session closed mid-sample (product switch); the next aim will retry.
     } finally {
       _cursorBusy = false;
     }
