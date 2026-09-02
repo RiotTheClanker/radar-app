@@ -71,8 +71,9 @@ map, not a substitute for reading them.
 | Function | Notes |
 |---|---|
 | `sample_level3` / `sample_level2` | One-shot: decode, sample a point, throw away |
-| `inspect_open_level3` / `inspect_open_level2` | Open a session, keeping the decoded sweep |
-| `inspect_sample` / `inspect_site` | Repeated cheap lookups against that session |
+| `inspect_open_level3` / `inspect_open_level2` | Open a session, keeping the decoded sweep. Returns a handle |
+| `inspect_sample` / `inspect_site` | Repeated cheap lookups against the handle |
+| `inspect_close` | Free a session. A no-op on an unknown handle |
 
 **3D**
 | Function | Notes |
@@ -99,30 +100,54 @@ map, not a substitute for reading them.
 | `install_palette` | Import a `.pal`; returns the product family it applies to |
 | `reset_palettes` | Back to the built-ins |
 
-## Global sessions
+## Sessions and global state
 
-Three things in the engine are **process-global**, not per-caller:
+Some engine calls leave something open behind them. Which of those are
+per-caller and which are process-wide is the thing to get right when several
+panes are live at once.
 
-| State | Set by | Guarded by |
+| State | Opened by | Scope |
 |---|---|---|
-| The 3D session | `volume3d_open` | `static VOL3D: Mutex<Option<..>>` |
-| The inspect session | `inspect_open_level2/3` | `static INSPECT: Mutex<Option<..>>` |
-| The palette table | `install_palette` / `reset_palettes` | inside `render` |
+| Inspect sessions | `inspect_open_level2/3` | **Per caller** — keyed by a `u32` handle |
+| The 3D session | `volume3d_open` | Process-global (`static VOL3D`) |
+| The palette table | `install_palette` / `reset_palettes` | Process-global, deliberately |
 
-There is exactly one of each for the whole process. `inspect_sample` reads
-whatever the last `inspect_open_*` put there.
+### Inspect sessions are per-caller
 
-**What this means for a multi-pane UI:** two panes with the cursor switched
-on share one inspect session, and the second `inspect_open_*` silently
-retargets the first pane's readouts. The current UI does not prevent this —
-the cursor is per-pane state and the toolbar acts on the focused pane — so it
-is a latent bug, not a solved problem. If you are designing a new UI, either
-serialize access behind one owner or push a session handle through the API so
-each caller has its own.
+An open returns a handle; `inspect_sample` and `inspect_site` take it back,
+and `inspect_close` frees it. Open as many as you have cursors.
 
-Palettes are global on purpose: a `.pal` import is meant to change every
-pane's map and key at once, which is why `WorkspaceState.paletteGeneration`
-exists to make them all rebuild.
+Two rules the current UI follows and a new one should too:
+
+- **Close what you open.** A pane closes its handle when its cursor is
+  switched off and again on dispose. `inspect_close` on an unknown handle is
+  a no-op, so shutting down needs no ordering care.
+- **Re-check the handle after every `await`.** Handles are never reused, so a
+  sample still in flight when the pane reloads fails rather than silently
+  answering from the new sweep — but your own state can still be stale, so
+  compare the handle you sent against the one the pane currently holds before
+  writing a readout.
+
+This was a single global slot until [PR
+#41](https://github.com/RiotTheClanker/radar-app/pull/41). Two panes with a
+cursor up shared one session, and the second open silently retargeted the
+first pane's readouts — a reflectivity pane reporting velocity numbers under
+a reflectivity label, with no error and nothing on screen saying so. If you
+are adding anything else the engine holds open per pane, key it by handle
+the same way.
+
+### The 3D session is still global
+
+There is one `VOL3D` for the whole process. That holds only because 3D is a
+full-screen route today: opening it leaves the workspace, so there is never a
+second viewer. **The day 3D becomes a pane, it needs the same handle
+treatment**, and for the same reason — the second opener would take over the
+first one's volume.
+
+### Palettes are global on purpose
+
+A `.pal` import is meant to change every pane's map and key at once, which is
+why `WorkspaceState.paletteGeneration` exists to make them all rebuild.
 
 ## Things that will bite
 

@@ -132,10 +132,12 @@ so the Dart UI thread stays free. From Dart every engine call is just an
 > isolated from the linked group* — see `toggleIsolate`,
 > `radar_pane_isolate_test.dart` — not `dart:isolate`.
 
-Two engine entry points hold **process-global state** behind a mutex: the 3D
-session and the cursor-inspect session. Only one of each exists for the whole
-app. That is a real constraint on any multi-pane UI —
-[engine-api.md](engine-api.md#global-sessions) has the details.
+Some engine calls leave a session open behind them, and whether that session
+is per-caller matters as soon as more than one pane is live. Cursor-inspect
+sessions are **per-caller**, keyed by a handle the opener passes back on every
+read. The 3D session is still **process-global**, which holds only because 3D
+is a full-screen route rather than a pane. See
+[engine-api.md](engine-api.md#sessions-and-global-state).
 
 ## Generated files — never hand-edit
 
