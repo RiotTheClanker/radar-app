@@ -175,4 +175,50 @@ void main() {
       expect(i.srh3km, isNull);
     });
   });
+
+  /// The indices panel (#46). Fourteen bare acronyms meant nothing to a
+  /// newcomer; these are what the letters expand to.
+  group('index help text', () {
+    /// Every abbreviation the panel can draw must have words behind it, or
+    /// the long-press does nothing and the label is bare again for that one.
+    test('covers every index the panel shows', () {
+      const shown = [
+        'CAPE', 'CIN', 'MUCAPE', 'LI', 'LCL', 'LFC', 'EL', '0°C',
+        'PWAT', '0-1 SHR', '0-6 SHR', 'SRH1', 'SRH3', 'STORM',
+      ];
+      for (final label in shown) {
+        expect(soundingIndexHelp.containsKey(label), isTrue,
+            reason: '$label has no explanation');
+        expect(soundingIndexHelp[label]!.trim(), isNotEmpty);
+      }
+      expect(soundingIndexHelp.length, shown.length,
+          reason: 'no explanations for indices that are not displayed');
+    });
+
+    /// The line this app should not cross. Saying what CAPE measures is
+    /// help; saying what 3000 J/kg means for this afternoon is a forecast,
+    /// from a tool whose own README says never to rely on it as your only
+    /// source of warnings. Digits are a blunt proxy for a threshold, and a
+    /// blunt proxy is what makes this catchable.
+    test('describes what is measured, never what a value implies', () {
+      for (final entry in soundingIndexHelp.entries) {
+        // Naming a layer ("surface to 1 km") is describing where something is
+        // measured, not asserting what a reading means, so it is the one
+        // numeric form these are allowed.
+        final claims = entry.value.replaceAll(RegExp(r'\d+ km'), 'a layer');
+        expect(
+          RegExp(r'\d').hasMatch(claims),
+          isFalse,
+          reason: '${entry.key} quotes a number: "${entry.value}"',
+        );
+      }
+    });
+
+    test('reads as a sentence, not another abbreviation', () {
+      for (final entry in soundingIndexHelp.entries) {
+        expect(entry.value.length, greaterThan(20),
+            reason: '${entry.key} is too terse to help');
+      }
+    });
+  });
 }
