@@ -183,6 +183,23 @@ void main() {
     expect(identical(c.product, productRef), isTrue);
   });
 
+  test('the hand-over reads zoom from a pane that has no width yet', () {
+    // Pins the contract the widget's hook relies on: deciding the hand-over
+    // must not need a pane width, because only rendering does — and that
+    // checks for itself. Not a regression test for the widget; this drives
+    // the controller directly and cannot see `_readViewport`.
+    c.viewport = () => const PaneViewport(
+          north: 36,
+          south: 34,
+          east: -96,
+          west: -98,
+          zoom: 5.0,
+          pixelWidth: 0,
+        );
+    c.maybeSwitchMosaic(multiPane: false);
+    expect(c.product.isMrms, isTrue);
+  });
+
   test('with no viewport hook the hand-over stays put', () {
     expect(c.viewport, isNull);
     c.maybeSwitchMosaic(multiPane: false);

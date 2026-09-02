@@ -221,8 +221,17 @@ class RadarPaneState extends State<RadarPane> {
   /// What the controller can see of the map. Null until the map is attached
   /// and the pane has been measured, which is the controller's cue to skip
   /// viewport work rather than guess at a size.
+  /// An unmeasured pane still reports. [PaneController] reads `zoom` off this
+  /// for the site-change recentre and the mosaic hand-over, neither of which
+  /// cares how wide the pane is, and `_viewBox` already refuses to render at
+  /// a `pixelWidth` of zero, so a width guard here would be both redundant
+  /// and reaching into decisions it has no part in.
+  ///
+  /// Nothing is broken today — `_mapReady` is set in `onMapReady`, which
+  /// cannot fire before the `LayoutBuilder` has set `_paneSize` — so this is
+  /// a trap removed rather than a bug fixed.
   PaneViewport? _readViewport() {
-    if (!mounted || !_mapReady || _paneSize.width <= 0) return null;
+    if (!mounted || !_mapReady) return null;
     try {
       final cam = _mapController.camera;
       final vis = cam.visibleBounds;
