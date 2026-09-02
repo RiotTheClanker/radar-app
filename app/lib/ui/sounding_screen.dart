@@ -77,12 +77,23 @@ class _SoundingScreenState extends State<SoundingScreen> {
               setState(() => _site = site);
               _load();
             },
+            // Ordered outward from whichever site is open, which on arrival
+            // is the one nearest the radar you were watching — so the sites
+            // over the same weather are at the top instead of wherever the
+            // table happened to list them (#48). Picking one re-orders the
+            // list around it, which is what you want when working along a
+            // line of storms.
             itemBuilder: (context) => [
-              for (final site in raobSites)
+              for (final site in raobSitesByDistance(_site.lat, _site.lon))
                 CheckedPopupMenuItem(
                   value: site,
                   checked: site.id == _site.id,
-                  child: Text('${site.id} — ${site.name}'),
+                  child: Text(
+                    site.id == _site.id
+                        ? '${site.id} — ${site.name}'
+                        : '${site.id} — ${site.name}  ·  '
+                            '${raobDistanceKm(_site.lat, _site.lon, site).round()} km',
+                  ),
                 ),
             ],
           ),

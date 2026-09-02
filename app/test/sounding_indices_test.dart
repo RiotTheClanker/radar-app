@@ -221,4 +221,44 @@ void main() {
       }
     });
   });
+
+  /// Choosing a launch site (#48). Seventy sites in table order is a scroll
+  /// through half a continent; nearest-first puts the one over the storm you
+  /// are looking at at the top.
+  group('launch site ordering', () {
+    // Norman, Oklahoma, whose own launch site is OUN.
+    const lat = 35.2, lon = -97.4;
+
+    test('nearest first', () {
+      final ranked = raobSitesByDistance(lat, lon);
+      expect(ranked.first.id, 'OUN');
+      expect(ranked.length, raobSites.length,
+          reason: 'ordering, not filtering — every site stays reachable');
+    });
+
+    test('distances come out ascending', () {
+      final ranked = raobSitesByDistance(lat, lon);
+      var previous = -1.0;
+      for (final s in ranked) {
+        final d = raobDistanceKm(lat, lon, s);
+        expect(d, greaterThanOrEqualTo(previous));
+        previous = d;
+      }
+    });
+
+    test('nearestRaobSite still agrees with the ordering', () {
+      expect(nearestRaobSite(lat, lon).id, raobSitesByDistance(lat, lon).first.id);
+    });
+
+    /// The number shown beside each name. OUN to LMN (Lamont) is about 165 km
+    /// on the ground, and a flat approximation over that distance should not
+    /// be visibly wrong.
+    test('the distance shown is about right', () {
+      final oun = raobSites.firstWhere((s) => s.id == 'OUN');
+      final lmn = raobSites.firstWhere((s) => s.id == 'LMN');
+      final d = raobDistanceKm(oun.lat, oun.lon, lmn);
+      expect(d, inInclusiveRange(150, 185));
+      expect(raobDistanceKm(oun.lat, oun.lon, oun), lessThan(1));
+    });
+  });
 }

@@ -446,19 +446,37 @@ const raobSites = <RaobSite>[
   RaobSite('FGZ', 'Flagstaff AZ', 35.2, -111.8),
 ];
 
-/// The launch site closest to a point.
-RaobSite nearestRaobSite(double lat, double lon) {
-  var best = raobSites.first;
-  var bestD = double.infinity;
-  for (final s in raobSites) {
-    // Flat approximation, fine over CONUS for a nearest-of check.
-    final dy = s.lat - lat;
-    final dx = (s.lon - lon) * math.cos(lat * math.pi / 180.0);
-    final d = dy * dy + dx * dx;
-    if (d < bestD) {
-      bestD = d;
-      best = s;
-    }
-  }
-  return best;
+/// Km per degree of latitude. Longitude is the same figure scaled by the
+/// cosine of the latitude, which is the flat approximation below.
+const _kmPerDegree = 111.19;
+
+/// How far a launch site is from a point, in km.
+///
+/// Flat approximation rather than great-circle. Over CONUS, at the few
+/// hundred km that separate neighbouring launch sites, the two agree to well
+/// under a percent — and this is used to order a list and to put a number
+/// beside a name, neither of which can tell the difference. The
+/// great-circle version lives in `ui/geo.dart`, and reaching up into the UI
+/// layer from here is the one thing this file must not do.
+double raobDistanceKm(double lat, double lon, RaobSite s) {
+  final dy = s.lat - lat;
+  final dx = (s.lon - lon) * math.cos(lat * math.pi / 180.0);
+  return math.sqrt(dy * dy + dx * dx) * _kmPerDegree;
 }
+
+/// Launch sites ordered by distance from a point, nearest first.
+///
+/// The picker had all seventy in the order they happen to appear in the
+/// table, which is a scroll through half a continent to find the one over
+/// the storm you are looking at (#48). Nearest-first puts that one at the
+/// top, where it is right nearly every time.
+List<RaobSite> raobSitesByDistance(double lat, double lon) {
+  final sites = List<RaobSite>.of(raobSites);
+  sites.sort((a, b) => raobDistanceKm(lat, lon, a)
+      .compareTo(raobDistanceKm(lat, lon, b)));
+  return sites;
+}
+
+/// The launch site closest to a point.
+RaobSite nearestRaobSite(double lat, double lon) =>
+    raobSitesByDistance(lat, lon).first;
