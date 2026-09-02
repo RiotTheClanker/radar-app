@@ -132,6 +132,17 @@ class PaneController extends ChangeNotifier {
   String? _error;
   int _loadGeneration = 0;
 
+  /// The newest object key the frames on screen were built from, and the one
+  /// the in-flight load is building from. Kept so a refresh can tell "no new
+  /// scan yet" from "time to reload" by listing alone, without pulling a
+  /// volume down again to find out it is the same one.
+  ///
+  /// Only promoted once a load succeeds: a load that failed leaves the old
+  /// key in place, so the next tick sees a mismatch and retries rather than
+  /// deciding it is already current.
+  String? _newestKey;
+  String? _pendingNewestKey;
+
   /// Colour key for this pane's product. Cached per product so switching
   /// back is instant, and rebuilt when a palette is imported since that
   /// changes the colours on the map.
@@ -482,6 +493,7 @@ class PaneController extends ChangeNotifier {
       }
       if (generation != _loadGeneration || _disposed) return;
       _frames = frames;
+      _newestKey = _pendingNewestKey;
       _loading = false;
       if (!_isolated) shared.reportFrames(paneId, frames.length);
       _notifyAll();
@@ -497,6 +509,54 @@ class PaneController extends ChangeNotifier {
       if (!_isolated) shared.reportFrames(paneId, 0);
       _notifyAll();
     }
+  }
+
+  /// Reload, but only if the radar has actually produced a new scan.
+  ///
+  /// Called on the workspace's refresh clock. Until this existed nothing ever
+  /// refetched: frames arrived on the first load and then sat there until the
+  /// user changed a product or pressed reload, so a pane left open showed
+  /// weather as old as the moment it was opened (#45).
+  ///
+  /// The check is a listing, not a download. If the newest key matches what
+  /// is already on screen there is no new scan and nothing else happens, so
+  /// the common case costs one small request per pane per minute.
+  Future<void> refreshForNewData() async {
+    if (_disposed || _loading) return;
+    // Replay pins the pane to a chosen moment; refreshing would haul it back
+    // to now, which is the opposite of what the user asked for.
+    if (shared.historyTime != null) return;
+    // Nothing loaded and nothing failed means this pane has not had its first
+    // load yet — it is waiting on the site to settle, and jumping in here
+    // would fetch the fallback site's data just to throw it away.
+    if (_frames.isEmpty && _error == null) return;
+    try {
+      final latest = await _latestKey();
+      if (_disposed || _loading || latest == null) return;
+      if (latest == _newestKey) return;
+      await loadFrames();
+    } catch (_) {
+      // A listing that failed is not worth surfacing over frames that are
+      // still on screen and still readable. The next tick tries again.
+    }
+  }
+
+  /// The newest key available for what this pane is showing, by listing only.
+  Future<String?> _latestKey() async {
+    if (_product.isMrms) {
+      final keys = await listRecentMosaics(count: 1);
+      return keys.isEmpty ? null : keys.last;
+    }
+    if (_product.isLevel2) {
+      final keys = await volumeKeys(1);
+      return keys.isEmpty ? null : keys.last;
+    }
+    final keys = await listRecentKeys(
+      _site.shortId,
+      _product.code(_tilt),
+      count: 1,
+    );
+    return keys.isEmpty ? null : keys.last;
   }
 
   /// What `precacheImage` does, without needing a `BuildContext`.
@@ -528,6 +588,7 @@ class PaneController extends ChangeNotifier {
     if (keys.isEmpty) {
       throw Exception('no recent $productCode data for ${_site.icao}');
     }
+    _pendingNewestKey = keys.last;
     return Future.wait(keys.map((key) async {
       final bytes = Uint8List.fromList(await fetchObject(key));
       final frame = await renderLevel3Frame(data: bytes, imageSize: 1024);
@@ -543,6 +604,7 @@ class PaneController extends ChangeNotifier {
       before: shared.historyTime,
     );
     if (keys.isEmpty) throw Exception('no recent MRMS mosaics');
+    _pendingNewestKey = keys.last;
     final frames = <DisplayFrame>[];
     for (final key in keys) {
       final bytes = await fetchMosaic(key);
@@ -578,6 +640,7 @@ class PaneController extends ChangeNotifier {
     if (keys.isEmpty) {
       throw Exception('no recent Level 2 volumes for ${_site.icao}');
     }
+    _pendingNewestKey = keys.last;
     final frames = <DisplayFrame>[];
     for (final key in keys) {
       // Shared across panes: the L2 products a 2x2 compares all read the

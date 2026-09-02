@@ -135,10 +135,19 @@ class Basemap {
 }
 
 const basemaps = [
+  // Esri's Dark Gray Canvas rather than CARTO's dark_all, which now answers
+  // anonymous requests with a tile reading "API KEY REQUIRED" -- a 200, and a
+  // real PNG, so nothing downstream can tell it from a map. It is the default
+  // basemap and it is drawn under the 3D ground plane too, so the text was on
+  // every tile of both.
+  //
+  // Esri is keyless here, is already the Satellite source below, and a canvas
+  // basemap is meant to sit under data, which is what a radar overlay is.
   Basemap(
     'Dark',
-    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-    '© OpenStreetMap © CARTO',
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/'
+        'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    'Esri, HERE, Garmin, © OpenStreetMap contributors',
   ),
   Basemap(
     'OpenStreetMap',
