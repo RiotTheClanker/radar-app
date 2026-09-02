@@ -25,6 +25,7 @@ Future<void> _pump(
   ColorScale scale, {
   bool rangeFolded = false,
   Size size = const Size(360, 800),
+  double? barHeight,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -35,7 +36,13 @@ Future<void> _pump(
       home: Scaffold(
         body: Align(
           alignment: Alignment.centerRight,
-          child: ColorKey(scale: scale, rangeFolded: rangeFolded),
+          child: barHeight == null
+              ? ColorKey(scale: scale, rangeFolded: rangeFolded)
+              : ColorKey(
+                  scale: scale,
+                  rangeFolded: rangeFolded,
+                  barHeight: barHeight,
+                ),
         ),
       ),
     ),
@@ -121,5 +128,34 @@ void main() {
     await _pump(tester, _scale([]));
     expect(tester.takeException(), isNull);
     expect(find.text('dBZ'), findsNothing);
+  });
+
+  testWidgets('a shortened key fits the room it was given', (tester) async {
+    // A pane in a 2x2 on a landscape phone is shorter than the key's
+    // natural height, and a key that overflows its own pane paints a
+    // black-and-yellow stripe across the weather.
+    await _pump(
+      tester,
+      _scale([for (var i = 0; i <= 40; i++) (i * 2.5, i * 6)]),
+      size: const Size(200, 150),
+      barHeight: 70,
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(tester.getRect(find.byType(ColorKey)).height, lessThanOrEqualTo(150));
+  });
+
+  testWidgets('shortening the key keeps both ends of the scale labelled',
+      (tester) async {
+    await _pump(
+      tester,
+      _scale([(5, 20), (35, 128), (75, 255)]),
+      barHeight: 70,
+    );
+
+    // The point of the key is the mapping; a shorter bar may drop
+    // intermediate ticks but the range has to stay unambiguous.
+    expect(find.text('5'), findsOneWidget);
+    expect(find.text('75'), findsOneWidget);
   });
 }
