@@ -9,6 +9,11 @@ on:
 
 env:
   FLUTTER_VERSION: '3.44.8'
+  # Flutter's own default for this version (FlutterExtension.ndkVersion), which
+  # is what android/app/build.gradle.kts picks up via flutter.ndkVersion. Both
+  # the NDK we install and the one cargokit cross-compiles against read this,
+  # so Gradle and cargokit cannot drift onto different NDKs.
+  ANDROID_NDK_VERSION: '28.2.13676358'
 
 jobs:
   engine:
@@ -119,12 +124,12 @@ jobs:
           channel: stable
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'ndk;28.2.13676358'
+          packages: 'ndk;${{ env.ANDROID_NDK_VERSION }}'
       - run: flutter pub get
         working-directory: app
       - name: build apk
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: flutter build apk --release --split-per-abi
         working-directory: app
       - uses: actions/upload-artifact@v4
