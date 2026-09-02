@@ -160,6 +160,9 @@ cd app && flutter build linux --release && cd ..
 ./packaging/build-deb.sh 0.1.4
 ```
 
+Full setup, the test commands, code generation and the release process are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Architecture
 
 | Piece | Tech |
@@ -189,6 +192,11 @@ so there is no libhdf5/libgrib/libeccodes dependency to fight on mobile.
 
 Debug tools live in `rust/radar_core/src/bin` and `examples/` — `l2dump`,
 `l3dump`, and small harnesses for the 3D, nowcast, MRMS, and palette paths.
+They run without Flutter, which makes them the fastest way to work on a
+decoder.
+
+[`docs/`](docs/) goes deeper: how the layers fit together, the rules the UI
+layer follows, the engine's API, and where every byte comes from.
 
 ## Data sources
 
@@ -197,6 +205,19 @@ warnings, SPC for outlooks and storm reports, GOES GLM for satellite
 lightning, Blitzortung.org for ground-network lightning, AWS Terrain Tiles
 for 3D terrain elevation, and SPC observed soundings (falling back to
 rucsoundings.noaa.gov) for radiosonde data.
+
+Every endpoint, its cadence, and its attribution terms are listed in
+[docs/data-sources.md](docs/data-sources.md). All of it is free and keyless;
+there is no server of ours anywhere in the app.
+
+## Contributing
+
+Bug reports and pull requests welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has
+the toolchain versions, the first build, the test loop and the conventions;
+[docs/architecture.md](docs/architecture.md) explains how the pieces fit.
+
+Building a new UI, in Flutter or another stack? Start with
+[docs/ui-development.md](docs/ui-development.md).
 
 ## License
 
