@@ -68,6 +68,13 @@ struct Dataset {
     shuffle_size: usize,
 }
 
+/// Data Layout v4 flag bits (HDF5 spec, Data Layout Message, version 4).
+///
+/// Easy to transpose, and transposing them is a silent bug rather than a
+/// parse error, so they are named here instead of written inline.
+const LAYOUT_DONT_FILTER_PARTIAL_EDGE_CHUNKS: u8 = 0x01;
+const LAYOUT_SINGLE_INDEX_WITH_FILTER: u8 = 0x02;
+
 /// Parse one message body into `ds`.
 fn apply_message(mtype: u8, body: &[u8], ds: &mut Dataset) {
     match mtype {
@@ -125,22 +132,36 @@ fn apply_message(mtype: u8, body: &[u8], ds: &mut Dataset) {
                 let index_type = body[o];
                 o += 1;
                 if index_type == 1 {
-                    // single chunk; if filtered: size + filter mask precede addr
-                    if flags & 0x02 != 0 {
-                        // "do not apply filter to partial edge chunks" etc.
+                    // Single Chunk index. The one chunk is preceded by its
+                    // filtered size and filter mask only when it went through
+                    // the filter pipeline, which is layout flag bit 1.
+                    //
+                    // Bit 0 is a different thing -- whether filters are
+                    // skipped on partial edge chunks -- and reading it as
+                    // "filtered" is what put an `|| true` here: the wrong bit
+                    // is clear on every GLM file, so the test never passed and
+                    // was forced true to reach the layout the files do have.
+                    // Correct on this data and wrong in general, since an
+                    // unfiltered chunk would have had its address read out of
+                    // the size field.
+                    let filtered = flags & LAYOUT_SINGLE_INDEX_WITH_FILTER != 0;
+                    if filtered && o + 20 <= body.len() {
+                        // filtered chunk size (8), filter mask (4), address (8)
+                        ds.data_size = u64le(body, o);
+                        o += 8;
+                        let _mask = u32le(body, o);
+                        o += 4;
+                        ds.data_addr = u64le(body, o);
+                        ds.chunked = true;
                     }
-                    let filtered = flags & 0x01 != 0 || true;
-                    if filtered && o + 12 <= body.len() {
-                        // chunk size (length_size bytes = 8), filter mask u32
-                        if o + 12 + 8 <= body.len() {
-                            ds.data_size = u64le(body, o);
-                            o += 8;
-                            let _mask = u32le(body, o);
-                            o += 4;
-                            ds.data_addr = u64le(body, o);
-                            ds.chunked = true;
-                        }
-                    }
+                    // An unfiltered single chunk carries only its address, and
+                    // its size has to be worked out from the chunk dimensions.
+                    // Nothing GLM publishes is written that way, so rather
+                    // than guess at a layout there is no file here to check
+                    // against, it is left unset: read_data then reports the
+                    // address as out of range, which is a failure someone can
+                    // read, rather than silently returning whatever the size
+                    // field happened to point at.
                 }
             }
         }
@@ -463,5 +484,103 @@ pub fn debug_dump(data: &[u8]) {
             }
         }
         i += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Data Layout v4 chunked message with a Single Chunk index.
+    ///
+    /// `payload` is whatever follows the index type byte: for a filtered
+    /// chunk that is size, mask and address; for an unfiltered one, just the
+    /// address.
+    fn layout_v4_single_chunk(flags: u8, payload: &[u8]) -> Vec<u8> {
+        let rank = 1usize;
+        let enc = 8usize;
+        let mut body = vec![4, 2, flags, rank as u8, enc as u8];
+        body.extend_from_slice(&[0u8; 8]); // one chunk dimension
+        body.push(1); // index type: Single Chunk
+        body.extend_from_slice(payload);
+        body
+    }
+
+    fn filtered_payload(size: u64, mask: u32, addr: u64) -> Vec<u8> {
+        let mut p = size.to_le_bytes().to_vec();
+        p.extend_from_slice(&mask.to_le_bytes());
+        p.extend_from_slice(&addr.to_le_bytes());
+        p
+    }
+
+    #[test]
+    fn a_filtered_single_chunk_is_read() {
+        let body = layout_v4_single_chunk(
+            LAYOUT_SINGLE_INDEX_WITH_FILTER,
+            &filtered_payload(4096, 0, 0x2000),
+        );
+        let mut ds = Dataset::default();
+        apply_message(0x08, &body, &mut ds);
+        assert!(ds.chunked);
+        assert_eq!(ds.data_size, 4096);
+        assert_eq!(ds.data_addr, 0x2000);
+    }
+
+    /// The bug this replaced. `filtered` tested bit 0 — which means something
+    /// else entirely, and is clear on the files GLM publishes — so it was
+    /// forced true with `|| true` to reach the branch those files need.
+    ///
+    /// That made every single-chunk layout parse as filtered, so a chunk
+    /// carrying only an address had that address read as its size, and
+    /// whatever followed read as its address. Bit 0 alone must not be enough.
+    #[test]
+    fn the_partial_edge_chunk_flag_does_not_mean_filtered() {
+        let body = layout_v4_single_chunk(
+            LAYOUT_DONT_FILTER_PARTIAL_EDGE_CHUNKS,
+            &filtered_payload(4096, 0, 0x2000),
+        );
+        let mut ds = Dataset::default();
+        apply_message(0x08, &body, &mut ds);
+        assert!(!ds.chunked, "bit 0 is not the filtered flag");
+        assert_eq!(ds.data_size, 0);
+        assert_eq!(ds.data_addr, 0, "must not read the size as an address");
+    }
+
+    /// Both bits set is still filtered: they are independent.
+    #[test]
+    fn the_two_flags_are_independent() {
+        let body = layout_v4_single_chunk(
+            LAYOUT_SINGLE_INDEX_WITH_FILTER | LAYOUT_DONT_FILTER_PARTIAL_EDGE_CHUNKS,
+            &filtered_payload(64, 0, 0x30),
+        );
+        let mut ds = Dataset::default();
+        apply_message(0x08, &body, &mut ds);
+        assert!(ds.chunked);
+        assert_eq!(ds.data_addr, 0x30);
+    }
+
+    /// A truncated message must leave the dataset alone rather than reading
+    /// past the end or filing a half-parsed address.
+    #[test]
+    fn a_truncated_layout_is_ignored() {
+        let body = layout_v4_single_chunk(LAYOUT_SINGLE_INDEX_WITH_FILTER, &[0u8; 8]);
+        let mut ds = Dataset::default();
+        apply_message(0x08, &body, &mut ds);
+        assert!(!ds.chunked);
+        assert_eq!(ds.data_addr, 0);
+    }
+
+    /// An unfiltered single chunk is not something GLM writes, and is left
+    /// unread on purpose. What matters is that it fails honestly: no address,
+    /// so read_data reports it rather than returning a wrong slice.
+    #[test]
+    fn an_unfiltered_single_chunk_is_left_unread() {
+        let body = layout_v4_single_chunk(0, &0x2000u64.to_le_bytes());
+        let mut ds = Dataset::default();
+        apply_message(0x08, &body, &mut ds);
+        assert!(!ds.chunked);
+        assert_eq!(ds.data_addr, 0);
+        let data = vec![0u8; 0x4000];
+        assert!(read_data(&data, &ds).is_err());
     }
 }
