@@ -163,6 +163,50 @@ void main() {
     });
   });
 
+  /// The radar site dots (#42): too small to hit, and too faint to see.
+  ///
+  /// These assert the two things that were actually wrong, rather than the
+  /// exact numbers chosen to fix them — a later redesign is free to move the
+  /// sizes and colours, and should still not be free to go back under the
+  /// touch minimum or down to a dot nobody can pick out of a dark map.
+  group('radar site markers', () {
+    test('the tap target clears the touch minimum', () {
+      expect(Wx.siteHit, greaterThanOrEqualTo(Wx.minTouch));
+    });
+
+    /// The point of the fix: the box you can hit is decoupled from the dot
+    /// you can see, because two hundred dots the size of a fingertip would
+    /// bury the weather underneath them.
+    test('the tap target is bigger than the dot it contains', () {
+      expect(Wx.siteDot, lessThan(Wx.siteHit));
+    });
+
+    /// Sites are roughly 200-300 km apart, which is around 30 screen pixels
+    /// by zoom 4. Much past that and a marker starts taking the taps meant
+    /// for its neighbour, which is a different way of being hard to click.
+    test('the tap target does not grow into its neighbours', () {
+      expect(Wx.siteHit, lessThanOrEqualTo(40.0));
+    });
+
+    /// Was `Colors.white24` — white at 24% opacity, under a translucent radar
+    /// overlay, on a dark basemap, outdoors at night. Contrast against the
+    /// darkest thing it is drawn on is the property that matters, so that is
+    /// what is measured.
+    test('the dot stands out against the map beneath it', () {
+      final dot = Wx.text.computeLuminance();
+      final dark = Wx.bg0.computeLuminance();
+      final ratio = (dot + 0.05) / (dark + 0.05);
+      expect(ratio, greaterThan(4.5),
+          reason: 'WCAG AA for non-text is 3:1; a dot at night wants more');
+      expect(Wx.text.a, 1.0, reason: 'opaque — 24% white is what broke it');
+    });
+
+    /// The selected site has to be tellable from the other two hundred.
+    test('the selected site is a different colour from the rest', () {
+      expect(Wx.accent, isNot(Wx.text));
+    });
+  });
+
   group('pane layouts', () {
     test('each layout knows how many panes it holds', () {
       expect(PaneLayout.single.count, 1);

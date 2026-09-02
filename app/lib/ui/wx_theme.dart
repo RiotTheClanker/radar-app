@@ -53,6 +53,22 @@ abstract final class Wx {
   static const barH = 30.0;
   static const statusH = 24.0;
 
+  /// Smallest square a finger is expected to hit. Material asks for 48 and
+  /// Apple for 44; this is the floor anything tappable on the map is checked
+  /// against, not a target to design down to.
+  static const minTouch = 32.0;
+
+  /// The tap box around a radar site, and the dot drawn in the middle of it.
+  ///
+  /// They are deliberately different numbers. Two hundred sites are on the
+  /// map at once, so the dot has to stay small enough to read the weather
+  /// through, while the box it claims for taps does not have to be small at
+  /// all — it is invisible. The box is capped rather than maximised because
+  /// neighbouring sites are only about 30 pixels apart by zoom 4, and a
+  /// bigger one would start taking its neighbours' taps.
+  static const siteHit = minTouch;
+  static const siteDot = 10.0;
+
   static const label = TextStyle(
     fontSize: 11.5,
     height: 1.1,
