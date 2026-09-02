@@ -9,13 +9,23 @@ import '../src/rust/api/radar.dart';
 /// the renderer used — including an imported `.pal`, so the key never
 /// disagrees with the map.
 class ColorKey extends StatelessWidget {
-  const ColorKey({super.key, required this.scale, this.rangeFolded = false});
+  const ColorKey({
+    super.key,
+    required this.scale,
+    this.rangeFolded = false,
+    this.barHeight = _height,
+  });
 
   final ColorScale scale;
 
   /// Whether to show the range-folded swatch. Only velocity products can
   /// produce it, so it would be noise everywhere else.
   final bool rangeFolded;
+
+  /// How tall to draw the bar. The default suits a full-window map; a small
+  /// pane in a 2x2 has less room than the key wants, and a key that
+  /// overflows its pane is worse than a shorter one.
+  final double barHeight;
 
   static const double _barWidth = 14;
   static const double _height = 168;
@@ -61,7 +71,7 @@ class ColorKey extends StatelessWidget {
             children: [
               Container(
                 width: _barWidth,
-                height: _height,
+                height: barHeight,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(3),
                   border: Border.all(color: Colors.white24),
@@ -82,8 +92,13 @@ class ColorKey extends StatelessWidget {
               ),
               const SizedBox(width: 5),
               SizedBox(
-                height: _height,
-                child: _Ticks(stops: stops, lo: lo, hi: hi),
+                height: barHeight,
+                child: _Ticks(
+                  stops: stops,
+                  lo: lo,
+                  hi: hi,
+                  height: barHeight,
+                ),
               ),
             ],
           ),
@@ -151,11 +166,17 @@ class _SteppedBar extends CustomPainter {
 /// place them by value, so they line up with the colors rather than being
 /// spaced evenly.
 class _Ticks extends StatelessWidget {
-  const _Ticks({required this.stops, required this.lo, required this.hi});
+  const _Ticks({
+    required this.stops,
+    required this.lo,
+    required this.hi,
+    required this.height,
+  });
 
   final List<ColorScaleStop> stops;
   final double lo;
   final double hi;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -168,8 +189,7 @@ class _Ticks extends StatelessWidget {
         children: [
           for (final v in values)
             Positioned(
-              top: ((hi - v) / span * ColorKey._height - 5)
-                  .clamp(0.0, ColorKey._height - 10),
+              top: ((hi - v) / span * height - 5).clamp(0.0, height - 10),
               left: 0,
               child: Text(
                 _label(v),
