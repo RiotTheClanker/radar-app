@@ -113,6 +113,18 @@ Anything needing a `BuildContext` or the camera:
     every pane it creates clears 260x190 (`PaneLayout.fitsIn`). A layout that
     stops fitting is re-drawn, not discarded, so the user's choice returns
     when the window grows back.
+13. **Pane-owned engine state is keyed by a handle, never by a global.** The
+    aiming cursor keeps a decoded sweep open in the engine so each move is a
+    lookup instead of a re-parse. That session belongs to the pane:
+    `inspectOpenLevel2`/`inspectOpenLevel3` return an id, every
+    `inspectSample`/`inspectSite` passes it back, and the pane closes it in
+    `dispose`. It was one global slot, so the second pane to switch its cursor
+    on took the first pane's session over — in a reflectivity-vs-velocity
+    layout that showed a velocity number under a reflectivity label, with no
+    error and nothing on screen saying so. Anything else the engine holds open
+    per pane needs the same treatment. (`VOL3D` is still a single global; it
+    holds only because 3D is a full-screen route, and stops holding the day 3D
+    becomes a pane.)
 
 ## Generated files — never hand-edit
 

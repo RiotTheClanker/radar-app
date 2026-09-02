@@ -260,12 +260,15 @@ Future<String> installPalette({required String text}) =>
 Future<void> resetPalettes() =>
     RustLib.instance.api.crateApiRadarResetPalettes();
 
-/// Open a Level 3 product file for repeated cursor sampling.
-Future<void> inspectOpenLevel3({required List<int> data}) =>
+/// Open a Level 3 product file for repeated cursor sampling. The returned
+/// handle names this session; sessions are per-caller, so two panes with a
+/// cursor up do not read each other's data.
+Future<int> inspectOpenLevel3({required List<int> data}) =>
     RustLib.instance.api.crateApiRadarInspectOpenLevel3(data: data);
 
-/// Open a Level 2 moment/cut for repeated cursor sampling.
-Future<void> inspectOpenLevel2({
+/// Open a Level 2 moment/cut for repeated cursor sampling. Returns the
+/// session handle.
+Future<int> inspectOpenLevel2({
   required List<int> data,
   required String moment,
   required int elevationIndex,
@@ -275,15 +278,25 @@ Future<void> inspectOpenLevel2({
   elevationIndex: elevationIndex,
 );
 
-/// Sample the open inspect session at a point (fast; no re-decode).
+/// Sample an open inspect session at a point (fast; no re-decode).
 Future<SampleResult> inspectSample({
+  required int session,
   required double lat,
   required double lon,
-}) => RustLib.instance.api.crateApiRadarInspectSample(lat: lat, lon: lon);
+}) => RustLib.instance.api.crateApiRadarInspectSample(
+  session: session,
+  lat: lat,
+  lon: lon,
+);
 
-/// Radar site of the open inspect session: [lat, lon].
-Future<Float64List> inspectSite() =>
-    RustLib.instance.api.crateApiRadarInspectSite();
+/// Radar site of an open inspect session: [lat, lon].
+Future<Float64List> inspectSite({required int session}) =>
+    RustLib.instance.api.crateApiRadarInspectSite(session: session);
+
+/// Close a session and free its sweep. Closing an unknown handle does
+/// nothing, so a pane can close on its way out without ordering care.
+Future<void> inspectClose({required int session}) =>
+    RustLib.instance.api.crateApiRadarInspectClose(session: session);
 
 /// The color scale a product is drawn with, so the key matches the map.
 ///

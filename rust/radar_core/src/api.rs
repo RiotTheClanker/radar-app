@@ -391,6 +391,8 @@ pub struct Volume3DFrame {
 // ---------------------------------------------------------------------------
 
 use crate::process::grid3d::{build_grid_encoded, Grid3D, GridEncode, ENCODE_DBZ};
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 struct Vol3DSession {
@@ -405,6 +407,11 @@ struct Vol3DSession {
     hidden_classes: Vec<u8>,
 }
 
+// One session for the whole process, which holds only because 3D is a
+// full-screen route: opening it leaves the workspace, so there is never a
+// second viewer. If 3D ever becomes a pane, this needs the handle-per-caller
+// treatment the inspect sessions below got, and for the same reason — the
+// second opener would silently take over the first one's volume.
 static VOL3D: Mutex<Option<Vol3DSession>> = Mutex::new(None);
 
 const Z_EXAG: f32 = 4.0;
@@ -987,49 +994,92 @@ pub fn reset_palettes() {
 }
 
 // ---------------------------------------------------------------------------
-// Inspect session: keep one decoded sweep around so an aiming cursor can
-// sample it continuously without re-parsing the source file every move.
+// Inspect sessions: keep a decoded sweep around so an aiming cursor can sample
+// it continuously without re-parsing the source file every move.
+//
+// There is one session per caller, not one per process. Several panes can have
+// a cursor up at once, on different sites, products and tilts; a single global
+// slot meant whichever pane opened last silently answered everyone else's
+// samples, so a reflectivity readout could be showing a velocity number. Each
+// open returns a handle and every read takes it back.
 // ---------------------------------------------------------------------------
 
-static INSPECT: Mutex<Option<(Sweep, String)>> = Mutex::new(None);
+/// A decoded sweep held open for sampling, with the unit its values are in.
+struct InspectSession {
+    sweep: Sweep,
+    unit: String,
+}
 
-/// Open a Level 3 product file for repeated sampling.
-pub fn inspect_open_level3(data: Vec<u8>) -> Result<(), String> {
+static INSPECT: Mutex<BTreeMap<u32, InspectSession>> = Mutex::new(BTreeMap::new());
+
+/// Handles are never reused. A `u32` keeps the generated Dart binding a plain
+/// `int`, and a session is opened per cursor toggle or reload, so the counter
+/// cannot run out inside a process lifetime.
+static NEXT_INSPECT: AtomicU32 = AtomicU32::new(1);
+
+/// File a decoded sweep and hand back the handle that reads it.
+fn inspect_store(sweep: Sweep, unit: String) -> u32 {
+    let id = NEXT_INSPECT.fetch_add(1, Ordering::Relaxed);
+    INSPECT
+        .lock()
+        .unwrap()
+        .insert(id, InspectSession { sweep, unit });
+    id
+}
+
+/// Run `f` over the session `id` names.
+fn with_inspect<T>(id: u32, f: impl FnOnce(&InspectSession) -> T) -> Result<T, String> {
+    let guard = INSPECT.lock().unwrap();
+    let session = guard.get(&id).ok_or("no inspect session")?;
+    Ok(f(session))
+}
+
+/// Open a Level 3 product file for repeated sampling. Returns the session
+/// handle to pass to [`inspect_sample`] and [`inspect_site`].
+pub fn inspect_open_level3(data: Vec<u8>) -> Result<u32, String> {
     let file = level3::parse(&data).map_err(|e| e.to_string())?;
     let sweep = file
         .to_sweep()
         .ok_or_else(|| "product contains no radial data".to_string())?;
     let unit = file.info.map(|i| i.unit.to_string()).unwrap_or_default();
-    *INSPECT.lock().unwrap() = Some((sweep, unit));
-    Ok(())
+    Ok(inspect_store(sweep, unit))
 }
 
 /// Open a Level 2 moment/cut (including derived pseudo-moments) for
-/// repeated sampling.
+/// repeated sampling. Returns the session handle.
 pub fn inspect_open_level2(
     data: Vec<u8>,
     moment: String,
     elevation_index: u32,
-) -> Result<(), String> {
+) -> Result<u32, String> {
     let vol = level2::parse(&data).map_err(|e| e.to_string())?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (_, _, unit) = moment_meta(&moment);
-    *INSPECT.lock().unwrap() = Some((sweep, unit));
-    Ok(())
+    Ok(inspect_store(sweep, unit))
 }
 
-/// Sample the open inspect session at a point.
-pub fn inspect_sample(lat: f64, lon: f64) -> Result<SampleResult, String> {
-    let guard = INSPECT.lock().unwrap();
-    let (sweep, unit) = guard.as_ref().ok_or("no inspect session")?;
-    Ok(sample_sweep(sweep, unit.clone(), lat, lon))
+/// Sample the session at a point.
+pub fn inspect_sample(session: u32, lat: f64, lon: f64) -> Result<SampleResult, String> {
+    with_inspect(session, |s| {
+        sample_sweep(&s.sweep, s.unit.clone(), lat, lon)
+    })
 }
 
-/// Radar site position of the open inspect session: [lat, lon].
-pub fn inspect_site() -> Result<Vec<f64>, String> {
-    let guard = INSPECT.lock().unwrap();
-    let (sweep, _) = guard.as_ref().ok_or("no inspect session")?;
-    Ok(vec![sweep.site_lat, sweep.site_lon])
+/// Radar site position of the session: [lat, lon].
+pub fn inspect_site(session: u32) -> Result<Vec<f64>, String> {
+    with_inspect(session, |s| vec![s.sweep.site_lat, s.sweep.site_lon])
+}
+
+/// Drop a session and free its sweep. Closing a handle that is already gone
+/// is not an error: a caller shutting down should not have to care whether an
+/// open it started ever finished.
+pub fn inspect_close(session: u32) {
+    INSPECT.lock().unwrap().remove(&session);
+}
+
+/// How many sessions are open. For tests — the UI has no use for it.
+pub fn inspect_open_count() -> usize {
+    INSPECT.lock().unwrap().len()
 }
 
 /// One breakpoint of a product's color scale.
@@ -1099,6 +1149,104 @@ pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, Stri
 mod tests {
     use super::*;
     use crate::process::hca::Class;
+
+    use crate::level3::ValueDecoder;
+    use crate::sweep::{GateData, SweepRadial};
+
+    /// The session map is process-wide, so the tests that count what is open
+    /// take turns rather than racing each other's opens.
+    static INSPECT_TESTS: Mutex<()> = Mutex::new(());
+
+    /// A one-radial sweep at the given site whose every gate decodes to
+    /// `value`, so a sample can be traced back to which sweep answered it.
+    fn flat_sweep(site_lat: f64, site_lon: f64, value: f32) -> Sweep {
+        Sweep {
+            site_lat,
+            site_lon,
+            first_gate_m: 0.0,
+            gate_size_m: 250.0,
+            nbins: 400,
+            radials: vec![SweepRadial {
+                start_az_deg: 0.0,
+                delta_az_deg: 360.0,
+                data: GateData::U8(vec![2u8; 400]),
+            }],
+            // raw 2 decodes to `value`.
+            decoder: ValueDecoder::LegacyLinear { min: value, inc: 0.0 },
+            timestamp: 0,
+            elevation_deg: 0.5,
+            max_raw: 255,
+        }
+    }
+
+    /// The bug this replaced: one global slot meant a second pane opening a
+    /// cursor took over the first pane's readout, so a reflectivity pane
+    /// started reporting velocity numbers with no sign anything was wrong.
+    #[test]
+    fn two_sessions_answer_from_their_own_sweep() {
+        let _turn = INSPECT_TESTS.lock();
+        let a = inspect_store(flat_sweep(35.0, -97.0, 40.0), "dBZ".into());
+        let b = inspect_store(flat_sweep(41.0, -104.0, -22.0), "kt".into());
+        assert_ne!(a, b, "each open gets its own handle");
+
+        // Opening b must not have disturbed a, in value or in unit.
+        let sa = inspect_sample(a, 35.1, -97.0).unwrap();
+        assert_eq!(sa.value, Some(40.0));
+        assert_eq!(sa.unit, "dBZ");
+
+        let sb = inspect_sample(b, 41.1, -104.0).unwrap();
+        assert_eq!(sb.value, Some(-22.0));
+        assert_eq!(sb.unit, "kt");
+
+        assert_eq!(inspect_site(a).unwrap(), vec![35.0, -97.0]);
+        assert_eq!(inspect_site(b).unwrap(), vec![41.0, -104.0]);
+
+        inspect_close(a);
+        inspect_close(b);
+    }
+
+    /// Closing is what keeps a long session from piling up sweeps, and a
+    /// closed handle must not resolve to whatever is opened next.
+    #[test]
+    fn closing_frees_the_session_and_only_that_session() {
+        let _turn = INSPECT_TESTS.lock();
+        let before = inspect_open_count();
+        let a = inspect_store(flat_sweep(35.0, -97.0, 40.0), "dBZ".into());
+        let b = inspect_store(flat_sweep(35.0, -97.0, 10.0), "dBZ".into());
+        assert_eq!(inspect_open_count(), before + 2);
+
+        inspect_close(a);
+        assert_eq!(inspect_open_count(), before + 1);
+        assert!(inspect_sample(a, 35.1, -97.0).is_err());
+        assert!(inspect_site(a).is_err());
+        assert_eq!(inspect_sample(b, 35.1, -97.0).unwrap().value, Some(10.0));
+
+        // A pane that closes twice on its way out is not an error.
+        inspect_close(a);
+        inspect_close(b);
+        assert_eq!(inspect_open_count(), before);
+    }
+
+    /// Handles are not recycled, so a sample that was in flight when the pane
+    /// reloaded fails rather than silently reading the new sweep.
+    #[test]
+    fn a_closed_handle_is_never_handed_out_again() {
+        let _turn = INSPECT_TESTS.lock();
+        let a = inspect_store(flat_sweep(35.0, -97.0, 40.0), "dBZ".into());
+        inspect_close(a);
+        let b = inspect_store(flat_sweep(35.0, -97.0, 40.0), "dBZ".into());
+        assert_ne!(a, b);
+        inspect_close(b);
+    }
+
+    /// Sampling without opening is an error, not a panic or a stale value.
+    #[test]
+    fn an_unknown_handle_is_an_error() {
+        let Err(err) = inspect_sample(u32::MAX, 35.0, -97.0) else {
+            panic!("an unopened handle sampled successfully");
+        };
+        assert!(err.contains("no inspect session"), "{err}");
+    }
 
     fn visible(hidden: &[u8]) -> Vec<Class> {
         let pal = palette_3d("HCA", 0.0, hidden);

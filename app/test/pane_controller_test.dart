@@ -133,6 +133,62 @@ void main() {
       c.unpinCursor();
       expect(notifications, before);
     });
+
+    /// The engine session is opened per pane and read back by handle, so a
+    /// pane with no frames must not open one at all — the generation guard in
+    /// [PaneController.openCursorSession] counts on this early return, and
+    /// without it a pane would sample a sweep it never opened.
+    test('opening a session with nothing loaded does nothing', () async {
+      c.toggleCursor();
+      await c.openCursorSession();
+      expect(c.frames, isEmpty);
+      expect(c.cursorSample, isNull);
+      expect(c.cursorSite, isNull);
+      expect(c.error, isNull);
+    });
+
+    /// A closing pane hands its sweep back to the engine, so dispose now runs
+    /// down the cursor session as well as the timers.
+    test('disposing with the cursor on closes cleanly', () {
+      final closing = PaneController(
+        paneId: 2,
+        shared: shared,
+        site: nexradSites.firstWhere((s) => s.icao == 'KTLX'),
+        product: productRef,
+        tilt: 0,
+      );
+      closing.toggleCursor();
+      expect(closing.cursorOn, isTrue);
+      expect(closing.dispose, returnsNormally);
+    });
+
+    /// Two panes each own their cursor. This used to be true of the Dart state
+    /// and false of the engine underneath it, which is the whole point of the
+    /// per-pane session handle: switching the cursor on in a second pane took
+    /// over the first pane's readout, so a reflectivity pane started showing
+    /// velocity numbers under a reflectivity label.
+    test('one pane switching its cursor on leaves the other alone', () {
+      final other = PaneController(
+        paneId: 1,
+        shared: shared,
+        site: nexradSites.firstWhere((s) => s.icao == 'KFWS'),
+        product: productVel,
+        tilt: 0,
+      );
+      addTearDown(other.dispose);
+
+      c.toggleCursor();
+      expect(c.cursorOn, isTrue);
+      expect(other.cursorOn, isFalse);
+
+      other.toggleCursor();
+      expect(c.cursorOn, isTrue, reason: 'still on in the first pane');
+      expect(other.cursorOn, isTrue);
+
+      other.toggleCursor();
+      expect(other.cursorOn, isFalse);
+      expect(c.cursorOn, isTrue, reason: 'closing one must not close the other');
+    });
   });
 
   group('clocks', () {

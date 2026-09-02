@@ -417,28 +417,37 @@ pub fn reset_palettes() {
     core::reset_palettes()
 }
 
-/// Open a Level 3 product file for repeated cursor sampling.
-pub fn inspect_open_level3(data: Vec<u8>) -> Result<(), String> {
+/// Open a Level 3 product file for repeated cursor sampling. The returned
+/// handle names this session; sessions are per-caller, so two panes with a
+/// cursor up do not read each other's data.
+pub fn inspect_open_level3(data: Vec<u8>) -> Result<u32, String> {
     core::inspect_open_level3(data)
 }
 
-/// Open a Level 2 moment/cut for repeated cursor sampling.
+/// Open a Level 2 moment/cut for repeated cursor sampling. Returns the
+/// session handle.
 pub fn inspect_open_level2(
     data: Vec<u8>,
     moment: String,
     elevation_index: u32,
-) -> Result<(), String> {
+) -> Result<u32, String> {
     core::inspect_open_level2(data, moment, elevation_index)
 }
 
-/// Sample the open inspect session at a point (fast; no re-decode).
-pub fn inspect_sample(lat: f64, lon: f64) -> Result<SampleResult, String> {
-    Ok(convert_sample(core::inspect_sample(lat, lon)?))
+/// Sample an open inspect session at a point (fast; no re-decode).
+pub fn inspect_sample(session: u32, lat: f64, lon: f64) -> Result<SampleResult, String> {
+    Ok(convert_sample(core::inspect_sample(session, lat, lon)?))
 }
 
-/// Radar site of the open inspect session: [lat, lon].
-pub fn inspect_site() -> Result<Vec<f64>, String> {
-    core::inspect_site()
+/// Radar site of an open inspect session: [lat, lon].
+pub fn inspect_site(session: u32) -> Result<Vec<f64>, String> {
+    core::inspect_site(session)
+}
+
+/// Close a session and free its sweep. Closing an unknown handle does
+/// nothing, so a pane can close on its way out without ordering care.
+pub fn inspect_close(session: u32) {
+    core::inspect_close(session)
 }
 
 /// One breakpoint of a product's color scale.
