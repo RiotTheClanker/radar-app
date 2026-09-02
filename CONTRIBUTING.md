@@ -14,6 +14,7 @@ short, and it explains why the tree is shaped the way it is.
 | Dart SDK | ^3.12.2 | Comes with Flutter; pinned in `app/pubspec.yaml` |
 | Rust | stable | `dtolnay/rust-toolchain@stable` in CI. No nightly features are used |
 | `flutter_rust_bridge_codegen` | **2.12.0** | Must match `flutter_rust_bridge` exactly — pinned in `app/pubspec.yaml` and as `=2.12.0` in `app/rust/Cargo.toml` |
+| Android NDK | **28.2.13676358** | Flutter 3.44.8's `flutter.ndkVersion`. CI sets it once as `ANDROID_NDK_VERSION`; Gradle and cargokit both have to land on it |
 | Python 3 | any recent | Only for `branding/make_icons.py` and `tools/gen_sites.py` |
 
 ### Linux
@@ -30,14 +31,15 @@ only if you are building the installer.
 
 ### Android
 
-JDK 17 and the Android NDK. The Gradle build takes `ndkVersion` from
-Flutter's default; cargokit cross-compiles the Rust against whatever
-`ANDROID_NDK_HOME` points at.
+JDK 17 and NDK **28.2.13676358**.
 
-> Heads-up: CI installs NDK `28.2.13676358` but sets `ANDROID_NDK_HOME` to
-> `.../ndk/27.0.12077973`, which only resolves because that one is preinstalled
-> on the runner image. It builds today and is fragile tomorrow. Locally, point
-> `ANDROID_NDK_HOME` at whichever NDK you actually have.
+Two things need that same NDK and reach it by different routes: Gradle takes
+`ndkVersion` from `flutter.ndkVersion` (`app/android/app/build.gradle.kts`),
+and cargokit cross-compiles the Rust against whatever `ANDROID_NDK_HOME`
+names. `28.2.13676358` is Flutter 3.44.8's default, so pointing
+`ANDROID_NDK_HOME` at it locally keeps the two in agreement. CI sets both
+from one `ANDROID_NDK_VERSION` in the workflow; if you bump Flutter, check
+that value still matches its `flutter.ndkVersion`.
 
 ## First build
 
