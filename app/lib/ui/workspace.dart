@@ -18,7 +18,6 @@ library;
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -28,6 +27,7 @@ import 'package:latlong2/latlong.dart';
 import '../data/alerts_fetcher.dart';
 import '../data/identity.dart';
 import '../data/locate.dart';
+import '../data/nearest_site.dart';
 import '../data/nexrad_sites.g.dart';
 import '../data/sounding_fetcher.dart';
 import '../data/user_files.dart';
@@ -117,20 +117,24 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     ]);
     if (!mounted) return;
     if (prompt) {
-      _applyStartupLocation(await pending);
+      await _applyStartupLocation(await pending);
     } else {
       // Let the panes get on with it, and catch up when the fix lands.
       unawaited(pending.then((loc) {
-        if (mounted) _applyStartupLocation(loc);
+        if (mounted) unawaited(_applyStartupLocation(loc));
       }));
     }
+    if (!mounted) return;
     setState(() => _seedResolved = true);
   }
 
-  void _applyStartupLocation(LatLng? loc) {
+  Future<void> _applyStartupLocation(LatLng? loc) async {
     if (loc == null || !mounted) return;
     _shared.setMyLocation(loc);
-    final nearest = _nearestSite(loc);
+    // Probed, not just measured: the closest radar is sometimes one that
+    // publishes nothing, and opening on it looks like a broken app (#37).
+    final nearest = await nearestPublishingSite(loc.latitude, loc.longitude);
+    if (!mounted) return;
     _seedSites = List.filled(PaneLayout.quad.count, nearest);
     _lastCenter = loc;
     _lastZoom = 7;
@@ -327,26 +331,8 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     }
   }
 
-  NexradSite _nearestSite(LatLng p) {
-    NexradSite best = nexradSites.first;
-    double bestD = double.infinity;
-    for (final s in nexradSites) {
-      if (s.isTdwr) continue; // TDWR products come in a later phase
-      final d = _dist2(p.latitude, p.longitude, s.lat, s.lon);
-      if (d < bestD) {
-        bestD = d;
-        best = s;
-      }
-    }
-    return best;
-  }
 
   // Squared equirectangular distance — plenty for "which site is closest".
-  double _dist2(double lat1, double lon1, double lat2, double lon2) {
-    final dy = lat1 - lat2;
-    final dx = (lon1 - lon2) * math.cos(lat1 * math.pi / 180.0);
-    return dy * dy + dx * dx;
-  }
 
   // ------------------------------------------------------------ actions ----
 
@@ -372,7 +358,8 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     for (final p in _groupWith(focused, linked: _shared.linkViews)) {
       p.applyCamera(loc, zoom);
     }
-    final nearest = _nearestSite(loc);
+    final nearest = await nearestPublishingSite(loc.latitude, loc.longitude);
+    if (!mounted) return;
     if (focused != null && nearest.icao != focused.site.icao) {
       _setSite(nearest);
     }
