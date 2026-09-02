@@ -51,6 +51,53 @@ void main() {
     expect(c.error, isNull);
   });
 
+  group('auto refresh', () {
+    /// The refresh clock reaches every pane, including ones still waiting for
+    /// geolocation to settle. Those have no frames and no error, and firing a
+    /// load into them would fetch the fallback site's data only to throw it
+    /// away when the real site arrives — invariant 11, from the other side.
+    test('a pane that has never loaded is left alone', () async {
+      expect(c.frames, isEmpty);
+      expect(c.error, isNull);
+      await c.refreshForNewData();
+      expect(c.loading, isFalse, reason: 'must not have started a fetch');
+      expect(c.frames, isEmpty);
+      expect(c.error, isNull);
+    });
+
+    // The replay guard (`historyTime != null`) is deliberately not tested
+    // here. With no frames loaded the later "never loaded" guard returns
+    // early too, so such a test passes whether or not the replay guard
+    // exists — it would assert nothing. Reaching it honestly needs a pane
+    // with frames, which needs the network.
+
+    /// The clock keeps ticking after a pane is gone; disposal has to be a
+    /// hard stop rather than a load that lands on a dead controller.
+    test('a disposed pane does not refresh', () async {
+      final gone = PaneController(
+        paneId: 3,
+        shared: shared,
+        site: nexradSites.firstWhere((s) => s.icao == 'KTLX'),
+        product: productRef,
+        tilt: 0,
+      );
+      gone.dispose();
+      await gone.refreshForNewData();
+      expect(gone.loading, isFalse);
+    });
+  });
+
+  /// One clock for the workspace, not one per pane — four panes each running
+  /// their own would drift apart and stagger their reloads.
+  test('the workspace owns the refresh clock', () {
+    expect(WorkspaceState.radarRefreshInterval.inSeconds, greaterThan(0));
+    expect(
+      WorkspaceState.radarRefreshInterval,
+      lessThan(staleAfter),
+      reason: 'a pane must be able to refresh before it is called stale',
+    );
+  });
+
   test('nothing is on by default', () {
     expect(c.cursorOn, isFalse);
     expect(c.tracksOn, isFalse);

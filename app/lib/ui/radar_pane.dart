@@ -295,6 +295,7 @@ class RadarPaneState extends State<RadarPane> {
   void toggleMeasure() => _c.toggleMeasure();
   void toggleFuture() => _c.toggleFuture();
   Future<void> loadFrames() => _c.loadFrames();
+  Future<void> refreshForNewData() => _c.refreshForNewData();
   String? saveFrameSnapshot() => _c.saveFrameSnapshot();
 
   /// Where this pane is looking, or null before the map is attached.

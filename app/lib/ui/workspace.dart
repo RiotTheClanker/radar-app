@@ -79,12 +79,14 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     _seedSites = List.filled(PaneLayout.quad.count, start);
     _seedProducts = List.of(panelPreset);
     _shared.addListener(_onShared);
+    _shared.onAutoRefresh = _refreshAll;
     WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_startup()));
   }
 
   @override
   void dispose() {
     _shared.removeListener(_onShared);
+    _shared.onAutoRefresh = null;
     _shared.dispose();
     super.dispose();
   }
@@ -194,6 +196,15 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   void _reloadAll() {
     for (final p in _livePanes) {
       unawaited(p.loadFrames());
+    }
+  }
+
+  /// The refresh clock came round. Unlike [_reloadAll] this is not a reload:
+  /// each pane checks whether its radar has published anything new and only
+  /// then fetches, so a quiet minute costs a listing and nothing more.
+  void _refreshAll() {
+    for (final p in _livePanes) {
+      unawaited(p.refreshForNewData());
     }
   }
 

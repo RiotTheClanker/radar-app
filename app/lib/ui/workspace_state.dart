@@ -35,6 +35,10 @@ class WorkspaceState extends ChangeNotifier {
       const Duration(milliseconds: 350),
       (_) => _tick(),
     );
+    _refreshTimer = Timer.periodic(
+      radarRefreshInterval,
+      (_) => onAutoRefresh?.call(),
+    );
   }
 
   bool _disposed = false;
@@ -42,6 +46,26 @@ class WorkspaceState extends ChangeNotifier {
   void _ping() {
     if (!_disposed) notifyListeners();
   }
+
+  // ----------------------------------------------------- the refresh clock --
+
+  /// How often panes go looking for a scan they have not got yet.
+  ///
+  /// Faster than this buys nothing: a Level 2 volume lands every 4-10 minutes,
+  /// Level 3 once per elevation scan, and the MRMS mosaic about every two. A
+  /// tick with no new scan costs one small listing request and no download,
+  /// so the floor is set by how soon we want new weather rather than by what
+  /// the poll costs.
+  static const radarRefreshInterval = Duration(seconds: 60);
+
+  Timer? _refreshTimer;
+
+  /// Installed by the workspace, which is the layer that knows the panes.
+  ///
+  /// One clock for the whole workspace rather than one per pane: four panes
+  /// each running their own would drift apart and stagger their reloads, and
+  /// this is the same reason the animation clock lives here.
+  VoidCallback? onAutoRefresh;
 
   // ------------------------------------------------------------- alerts ----
 
@@ -392,6 +416,7 @@ class WorkspaceState extends ChangeNotifier {
     _disposed = true;
     _alertTimer?.cancel();
     _animTimer?.cancel();
+    _refreshTimer?.cancel();
     _strikeTimer?.cancel();
     _strikeSub?.cancel();
     _glmSub?.cancel();
