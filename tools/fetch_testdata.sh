@@ -46,3 +46,32 @@ if key=$(l2_latest KICX); then
 else
   echo "no KICX Level 2 volume found in the last two days (UTC)" >&2
 fi
+
+# One HRRR surface CAPE field, for tests/grib2_test.rs.
+#
+# The whole file is ~130 MB and we want one field out of 170, so this reads
+# the .idx sidecar for the byte range and asks for that alone -- about 800 KB.
+# Exactly what the app does at runtime, so if this stops working the fetcher
+# is broken too.
+HRRR="https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
+hrrr_cape() {
+  local day hour base idx start end
+  for back in 0 1; do
+    day=$(date -u -d "-$back day" +%Y%m%d 2>/dev/null) || day=$(date -u +%Y%m%d)
+    for hour in 12 06 00 18; do
+      base="$HRRR/hrrr.$day/conus/hrrr.t${hour}z.wrfsfcf00.grib2"
+      idx=$(curl -sf --max-time 30 "$base.idx") || continue
+      # ":CAPE:surface:" is one line; the next record's offset ends it.
+      start=$(echo "$idx" | grep ':CAPE:surface:' | head -1 | cut -d: -f2)
+      [ -n "$start" ] || continue
+      end=$(echo "$idx" | awk -F: -v s="$start" '$2 > s {print $2; exit}')
+      [ -n "$end" ] || continue
+      echo "fetching CAPE from hrrr.$day t${hour}z (bytes $start-$((end - 1)))"
+      curl -sf --max-time 120 -r "$start-$((end - 1))" \
+        -o "testdata/hrrr_cape.grib2" "$base" && return 0
+    done
+  done
+  return 1
+}
+
+hrrr_cape || echo "no HRRR CAPE field found in the last two days (UTC)" >&2

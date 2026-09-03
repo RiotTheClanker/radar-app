@@ -234,6 +234,67 @@ pub fn rasterize_latlon_view(
     })
 }
 
+/// Render a model field on a Lambert Conformal grid into a web-Mercator view
+/// box, the same way [`rasterize_latlon_view`] does for a lat/lon one.
+///
+/// Values are physical rather than a packed byte, so this samples the colour
+/// table directly instead of going through a 256-entry lookup — a CAPE field
+/// spans 0 to 5000 J/kg and quantising it to 256 steps to save a compare per
+/// pixel would be a strange trade.
+///
+/// Nearest-neighbour. The grid is 3 km and the screen is rarely finer than
+/// that over a useful area; interpolating would smooth a field that is
+/// already smooth and hide where the model put a sharp gradient.
+pub fn rasterize_lambert_view(
+    field: &crate::grib2::Grib2Field,
+    table: &ColorTable,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Option<GeoImage> {
+    if north <= south || east <= west || field.values.is_empty() {
+        return None;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let mut pixels = vec![0u8; w * h * 4];
+    let y_n = merc_y(north.to_radians());
+    let y_s = merc_y(south.to_radians());
+
+    for py in 0..h {
+        let ty = (py as f64 + 0.5) / h as f64;
+        let lat = inv_merc_y(y_n + (y_s - y_n) * ty).to_degrees();
+        let row = &mut pixels[py * w * 4..(py + 1) * w * 4];
+        for px in 0..w {
+            let tx = (px as f64 + 0.5) / w as f64;
+            let lon = west + (east - west) * tx;
+            let (gi, gj) = field.grid.to_grid(lat, lon);
+            let Some(idx) = field.grid.index(gi, gj) else {
+                continue; // outside the model domain
+            };
+            let color = table.sample(field.values[idx]);
+            if color[3] == 0 {
+                continue; // below the scale, e.g. air that is not unstable
+            }
+            let o = px * 4;
+            row[o..o + 4].copy_from_slice(&color);
+        }
+    }
+
+    Some(GeoImage {
+        width,
+        height,
+        pixels,
+        north,
+        south,
+        east,
+        west,
+    })
+}
+
 /// Build a 0.1°-resolution azimuth -> radial-index lookup table.
 /// Map each 0.1-degree azimuth slot to the radial that covers it.
 ///

@@ -726,6 +726,54 @@ pub fn render_mrms_view(
     })
 }
 
+/// Render an HRRR model field into a view box.
+///
+/// `data` is one GRIB2 message — a single field pulled out of the hourly file
+/// by byte range, not the whole 130 MB of it.
+///
+/// The returned frame carries the model's **run time** in `timestamp`, not
+/// the time it was fetched. Everything else this engine renders was measured
+/// by an instrument; this was computed by a forecast model, and a caller that
+/// cannot tell the difference will draw it as though it were an observation.
+pub fn render_cape_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    let field = crate::grib2::parse(&data).map_err(|e| e.to_string())?;
+    let table = ColorTable::cape_default();
+    let img = render::rasterize_lambert_view(
+        &field, &table, north, south, east, west, width, height,
+    )
+    .ok_or_else(|| "empty view".to_string())?;
+    // The view's own centre. There is no site for a model field, and a
+    // caller reading site_lat expects somewhere meaningful rather than
+    // the Gulf of Guinea.
+    let clat = (img.north + img.south) * 0.5;
+    let clon = (img.east + img.west) * 0.5;
+    Ok(RadarFrame {
+        product_code: 0,
+        product_name: "CAPE (HRRR model)".into(),
+        unit: "J/kg".into(),
+        site_lat: clat,
+        site_lon: clon,
+        timestamp: field.run_time,
+        elevation_deg: 0.0,
+        vcp: 0,
+        width: img.width,
+        height: img.height,
+        png: encode_png(img.width, img.height, &img.pixels)?,
+        north: img.north,
+        south: img.south,
+        east: img.east,
+        west: img.west,
+    })
+}
+
 /// Drape a basemap image on the 3D ground plane. The image must cover the
 /// volume's horizontal extent exactly, north-up, as RGBA8.
 pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(), String> {
