@@ -189,16 +189,6 @@ impl<'a> Reader<'a> {
         Ok(i32::from_be_bytes([b[0], b[1], b[2], b[3]]))
     }
 
-    fn f32(&mut self) -> Result<f32> {
-        let b = self.take(4)?;
-        Ok(f32::from_be_bytes([b[0], b[1], b[2], b[3]]))
-    }
-
-    fn skip(&mut self, n: usize) -> Result<()> {
-        self.need(n)?;
-        self.pos += n;
-        Ok(())
-    }
 }
 
 // ---------------------------------------------------------------------------

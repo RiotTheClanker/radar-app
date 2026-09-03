@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:radar_app/data/alerts_fetcher.dart';
+import 'package:radar_app/ui/alert_sheets.dart';
 
 /// One GeoJSON feature. Passing no geometry is the case that matters: that is
 /// how the NWS issues watches and advisories, by county rather than polygon.
@@ -217,6 +218,79 @@ void main() {
       final alerts = parseAlerts(odd);
       expect(alerts.single.hasPolygon, isFalse);
       expect(alerts.single.category, AlertCategory.advisory);
+    });
+  });
+
+  /// Alerts stack: a tornado warning inside a severe thunderstorm watch
+  /// inside a flood advisory is three polygons over the same ground. Tapping
+  /// there used to take whichever the renderer drew first, which is not a
+  /// choice anyone made.
+  group('ordering what is under one tap', () {
+    WeatherAlert at(String event, {DateTime? expires}) => WeatherAlert(
+          id: event,
+          event: event,
+          headline: '',
+          description: '',
+          severity: 'Severe',
+          expires: expires,
+          polygons: const [],
+          areaDesc: '',
+          zoneUrls: const [],
+        );
+
+    test('the most pertinent category comes first', () {
+      final ordered = orderByUrgency([
+        at('Flood Advisory'),
+        at('Severe Thunderstorm Watch'),
+        at('Tornado Warning'),
+      ]);
+      expect(
+        ordered.map((a) => a.category).toList(),
+        [AlertCategory.warning, AlertCategory.watch, AlertCategory.advisory],
+        reason: 'a warning is happening now; an advisory is barely news',
+      );
+    });
+
+    /// Within a category, the one running out soonest is the one to read
+    /// first.
+    test('inside a category, soonest to expire comes first', () {
+      final soon = DateTime.utc(2026, 7, 29, 4);
+      final later = DateTime.utc(2026, 7, 29, 9);
+      final ordered = orderByUrgency([
+        at('Tornado Warning', expires: later),
+        at('Flash Flood Warning', expires: soon),
+      ]);
+      expect(ordered.first.expires, soon);
+    });
+
+    /// An alert with no expiry is not urgent, it is unbounded — it should not
+    /// jump the queue over one that is about to run out.
+    test('an alert with no expiry sorts last, not first', () {
+      final ordered = orderByUrgency([
+        at('Tornado Warning'),
+        at('Flash Flood Warning', expires: DateTime.utc(2026, 7, 29, 4)),
+      ]);
+      expect(ordered.first.event, 'Flash Flood Warning');
+    });
+
+    test('ordering keeps everything and invents nothing', () {
+      final input = [
+        at('Flood Advisory'),
+        at('Tornado Warning'),
+        at('Severe Thunderstorm Watch'),
+      ];
+      final ordered = orderByUrgency(input);
+      expect(ordered.length, input.length);
+      expect(ordered.map((a) => a.event).toSet(),
+          input.map((a) => a.event).toSet());
+      expect(input.first.event, 'Flood Advisory',
+          reason: 'the caller\'s list must not be reordered under it');
+    });
+
+    test('one alert and none at all are both fine', () {
+      expect(orderByUrgency([]), isEmpty);
+      expect(orderByUrgency([at('Tornado Warning')]).single.event,
+          'Tornado Warning');
     });
   });
 }

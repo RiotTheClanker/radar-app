@@ -65,6 +65,7 @@ map, not a substitute for reading them.
 | `render_level3_frame` | Same for a Level 3 product file |
 | `render_level3_view` / `render_level2_view` | **Viewport-matched**: pass the visible bounds and pixel size, get exactly those pixels. This is what keeps the map sharp at any zoom — prefer these |
 | `render_mrms_view` | The national mosaic, from gzipped GRIB2 |
+| `render_cape_view` | An HRRR model field on a Lambert Conformal grid. The frame's `timestamp` is the **model run time**, not the fetch time |
 | `level2_cuts` | Elevation angles available for a moment |
 
 **Read a value**
@@ -82,7 +83,7 @@ map, not a substitute for reading them.
 | `volume3d_render_fly` | Render one free-fly frame — raw RGBA, no PNG encode |
 | `render_volume3d` | One-shot still, PNG |
 | `volume3d_set_threshold` / `set_hidden_classes` | Repaint without rebuilding the grid |
-| `volume3d_set_ground` / `set_terrain` / `ground_bounds` | The basemap drape and elevation relief |
+| `volume3d_set_ground` / `set_terrain` / `ground_bounds` | The basemap drape and elevation relief. Send terrain as metres above **sea level**; the engine shifts it onto the volume's datum (the antenna) itself |
 | `volume3d_show_cone` | Shade the unsampled column above the radar |
 
 **Derived and decoded**
@@ -99,6 +100,21 @@ map, not a substitute for reading them.
 | `color_scale` | The scale a product is actually drawn with, so a key matches the map |
 | `install_palette` | Import a `.pal`; returns the product family it applies to |
 | `reset_palettes` | Back to the built-ins |
+
+## Measuring before optimising
+
+```
+cargo run --release --example bench
+```
+
+Times every path the app runs while somebody is watching a storm, against
+real files from `tools/fetch_testdata.sh`. Release only — a debug build
+measures the absence of optimisation rather than the code.
+
+Run it before changing anything for speed. The largest win found so far was
+not making anything faster: it was noticing that reading a Level 2 volume,
+which costs about 200 ms, was happening seven times over for one frame on
+screen.
 
 ## Sessions and global state
 
@@ -144,6 +160,27 @@ second viewer. **The day 3D becomes a pane, it needs the same handle
 treatment**, and for the same reason — the second opener would take over the
 first one's volume.
 
+### Two memos, which are not sessions
+
+The last parsed Level 2 volume and the last decoded model field are each held
+in a single global slot.
+
+That looks like the thing the inspect session got wrong, and it is worth
+being clear why it is not. A session holds *whose* it is: opening one from a
+second caller takes it away from the first, which is exactly the bug. A memo
+holds nothing but an answer. The same bytes always decode to the same volume,
+a miss only costs the work it saved, and no caller can observe another's
+use of it.
+
+One entry each, not several. A parsed volume is tens of megabytes; four panes
+comparing four moments of one scan all want the same one, so a single slot
+serves the case that matters. An animation loop steps through different
+volumes and misses on every frame — the honest cost of not holding a hundred
+megabytes on a phone.
+
+Both key on a hash of the entire message rather than a sample of it, so a hit
+cannot be a different file that happened to start the same way.
+
 ### Palettes are global on purpose
 
 A `.pal` import is meant to change every pane's map and key at once, which is
@@ -160,8 +197,28 @@ why `WorkspaceState.paletteGeneration` exists to make them all rebuild.
 - **Ask for the pixels you will draw.** The `*_view` functions size the render
   to what you pass. Passing the window's width for a pane that is a quarter
   of the window is four times the work, and was a real bug.
+- **Two datums meet in the 3D view.** Echo heights are measured from the
+  radar antenna (`beam_height_m`); terrain arrives measured from sea level.
+  `set_terrain` reconciles them using the antenna altitude parsed out of the
+  volume's own site block. Anything else drawn in that space has to pick a
+  datum deliberately — they differ by 3.3 km at the highest site in the
+  network, and by 26 m at the lowest.
 - **wgpu with a CPU fallback** does the 3D. It is the only place the engine
   touches a GPU, and the fallback is why headless CI can still run it.
+- **There are two GRIB2 readers, and they share nothing.** `mrms.rs` handles a
+  plain lat/lon grid (template 3.0) with PNG-compressed values (5.41).
+  `grib2.rs` handles Lambert Conformal (3.30) with complex packing and spatial
+  differencing (5.3), which is what model output uses. Neither reads the
+  other's files. Two traps in the format: signed integers are **sign-magnitude**
+  (a decimal scale of -1 arrives as `0x8001`, and reads as -32767 if taken as
+  two's complement), and the packed values are **second differences** that have
+  to be integrated twice from initial values stored ahead of them.
+- **Level 2 decompression runs across threads.** Records are independent
+  bzip2 streams and decompression is ~90% of the cost, so they are inflated in
+  batches bounded by the core count and folded back in file order. Order
+  matters: sweeps are keyed by elevation, and a batch folded out of order
+  reshuffles the cuts. `tests/level2_test.rs` pins checksums taken from a
+  single-threaded decode.
 - **The decoders are hand-written** — Level 2, Level 3, GRIB2, and the HDF5
   subset GLM needs. That is deliberate: there is no libhdf5, libgrib or
   eccodes to cross-compile for Android. Do not swap one in casually.

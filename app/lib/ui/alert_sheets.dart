@@ -80,6 +80,110 @@ void showAlertSheet(BuildContext context, WeatherAlert alert) {
 ///
 /// [onZoom] is handed an alert the caller can frame on the map; it is only
 /// offered for alerts that actually have an outline.
+/// Alerts stack. A tornado warning inside a severe thunderstorm watch inside
+/// a flood advisory is three polygons over the same ground, and a tap that
+/// silently picked one of them was picking by draw order — which is not the
+/// one anyone meant.
+///
+/// Ordered by how much it matters: warnings, then watches, then advisories,
+/// and within a category the one expiring soonest first. So the thing you
+/// most likely tapped for is at the top even though the list exists precisely
+/// because we cannot know which you meant.
+List<WeatherAlert> orderByUrgency(List<WeatherAlert> alerts) {
+  final out = List<WeatherAlert>.of(alerts);
+  out.sort((a, b) {
+    final byCat = a.category.index.compareTo(b.category.index);
+    if (byCat != 0) return byCat;
+    final ax = a.expires;
+    final bx = b.expires;
+    if (ax == null && bx == null) return a.event.compareTo(b.event);
+    if (ax == null) return 1;
+    if (bx == null) return -1;
+    return ax.compareTo(bx);
+  });
+  return out;
+}
+
+/// Everything under one tap, when more than one thing is.
+///
+/// A single alert opens straight to its text — a disambiguation step for an
+/// unambiguous tap is a step for nothing. Two or more, and this asks.
+void showAlertPicker(BuildContext context, List<WeatherAlert> alerts) {
+  if (alerts.isEmpty) return;
+  if (alerts.length == 1) {
+    showAlertSheet(context, alerts.first);
+    return;
+  }
+  final ordered = orderByUrgency(alerts);
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+            child: Text(
+              '${ordered.length} alerts here',
+              style: Wx.heading,
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              'They overlap where you tapped. Pick one to read it.',
+              style: Wx.labelDim,
+            ),
+          ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+              children: [
+                for (final a in ordered)
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    leading: Container(
+                      width: 8,
+                      height: 8,
+                      margin: const EdgeInsets.only(top: 8),
+                      color: a.color,
+                    ),
+                    title: Text(a.event, style: Wx.label),
+                    subtitle: Text(
+                      a.areaDesc.isEmpty ? a.headline : a.areaDesc,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(fontSize: 10.5, color: Wx.textDim),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      size: 16,
+                      color: Wx.textDim,
+                    ),
+                    // Pop with the sheet's own context, then open against the
+                    // caller's — the sheet context is deactivated by the pop,
+                    // and pushing a route through it afterwards is undefined.
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      showAlertSheet(context, a);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 void showAlertList(
   BuildContext context,
   List<WeatherAlert> alerts, {

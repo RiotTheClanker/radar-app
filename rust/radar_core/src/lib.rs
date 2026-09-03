@@ -8,6 +8,7 @@
 pub mod api;
 pub mod error;
 pub mod glm;
+pub mod grib2;
 pub mod level2;
 pub mod level3;
 pub mod mrms;

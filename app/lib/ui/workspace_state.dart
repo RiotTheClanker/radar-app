@@ -20,7 +20,10 @@ import 'package:latlong2/latlong.dart';
 import '../data/alerts_fetcher.dart';
 import '../data/glm_fetcher.dart';
 import '../data/lightning.dart';
+import '../data/hrrr_fetcher.dart';
 import '../data/spc_fetcher.dart';
+import '../data/surface_obs.dart';
+import '../src/rust/api/radar.dart';
 import 'pane_models.dart';
 import 'request_cache.dart';
 
@@ -149,6 +152,134 @@ class WorkspaceState extends ChangeNotifier {
       reports = r;
       _ping();
     } catch (_) {}
+  }
+
+  // ------------------------------------------------------ surface obs ----
+
+  /// Current surface observations, shared by every pane.
+  ///
+  /// One fetch covers the whole country, so four panes comparing four
+  /// products all read the same list rather than each holding a copy — the
+  /// ownership test in docs/ui-contract.md, applied.
+  List<SurfaceObs> surfaceObs = const [];
+  bool showObs = false;
+
+  /// Surfaced rather than swallowed, the same as [alertError]: a layer that
+  /// is switched on and empty should be able to say why.
+  String? obsError;
+
+  Timer? _obsTimer;
+
+  Future<void> toggleObs() async {
+    showObs = !showObs;
+    _ping();
+    if (!showObs) {
+      // Stop polling, but keep what was fetched: switching the layer back on
+      // should not stare at an empty map while a request runs.
+      _obsTimer?.cancel();
+      _obsTimer = null;
+      return;
+    }
+    // Routine METARs are hourly with specials in between, so polling faster
+    // than this only refetches the same readings.
+    _obsTimer ??= Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => unawaited(_loadObs()),
+    );
+    if (surfaceObs.isEmpty) await _loadObs();
+  }
+
+  Future<void> _loadObs() async {
+    try {
+      final obs = await fetchSurfaceObs();
+      if (_disposed) return;
+      surfaceObs = obs;
+      obsError = null;
+      _ping();
+    } catch (e) {
+      if (_disposed) return;
+      obsError = e.toString();
+      _ping();
+    }
+  }
+
+  Future<void> refreshObs() => _loadObs();
+
+  // -------------------------------------------------------------- cape ----
+
+  /// The raw GRIB2 message for the current CAPE field, shared by every pane.
+  ///
+  /// The bytes rather than a picture: each pane renders its own viewport out
+  /// of them, the same way it does with a radar volume. One fetch, four
+  /// renders.
+  HrrrField? cape;
+  bool showCape = false;
+  String? capeError;
+
+  /// True while a run is being fetched. 800 KB over a phone connection is
+  /// several seconds, and a layer that is switched on and simply absent for
+  /// that long reads as broken rather than as busy.
+  bool capeLoading = false;
+
+  /// The scale the engine actually paints CAPE with.
+  ///
+  /// From `colorScale`, not from constants here — invariant 7. It never
+  /// changes, so it is fetched once and shared rather than per pane.
+  ColorScale? capeScale;
+
+  Timer? _capeTimer;
+
+  /// Whether a model run is old enough to be misleading rather than useful.
+  ///
+  /// HRRR runs hourly. Three hours allows for the publish lag plus a missed
+  /// run without the layer vanishing mid-storm.
+  bool get capeStale {
+    final at = cape?.runTime;
+    return at == null ||
+        DateTime.now().toUtc().difference(at) > const Duration(hours: 3);
+  }
+
+  Future<void> toggleCape() async {
+    showCape = !showCape;
+    _ping();
+    if (!showCape) {
+      _capeTimer?.cancel();
+      _capeTimer = null;
+      return;
+    }
+    // Hourly runs, so checking more often than half-hourly just refetches the
+    // same 800 KB.
+    _capeTimer ??= Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => unawaited(_loadCape()),
+    );
+    if (cape == null) await _loadCape();
+  }
+
+  Future<void> _loadCape() async {
+    capeLoading = true;
+    _ping();
+    try {
+      capeScale ??= await colorScale(productCode: 0, moment: 'CAPE');
+      final f = await fetchHrrrField(capeField);
+      if (_disposed) return;
+      if (f == null) {
+        capeError = 'no recent HRRR run';
+      } else {
+        cape = f;
+        capeError = null;
+      }
+      _ping();
+    } catch (e) {
+      if (_disposed) return;
+      capeError = e.toString();
+      _ping();
+    } finally {
+      if (!_disposed) {
+        capeLoading = false;
+        _ping();
+      }
+    }
   }
 
   // ---------------------------------------------------------- lightning ----
@@ -415,6 +546,8 @@ class WorkspaceState extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _alertTimer?.cancel();
+    _obsTimer?.cancel();
+    _capeTimer?.cancel();
     _animTimer?.cancel();
     _refreshTimer?.cancel();
     _strikeTimer?.cancel();

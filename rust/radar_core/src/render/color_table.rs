@@ -246,6 +246,35 @@ impl ColorTable {
         }
     }
 
+    /// Convective available potential energy (J/kg).
+    ///
+    /// Breakpoints are the ones the field is conventionally read at, so a
+    /// colour change means the same thing here as on any other CAPE map:
+    /// 500 for barely buoyant, 1000 and 2000 as the working thresholds,
+    /// 3000+ where it is genuinely large, 5000 as the top of the scale.
+    ///
+    /// Deliberately starts at 250 rather than 0. Almost two thirds of the
+    /// grid has some CAPE on a summer afternoon, and colouring all of it
+    /// paints the whole country. What matters is where it is concentrated.
+    pub fn cape_default() -> ColorTable {
+        let stops = vec![
+            (250.0, [40, 60, 110]),
+            (500.0, [0, 120, 200]),
+            (1000.0, [0, 200, 160]),
+            (1500.0, [120, 220, 0]),
+            (2000.0, [255, 230, 0]),
+            (2500.0, [255, 160, 0]),
+            (3000.0, [255, 80, 0]),
+            (4000.0, [230, 0, 60]),
+            (5000.0, [255, 255, 255]),
+        ];
+        ColorTable {
+            stops: opaque(stops),
+            interpolate: true,
+            rf_color: [119, 0, 125, 255],
+        }
+    }
+
     /// Echo tops (kft).
     pub fn echo_tops_default() -> ColorTable {
         let stops = vec![

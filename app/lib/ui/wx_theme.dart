@@ -58,6 +58,24 @@ abstract final class Wx {
   /// against, not a target to design down to.
   static const minTouch = 32.0;
 
+  /// Station plots: temperature above, dewpoint below.
+  ///
+  /// The same two colours the sounding screen uses for its temperature and
+  /// dewpoint traces, so the pairing means one thing across the app rather
+  /// than being relearned per screen.
+  static const obsTemp = Color(0xFFFF5252);
+  static const obsDewpoint = Color(0xFF69F0AE);
+
+  /// A station that has gone quiet. Drawn dim rather than dropped — a gap in
+  /// the network is information, and showing nothing looks identical to there
+  /// being nothing there.
+  static const obsStale = textFaint;
+
+  /// The tap box around a station plot. Two numbers stacked need more room
+  /// than a radar dot, and there are far more of them, so this is the height
+  /// of the text rather than a square.
+  static const obsHit = minTouch;
+
   /// The tap box around a radar site, and the dot drawn in the middle of it.
   ///
   /// They are deliberately different numbers. Two hundred sites are on the

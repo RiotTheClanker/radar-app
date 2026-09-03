@@ -234,6 +234,69 @@ pub fn rasterize_latlon_view(
     })
 }
 
+/// Render a model field on a Lambert Conformal grid into a web-Mercator view
+/// box, the same way [`rasterize_latlon_view`] does for a lat/lon one.
+///
+/// Values are physical rather than a packed byte, so this samples the colour
+/// table directly instead of going through a 256-entry lookup — a CAPE field
+/// spans 0 to 5000 J/kg and quantising it to 256 steps to save a compare per
+/// pixel would be a strange trade.
+///
+/// Nearest-neighbour. The grid is 3 km and the screen is rarely finer than
+/// that over a useful area; interpolating would smooth a field that is
+/// already smooth and hide where the model put a sharp gradient.
+pub fn rasterize_lambert_view(
+    field: &crate::grib2::Grib2Field,
+    table: &ColorTable,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Option<GeoImage> {
+    if north <= south || east <= west || field.values.is_empty() {
+        return None;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let mut pixels = vec![0u8; w * h * 4];
+    let y_n = merc_y(north.to_radians());
+    let y_s = merc_y(south.to_radians());
+
+    for py in 0..h {
+        let ty = (py as f64 + 0.5) / h as f64;
+        let lat = inv_merc_y(y_n + (y_s - y_n) * ty).to_degrees();
+        let row = &mut pixels[py * w * 4..(py + 1) * w * 4];
+        // The costly half of the projection depends only on the latitude,
+        // which is fixed across a row; the rest advances by a rotation.
+        let proj = field.grid.row(lat);
+        let dlon = (east - west) / w as f64;
+        let lon0 = west + dlon * 0.5;
+        for (px, (gi, gj)) in proj.walk(lon0, dlon, w).enumerate() {
+            let Some(idx) = field.grid.index(gi, gj) else {
+                continue; // outside the model domain
+            };
+            let color = table.sample(field.values[idx]);
+            if color[3] == 0 {
+                continue; // below the scale, e.g. air that is not unstable
+            }
+            let o = px * 4;
+            row[o..o + 4].copy_from_slice(&color);
+        }
+    }
+
+    Some(GeoImage {
+        width,
+        height,
+        pixels,
+        north,
+        south,
+        east,
+        west,
+    })
+}
+
 /// Build a 0.1°-resolution azimuth -> radial-index lookup table.
 /// Map each 0.1-degree azimuth slot to the radial that covers it.
 ///
@@ -329,6 +392,20 @@ pub fn rasterize_sweep_view(
     let gate_origin = sweep.first_gate_m as f64 - sweep.gate_size_m as f64 * 0.5;
     let nbins = sweep.nbins as i64;
 
+    // The longitude offset from the site depends only on the column, so its
+    // sine and cosine are the same all the way down. Computed once per column
+    // rather than once per pixel: at 1600x900 that is 3,200 calls instead of
+    // 2.9 million, and they were two of the five transcendentals each pixel
+    // was paying for.
+    let mut sin_dlon = vec![0f64; w];
+    let mut cos_dlon = vec![0f64; w];
+    for (px, (s, c)) in sin_dlon.iter_mut().zip(cos_dlon.iter_mut()).enumerate() {
+        let tx = (px as f64 + 0.5) / w as f64;
+        let dlon_r = (west + (east - west) * tx).to_radians() - site_lon;
+        *s = dlon_r.sin();
+        *c = dlon_r.cos();
+    }
+
     for py in 0..h {
         // Row latitude via Mercator interpolation between the box edges.
         let ty = (py as f64 + 0.5) / h as f64;
@@ -336,14 +413,18 @@ pub fn rasterize_sweep_view(
         let sin_lat = lat.sin();
         let cos_lat = lat.cos();
         let row = &mut pixels[py * w * 4..(py + 1) * w * 4];
+        // Both of these are fixed across the row as well.
+        let a = sin_site * sin_lat;
+        let b = cos_site * cos_lat;
+        let bearing_y = cos_site * sin_lat;
+        let bearing_x = sin_site * cos_lat;
 
         for px in 0..w {
-            let tx = (px as f64 + 0.5) / w as f64;
-            let lon = (west + (east - west) * tx).to_radians();
-            let dlon_r = lon - site_lon;
+            let sin_d = sin_dlon[px];
+            let cos_d = cos_dlon[px];
 
             // Great-circle distance and initial bearing from the site.
-            let cos_c = (sin_site * sin_lat + cos_site * cos_lat * dlon_r.cos()).clamp(-1.0, 1.0);
+            let cos_c = b.mul_add(cos_d, a).clamp(-1.0, 1.0);
             let dist = cos_c.acos() * EARTH_R;
 
             let bin = ((dist - gate_origin) * inv_gate) as i64;
@@ -351,10 +432,8 @@ pub fn rasterize_sweep_view(
                 continue;
             }
 
-            let az = dlon_r
-                .sin()
-                .mul_add(cos_lat, 0.0)
-                .atan2(cos_site * sin_lat - sin_site * cos_lat * dlon_r.cos())
+            let az = (sin_d * cos_lat)
+                .atan2(bearing_y - bearing_x * cos_d)
                 .to_degrees();
             let az10 = (((az * 10.0).round() as i32) % 3600 + 3600) % 3600;
             let ridx = az_lut[az10 as usize];

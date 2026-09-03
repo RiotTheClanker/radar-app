@@ -837,13 +837,15 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   Widget _layersMenu() {
     final beyondDefault = _shared.showOutlook ||
         _shared.showReports ||
+        _shared.showObs ||
+        _shared.showCape ||
         _shared.alertLayers.length > 1 ||
         !_shared.alertLayers.contains(AlertCategory.warning);
 
     return WxMenu<String>(
       label: _wide ? 'Layers' : null,
       icon: Icons.layers_outlined,
-      tooltip: 'Warnings, outlooks, lightning',
+      tooltip: 'Warnings, outlooks, lightning, surface observations',
       active: beyondDefault || _shared.showLightning,
       onSelected: (v) {
         switch (v) {
@@ -851,6 +853,10 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             unawaited(_shared.toggleOutlook());
           case 'reports':
             unawaited(_shared.toggleReports());
+          case 'obs':
+            unawaited(_shared.toggleObs());
+          case 'cape':
+            unawaited(_shared.toggleCape());
           case 'list':
             showAlertList(context, _shared.alerts, onZoom: _zoomToAlert);
           case 'key':
@@ -895,6 +901,22 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             label: s.label,
             checked: _shared.lightning == s,
           ),
+        const PopupMenuDivider(),
+        wxMenuHeading<String>('MODEL'),
+        wxMenuItem(
+          value: 'cape',
+          label: _shared.cape == null
+              ? 'CAPE (HRRR forecast)'
+              : 'CAPE (HRRR ${_runLabel(_shared.cape!.runTime)})',
+          checked: _shared.showCape,
+        ),
+        const PopupMenuDivider(),
+        wxMenuHeading<String>('OBSERVATIONS'),
+        wxMenuItem(
+          value: 'obs',
+          label: 'Surface observations',
+          checked: _shared.showObs,
+        ),
         const PopupMenuDivider(),
         wxMenuHeading<String>('SPC'),
         wxMenuItem(
@@ -1123,12 +1145,43 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       child: Text(
         '${_shared.basemap.attribution} · NOAA/NWS'
-        '${_shared.lightning.usesBlitzortung ? ' · lightning © Blitzortung.org' : ''}',
+        '${_shared.lightning.usesBlitzortung ? ' · lightning © Blitzortung.org' : ''}'
+        // Everything else on this map was measured by an instrument. This one
+        // was computed by a forecast model, and drawn at the same apparent
+        // confidence beside live warnings it would be read as though it were
+        // an observation. The run time says how old the forecast is, since a
+        // three-hour-old model of a fast-moving afternoon is a different
+        // claim from a fresh one.
+        '${_capeLabel()}',
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 9.5, color: Wx.textFaint),
       ),
     );
   }
+
+  /// What the attribution line says about the CAPE layer.
+  ///
+  /// Three states, and the loading one matters: 800 KB over a phone
+  /// connection is several seconds, and a layer switched on but absent for
+  /// that long reads as broken rather than busy.
+  String _capeLabel() {
+    if (!_shared.showCape) return '';
+    if (_shared.capeLoading && _shared.cape == null) {
+      return ' · CAPE: loading HRRR run…';
+    }
+    final err = _shared.capeError;
+    if (_shared.cape == null) {
+      return ' · CAPE: ${err == null ? 'unavailable' : 'unavailable ($err)'}';
+    }
+    // Everything else on this map was measured. Naming the model and the run
+    // is what keeps a forecast from being read as an observation.
+    return ' · CAPE: HRRR model forecast, ${_runLabel(_shared.cape!.runTime)} run'
+        '${_shared.capeStale ? ' (stale)' : ''}';
+  }
+
+  /// A model run, as forecasters name them: the UTC hour, with a Z.
+  static String _runLabel(DateTime runUtc) =>
+      '${runUtc.toUtc().hour.toString().padLeft(2, '0')}Z';
 
   String _ageLabel(Duration age) {
     if (age.inHours >= 1) return '${age.inHours}h';

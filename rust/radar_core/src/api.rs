@@ -77,7 +77,7 @@ pub fn render_level2_frame(
     elevation_index: u32,
     image_size: u32,
 ) -> Result<RadarFrame, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (kind, name, unit) = moment_meta(&moment);
     frame_from_sweep(&sweep, kind, 0, name, unit, vol.vcp as i32, image_size)
@@ -85,7 +85,7 @@ pub fn render_level2_frame(
 
 /// Elevation cuts available for a moment in a Level 2 volume, in scan order.
 pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     Ok(match moment.as_str() {
         "CREF" | "VIL" | "ET" => vec![0.0],
         "SRM" | "ROT" => vol.cuts_for("VEL").iter().map(|c| c.elevation_deg).collect(),
@@ -134,7 +134,7 @@ pub fn render_level2_view(
     width: u32,
     height: u32,
 ) -> Result<RadarFrame, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (kind, name, unit) = moment_meta(&moment);
     let table = ColorTable::default_for(kind);
@@ -225,7 +225,7 @@ pub fn sample_level2(
     lat: f64,
     lon: f64,
 ) -> Result<SampleResult, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (_, _, unit) = moment_meta(&moment);
     Ok(sample_sweep(&sweep, unit, lat, lon))
@@ -363,7 +363,7 @@ pub fn render_volume3d(
     width: u32,
     height: u32,
 ) -> Result<Volume3DFrame, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let cuts = vol.all_sweeps("REF");
     let grid = crate::process::grid3d::build_grid(&cuts, 384, 40, 120_000.0, 16_000.0)
         .ok_or_else(|| "no reflectivity cuts in volume".to_string())?;
@@ -401,6 +401,10 @@ struct Vol3DSession {
     gpu: Option<crate::render::gpu3d::GpuVolume>,
     site_lat: f64,
     site_lon: f64,
+    /// Antenna height above sea level, metres. The grid's z is height above
+    /// the antenna, so this is what a sea-level heightfield has to be shifted
+    /// by to share the axis.
+    antenna_alt_m: f64,
     /// The two ways of filtering, held so either can be changed without the
     /// caller having to resend the other.
     threshold: f32,
@@ -439,7 +443,7 @@ pub fn build_hca_grid(vol: &level2::Level2Volume) -> Result<Grid3D, String> {
     const TOP: f32 = 16_000.0;
 
     let dec = |e: GridEncode| move |raw: u8| (raw as f32 - e.offset) / e.scale;
-    let mut grid_for = |m: &str| -> Result<(Grid3D, GridEncode), String> {
+    let grid_for = |m: &str| -> Result<(Grid3D, GridEncode), String> {
         let cuts = vol.all_sweeps(m);
         if cuts.is_empty() {
             return Err(format!(
@@ -564,7 +568,7 @@ pub fn volume3d_open(
     threshold: f32,
     hidden_classes: Vec<u8>,
 ) -> Result<Volume3DInfo, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let cuts = match moment.as_str() {
         // Classification needs three moments at once; `cuts` is only used
         // below for the cone-of-silence limit, so reflectivity stands in.
@@ -605,6 +609,7 @@ pub fn volume3d_open(
         gpu,
         site_lat: vol.site_lat,
         site_lon: vol.site_lon,
+        antenna_alt_m: vol.antenna_alt_m,
         threshold,
         hidden_classes,
     });
@@ -721,6 +726,121 @@ pub fn render_mrms_view(
     })
 }
 
+/// Render an HRRR model field into a view box.
+///
+/// `data` is one GRIB2 message — a single field pulled out of the hourly file
+/// by byte range, not the whole 130 MB of it.
+///
+/// The returned frame carries the model's **run time** in `timestamp`, not
+/// the time it was fetched. Everything else this engine renders was measured
+/// by an instrument; this was computed by a forecast model, and a caller that
+/// cannot tell the difference will draw it as though it were an observation.
+/// The last decoded model field, kept so panning does not re-decode it.
+///
+/// Unlike the inspect sessions this is a **memo, not a session**: it holds no
+/// caller identity, a miss only costs the work it saved, and the same bytes
+/// always give the same field. Four panes rendering one field share the
+/// decode instead of paying 25 ms each, and there is nothing here for a
+/// second caller to take over — which is exactly what made a single global
+/// inspect session a bug and makes this one safe.
+static FIELD_MEMO: Mutex<Option<(u64, std::sync::Arc<crate::grib2::Grib2Field>)>> =
+    Mutex::new(None);
+
+/// FNV-1a over the message. Half a millisecond against a 25 ms decode, and
+/// hashing the whole buffer rather than sampling it means a hit cannot be a
+/// different field that happened to start the same way.
+fn field_key(data: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in data {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h ^ data.len() as u64
+}
+
+/// The last decoded Level 2 volume, for the same reason as [`FIELD_MEMO`].
+///
+/// Reading one costs about 580 ms, nine tenths of it bzip2, and every entry
+/// point here parses from bytes: rendering a view, sampling a point, opening
+/// the cursor, opening 3D, listing the cuts. Watching one frame and
+/// long-pressing to read a value used to pay that twice over, and panning
+/// paid it again for every frame on screen.
+///
+/// One entry, not several. A parsed volume is tens of megabytes and four
+/// panes comparing four moments of the same scan all want the *same* one, so
+/// a single slot serves the case that matters without multiplying what a
+/// phone has to hold. An animation loop steps through different volumes and
+/// will miss on each, which is the honest cost of not caching a hundred
+/// megabytes.
+///
+/// A memo, not a session: no caller identity, and a miss only costs the work
+/// it saved.
+static VOLUME_MEMO: Mutex<Option<(u64, std::sync::Arc<level2::Level2Volume>)>> = Mutex::new(None);
+
+/// Parse a Level 2 volume, reusing the last one when the bytes match.
+fn decode_volume(data: &[u8]) -> Result<std::sync::Arc<level2::Level2Volume>, String> {
+    let key = field_key(data);
+    if let Some((k, v)) = VOLUME_MEMO.lock().unwrap().as_ref() {
+        if *k == key {
+            return Ok(v.clone());
+        }
+    }
+    let vol = std::sync::Arc::new(level2::parse(data).map_err(|e| e.to_string())?);
+    *VOLUME_MEMO.lock().unwrap() = Some((key, vol.clone()));
+    Ok(vol)
+}
+
+fn decode_field(data: &[u8]) -> Result<std::sync::Arc<crate::grib2::Grib2Field>, String> {
+    let key = field_key(data);
+    if let Some((k, f)) = FIELD_MEMO.lock().unwrap().as_ref() {
+        if *k == key {
+            return Ok(f.clone());
+        }
+    }
+    let field = std::sync::Arc::new(crate::grib2::parse(data).map_err(|e| e.to_string())?);
+    *FIELD_MEMO.lock().unwrap() = Some((key, field.clone()));
+    Ok(field)
+}
+
+pub fn render_cape_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    let field = decode_field(&data)?;
+    let table = ColorTable::cape_default();
+    let img = render::rasterize_lambert_view(
+        &field, &table, north, south, east, west, width, height,
+    )
+    .ok_or_else(|| "empty view".to_string())?;
+    // The view's own centre. There is no site for a model field, and a
+    // caller reading site_lat expects somewhere meaningful rather than
+    // the Gulf of Guinea.
+    let clat = (img.north + img.south) * 0.5;
+    let clon = (img.east + img.west) * 0.5;
+    Ok(RadarFrame {
+        product_code: 0,
+        product_name: "CAPE (HRRR model)".into(),
+        unit: "J/kg".into(),
+        site_lat: clat,
+        site_lon: clon,
+        timestamp: field.run_time,
+        elevation_deg: 0.0,
+        vcp: 0,
+        width: img.width,
+        height: img.height,
+        png: encode_png(img.width, img.height, &img.pixels)?,
+        north: img.north,
+        south: img.south,
+        east: img.east,
+        west: img.west,
+    })
+}
+
 /// Drape a basemap image on the 3D ground plane. The image must cover the
 /// volume's horizontal extent exactly, north-up, as RGBA8.
 pub fn volume3d_set_ground(rgba: Vec<u8>, width: u32, height: u32) -> Result<(), String> {
@@ -749,11 +869,13 @@ pub fn volume3d_show_cone(show: bool) -> Result<(), String> {
 pub fn volume3d_set_terrain(heights: Vec<f32>, width: u32, height: u32) -> Result<(), String> {
     let mut guard = VOL3D.lock().unwrap();
     let s = guard.as_mut().ok_or("no 3D session")?;
+    // Heights arrive above sea level; the volume's z is above the antenna.
+    let alt = s.antenna_alt_m as f32;
     if let Some(gpu) = s.gpu.as_mut() {
         if heights.is_empty() {
             gpu.clear_terrain();
         } else {
-            gpu.set_terrain(&heights, width, height);
+            gpu.set_terrain(&heights, width, height, alt);
         }
     }
     Ok(())
@@ -1052,7 +1174,7 @@ pub fn inspect_open_level2(
     moment: String,
     elevation_index: u32,
 ) -> Result<u32, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (_, _, unit) = moment_meta(&moment);
     Ok(inspect_store(sweep, unit))
@@ -1112,6 +1234,14 @@ pub struct ColorScale {
 /// same `ColorTable::default_for`, which is also where a user's imported
 /// `.pal` table takes over — so the key follows a custom palette too.
 pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, String> {
+    // Model fields are not radar products: they have no product code and no
+    // moment in the Level 2 sense, so they are named here rather than looked
+    // up. Asked for by name so the key comes from the engine like every other
+    // one -- a key built from constants on the Dart side is the thing
+    // invariant 7 exists to prevent.
+    if moment == "CAPE" {
+        return Ok(scale_from(ColorTable::cape_default(), "J/kg".to_string()));
+    }
     let (kind, unit) = if !moment.is_empty() {
         let (kind, _, unit) = moment_meta(&moment);
         (kind, unit)
@@ -1123,8 +1253,11 @@ pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, Stri
         }
     };
 
-    let table = ColorTable::default_for(kind);
-    Ok(ColorScale {
+    Ok(scale_from(ColorTable::default_for(kind), unit))
+}
+
+fn scale_from(table: ColorTable, unit: String) -> ColorScale {
+    ColorScale {
         stops: table
             .stops
             .iter()
@@ -1141,7 +1274,7 @@ pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, Stri
         rf_r: table.rf_color[0],
         rf_g: table.rf_color[1],
         rf_b: table.rf_color[2],
-    })
+    }
 }
 
 
@@ -1246,6 +1379,62 @@ mod tests {
             panic!("an unopened handle sampled successfully");
         };
         assert!(err.contains("no inspect session"), "{err}");
+    }
+
+    /// Invariant 7: keys come from the engine, so the scale the UI draws has
+    /// to be the one the renderer paints with. A CAPE map with no key is a
+    /// picture of colours nobody can put a number to.
+    #[test]
+    fn cape_has_a_scale_the_ui_can_ask_for() {
+        let s = color_scale(0, "CAPE".to_string()).expect("cape scale");
+        assert_eq!(s.unit, "J/kg");
+        assert!(s.stops.len() >= 5, "too few stops to read a value off");
+        // Ascending, or the key draws out of order.
+        for w in s.stops.windows(2) {
+            assert!(w[0].value < w[1].value, "stops must ascend");
+        }
+        // Starts above zero: most of the country has some CAPE on a summer
+        // afternoon, and colouring all of it paints the whole map.
+        assert!(s.stops[0].value >= 100.0, "scale starts too low");
+        assert!(
+            s.stops.last().unwrap().value >= 3000.0,
+            "the top of the scale has to reach genuinely severe values"
+        );
+    }
+
+    /// The scale must match the table the renderer actually uses, not a
+    /// parallel copy that can drift from it.
+    #[test]
+    fn the_cape_key_matches_the_table_the_renderer_paints_with() {
+        let s = color_scale(0, "CAPE".to_string()).unwrap();
+        let table = ColorTable::cape_default();
+        assert_eq!(s.stops.len(), table.stops.len());
+        for (a, b) in s.stops.iter().zip(table.stops.iter()) {
+            assert_eq!(a.value, b.value);
+            assert_eq!([a.r, a.g, a.b], [b.color[0], b.color[1], b.color[2]]);
+        }
+    }
+
+    /// The memo is a memo: same bytes in, same field out, and a second caller
+    /// cannot take it over the way a session could.
+    #[test]
+    fn the_field_memo_returns_the_same_field_for_the_same_bytes() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/testdata/hrrr_cape.grib2"
+        );
+        let Ok(data) = std::fs::read(path) else { return };
+        let a = decode_field(&data).unwrap();
+        let b = decode_field(&data).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&a, &b), "the second decode was wasted");
+        // A different message must not hit the same entry.
+        let mut other = data.clone();
+        let n = other.len();
+        other[n / 2] ^= 0xff;
+        let c = decode_field(&other);
+        if let Ok(c) = c {
+            assert!(!std::sync::Arc::ptr_eq(&a, &c), "memo returned a stale field");
+        }
     }
 
     fn visible(hidden: &[u8]) -> Vec<Class> {
