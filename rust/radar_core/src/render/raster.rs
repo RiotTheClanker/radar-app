@@ -392,6 +392,20 @@ pub fn rasterize_sweep_view(
     let gate_origin = sweep.first_gate_m as f64 - sweep.gate_size_m as f64 * 0.5;
     let nbins = sweep.nbins as i64;
 
+    // The longitude offset from the site depends only on the column, so its
+    // sine and cosine are the same all the way down. Computed once per column
+    // rather than once per pixel: at 1600x900 that is 3,200 calls instead of
+    // 2.9 million, and they were two of the five transcendentals each pixel
+    // was paying for.
+    let mut sin_dlon = vec![0f64; w];
+    let mut cos_dlon = vec![0f64; w];
+    for (px, (s, c)) in sin_dlon.iter_mut().zip(cos_dlon.iter_mut()).enumerate() {
+        let tx = (px as f64 + 0.5) / w as f64;
+        let dlon_r = (west + (east - west) * tx).to_radians() - site_lon;
+        *s = dlon_r.sin();
+        *c = dlon_r.cos();
+    }
+
     for py in 0..h {
         // Row latitude via Mercator interpolation between the box edges.
         let ty = (py as f64 + 0.5) / h as f64;
@@ -399,14 +413,18 @@ pub fn rasterize_sweep_view(
         let sin_lat = lat.sin();
         let cos_lat = lat.cos();
         let row = &mut pixels[py * w * 4..(py + 1) * w * 4];
+        // Both of these are fixed across the row as well.
+        let a = sin_site * sin_lat;
+        let b = cos_site * cos_lat;
+        let bearing_y = cos_site * sin_lat;
+        let bearing_x = sin_site * cos_lat;
 
         for px in 0..w {
-            let tx = (px as f64 + 0.5) / w as f64;
-            let lon = (west + (east - west) * tx).to_radians();
-            let dlon_r = lon - site_lon;
+            let sin_d = sin_dlon[px];
+            let cos_d = cos_dlon[px];
 
             // Great-circle distance and initial bearing from the site.
-            let cos_c = (sin_site * sin_lat + cos_site * cos_lat * dlon_r.cos()).clamp(-1.0, 1.0);
+            let cos_c = b.mul_add(cos_d, a).clamp(-1.0, 1.0);
             let dist = cos_c.acos() * EARTH_R;
 
             let bin = ((dist - gate_origin) * inv_gate) as i64;
@@ -414,10 +432,8 @@ pub fn rasterize_sweep_view(
                 continue;
             }
 
-            let az = dlon_r
-                .sin()
-                .mul_add(cos_lat, 0.0)
-                .atan2(cos_site * sin_lat - sin_site * cos_lat * dlon_r.cos())
+            let az = (sin_d * cos_lat)
+                .atan2(bearing_y - bearing_x * cos_d)
                 .to_degrees();
             let az10 = (((az * 10.0).round() as i32) % 3600 + 3600) % 3600;
             let ridx = az_lut[az10 as usize];

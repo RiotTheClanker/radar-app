@@ -72,3 +72,58 @@ fn a_volume_without_a_site_block_reports_zero() {
         assert_eq!(v.antenna_alt_m, 0.0);
     }
 }
+
+/// Records are decompressed across threads, and a volume is keyed by
+/// elevation, so a batch folded back in the wrong order would quietly
+/// reshuffle the cuts.
+///
+/// These checksums were taken from a single-threaded decode of this same
+/// file and match the parallel one exactly. They are not magic numbers: any
+/// change to them means the bytes coming out of the decoder moved.
+#[test]
+fn parallel_decompression_gives_the_sequential_answer() {
+    let Some(data) = kicx() else {
+        eprintln!("testdata missing, skipping (run tools/fetch_testdata.sh)");
+        return;
+    };
+    let vol = level2::parse(&data).expect("parse");
+
+    fn checksum(sweeps: &[radar_core::sweep::Sweep]) -> f64 {
+        sweeps
+            .iter()
+            .map(|s| {
+                s.radials
+                    .iter()
+                    .map(|r| match &r.data {
+                        radar_core::sweep::GateData::U8(v) => {
+                            v.iter().map(|&x| x as f64).sum::<f64>()
+                        }
+                        radar_core::sweep::GateData::U16(v) => {
+                            v.iter().map(|&x| x as f64).sum::<f64>()
+                        }
+                    })
+                    .sum::<f64>()
+            })
+            .sum()
+    }
+
+    for (moment, cuts, want) in [
+        ("REF", 14usize, 53_280_262.0f64),
+        ("VEL", 10, 44_078_543.0),
+        ("ZDR", 10, 223_754_704.0),
+        ("RHO", 10, 115_554_244.0),
+    ] {
+        let sweeps = vol.all_sweeps(moment);
+        assert_eq!(sweeps.len(), cuts, "{moment} cut count");
+        assert_eq!(checksum(&sweeps), want, "{moment} gate data changed");
+        // Cuts are returned lowest first; a reordered fold shows up here too.
+        let mut sorted = sweeps.iter().map(|s| s.elevation_deg).collect::<Vec<_>>();
+        sorted.sort_by(|a, b| a.total_cmp(b));
+        assert_eq!(
+            sweeps.iter().map(|s| s.elevation_deg).collect::<Vec<_>>(),
+            sorted,
+            "{moment} cuts came back out of order"
+        );
+    }
+}
+

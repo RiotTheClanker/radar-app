@@ -77,7 +77,7 @@ pub fn render_level2_frame(
     elevation_index: u32,
     image_size: u32,
 ) -> Result<RadarFrame, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (kind, name, unit) = moment_meta(&moment);
     frame_from_sweep(&sweep, kind, 0, name, unit, vol.vcp as i32, image_size)
@@ -85,7 +85,7 @@ pub fn render_level2_frame(
 
 /// Elevation cuts available for a moment in a Level 2 volume, in scan order.
 pub fn level2_cuts(data: Vec<u8>, moment: String) -> Result<Vec<f32>, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     Ok(match moment.as_str() {
         "CREF" | "VIL" | "ET" => vec![0.0],
         "SRM" | "ROT" => vol.cuts_for("VEL").iter().map(|c| c.elevation_deg).collect(),
@@ -134,7 +134,7 @@ pub fn render_level2_view(
     width: u32,
     height: u32,
 ) -> Result<RadarFrame, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (kind, name, unit) = moment_meta(&moment);
     let table = ColorTable::default_for(kind);
@@ -225,7 +225,7 @@ pub fn sample_level2(
     lat: f64,
     lon: f64,
 ) -> Result<SampleResult, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (_, _, unit) = moment_meta(&moment);
     Ok(sample_sweep(&sweep, unit, lat, lon))
@@ -363,7 +363,7 @@ pub fn render_volume3d(
     width: u32,
     height: u32,
 ) -> Result<Volume3DFrame, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let cuts = vol.all_sweeps("REF");
     let grid = crate::process::grid3d::build_grid(&cuts, 384, 40, 120_000.0, 16_000.0)
         .ok_or_else(|| "no reflectivity cuts in volume".to_string())?;
@@ -443,7 +443,7 @@ pub fn build_hca_grid(vol: &level2::Level2Volume) -> Result<Grid3D, String> {
     const TOP: f32 = 16_000.0;
 
     let dec = |e: GridEncode| move |raw: u8| (raw as f32 - e.offset) / e.scale;
-    let mut grid_for = |m: &str| -> Result<(Grid3D, GridEncode), String> {
+    let grid_for = |m: &str| -> Result<(Grid3D, GridEncode), String> {
         let cuts = vol.all_sweeps(m);
         if cuts.is_empty() {
             return Err(format!(
@@ -568,7 +568,7 @@ pub fn volume3d_open(
     threshold: f32,
     hidden_classes: Vec<u8>,
 ) -> Result<Volume3DInfo, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let cuts = match moment.as_str() {
         // Classification needs three moments at once; `cuts` is only used
         // below for the cone-of-silence limit, so reflectivity stands in.
@@ -756,6 +756,38 @@ fn field_key(data: &[u8]) -> u64 {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     h ^ data.len() as u64
+}
+
+/// The last decoded Level 2 volume, for the same reason as [`FIELD_MEMO`].
+///
+/// Reading one costs about 580 ms, nine tenths of it bzip2, and every entry
+/// point here parses from bytes: rendering a view, sampling a point, opening
+/// the cursor, opening 3D, listing the cuts. Watching one frame and
+/// long-pressing to read a value used to pay that twice over, and panning
+/// paid it again for every frame on screen.
+///
+/// One entry, not several. A parsed volume is tens of megabytes and four
+/// panes comparing four moments of the same scan all want the *same* one, so
+/// a single slot serves the case that matters without multiplying what a
+/// phone has to hold. An animation loop steps through different volumes and
+/// will miss on each, which is the honest cost of not caching a hundred
+/// megabytes.
+///
+/// A memo, not a session: no caller identity, and a miss only costs the work
+/// it saved.
+static VOLUME_MEMO: Mutex<Option<(u64, std::sync::Arc<level2::Level2Volume>)>> = Mutex::new(None);
+
+/// Parse a Level 2 volume, reusing the last one when the bytes match.
+fn decode_volume(data: &[u8]) -> Result<std::sync::Arc<level2::Level2Volume>, String> {
+    let key = field_key(data);
+    if let Some((k, v)) = VOLUME_MEMO.lock().unwrap().as_ref() {
+        if *k == key {
+            return Ok(v.clone());
+        }
+    }
+    let vol = std::sync::Arc::new(level2::parse(data).map_err(|e| e.to_string())?);
+    *VOLUME_MEMO.lock().unwrap() = Some((key, vol.clone()));
+    Ok(vol)
 }
 
 fn decode_field(data: &[u8]) -> Result<std::sync::Arc<crate::grib2::Grib2Field>, String> {
@@ -1142,7 +1174,7 @@ pub fn inspect_open_level2(
     moment: String,
     elevation_index: u32,
 ) -> Result<u32, String> {
-    let vol = level2::parse(&data).map_err(|e| e.to_string())?;
+    let vol = decode_volume(&data)?;
     let sweep = level2_sweep(&vol, &moment, elevation_index as usize)?;
     let (_, _, unit) = moment_meta(&moment);
     Ok(inspect_store(sweep, unit))

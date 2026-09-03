@@ -72,6 +72,11 @@ struct Dataset {
 ///
 /// Easy to transpose, and transposing them is a silent bug rather than a
 /// parse error, so they are named here instead of written inline.
+///
+/// The 0x01 bit is deliberately named and deliberately unused: the bug this
+/// replaced tested it and then forced the condition true to compensate.
+/// Naming both is what makes the right one obvious at the point of use.
+#[allow(dead_code)]
 const LAYOUT_DONT_FILTER_PARTIAL_EDGE_CHUNKS: u8 = 0x01;
 const LAYOUT_SINGLE_INDEX_WITH_FILTER: u8 = 0x02;
 

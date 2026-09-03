@@ -935,6 +935,10 @@ mod tests {
     }
 
     #[test]
+    // `1 * nxy` is the z coordinate written out. Collapsing it to `nxy`, as
+    // clippy suggests, saves nothing at runtime and loses which axis is which
+    // in an index that is already three multiplications deep.
+    #[allow(clippy::identity_op)]
     fn coverage_marks_absence_and_dilates_the_index() {
         let nxy = 8;
         let nz = 4;
