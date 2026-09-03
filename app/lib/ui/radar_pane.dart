@@ -25,6 +25,7 @@ import '../data/hydrometeor.dart';
 import '../data/identity.dart';
 import '../data/lightning.dart';
 import '../data/nexrad_sites.g.dart';
+import '../data/surface_obs.dart';
 import '../src/rust/api/radar.dart';
 import 'alert_sheets.dart';
 import 'color_key.dart';
@@ -660,7 +661,15 @@ class RadarPaneState extends State<RadarPane> {
           // gesture would be network for nothing.
           _viewDebounce = Timer(
             const Duration(milliseconds: 350),
-            () => unawaited(_c.renderViewport()),
+            () {
+              unawaited(_c.renderViewport());
+              // Station plots are filtered to what this pane can see, and
+              // nothing else here rebuilds on a gesture — renderViewport
+              // notifies, but it returns early when there are no frames, so
+              // panning an empty pane would leave the old set on screen.
+              // Once per settled gesture, and only when the layer is on.
+              if (mounted && widget.shared.showObs) setState(() {});
+            },
           );
         },
         backgroundColor: Wx.bg0,
@@ -727,6 +736,8 @@ class RadarPaneState extends State<RadarPane> {
         ),
         if (shared.showLightning)
           MarkerLayer(markers: _strikeMarkers(shared)),
+        if (shared.showObs)
+          MarkerLayer(markers: _obsMarkers(shared)),
         if (shared.showReports)
           MarkerLayer(
             markers: [
@@ -962,6 +973,74 @@ class RadarPaneState extends State<RadarPane> {
           ),
       ],
     );
+  }
+
+  /// Station plots: temperature over dewpoint, at each reporting station.
+  ///
+  /// Not cached like [_sites] — these change on every poll, and the list is
+  /// short enough that rebuilding it is cheaper than working out whether it
+  /// went stale.
+  List<Marker> _obsMarkers(WorkspaceState shared) {
+    final now = DateTime.now().toUtc();
+    // Only what this pane can see. One fetch covers CONUS, which is a couple
+    // of thousand stations, and a continental view of all of them is both
+    // slow to lay out and unreadable — the numbers collide into a smear long
+    // before the country fits on screen. The margin keeps stations just off
+    // the edge from popping in as you pan.
+    final vis = _mapReady ? _mapController.camera.visibleBounds : null;
+    const margin = 0.5;
+    return [
+      for (final o in shared.surfaceObs)
+        if (vis == null ||
+            (o.pos.latitude > vis.south - margin &&
+                o.pos.latitude < vis.north + margin &&
+                o.pos.longitude > vis.west - margin &&
+                o.pos.longitude < vis.east + margin))
+        Marker(
+          point: o.pos,
+          width: Wx.obsHit,
+          height: Wx.obsHit,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => ScaffoldMessenger.of(context)
+              ..clearSnackBars()
+              ..showSnackBar(
+                SnackBar(
+                  duration: const Duration(seconds: 6),
+                  content: Text(_obsDetail(o, now)),
+                ),
+              ),
+            child: _StationPlot(obs: o, stale: o.staleAt(now)),
+          ),
+        ),
+    ];
+  }
+
+  /// Everything the station reported, for the tap readout. The plot itself
+  /// stays two numbers; wind and pressure live here rather than crowding a
+  /// map that already has weather on it.
+  String _obsDetail(SurfaceObs o, DateTime now) {
+    final parts = <String>[
+      '${o.stationId} — ${o.name}',
+      if (o.tempC != null) '${o.tempC!.toStringAsFixed(0)}°C',
+      if (o.dewpointC != null) 'dew ${o.dewpointC!.toStringAsFixed(0)}°C',
+      if (o.windKt != null)
+        'wind ${o.windDirDeg == null ? 'variable' : '${o.windDirDeg!.round()}°'}'
+            ' ${o.windKt!.round()} kt'
+            '${o.gustKt == null ? '' : ' gusting ${o.gustKt!.round()}'}',
+      if (o.altimeterHpa != null)
+        'altimeter ${o.altimeterHpa!.toStringAsFixed(1)} hPa',
+      _obsAge(o, now),
+    ];
+    return parts.join('  ·  ');
+  }
+
+  static String _obsAge(SurfaceObs o, DateTime now) {
+    final mins = now.difference(o.time).inMinutes;
+    if (mins < 1) return 'just now';
+    if (mins < 60) return '$mins min ago';
+    final h = (mins / 60).floor();
+    return '${h}h ${mins - h * 60}m ago';
   }
 
   List<Marker> _sites() {
@@ -1258,4 +1337,52 @@ class RadarPaneState extends State<RadarPane> {
       ),
     );
   }
+}
+
+/// One station's reading: temperature over dewpoint.
+///
+/// Two numbers rather than a full station plot with a wind barb and a
+/// pressure corner. There can be two thousand of these on screen at once,
+/// over weather that is the actual subject, so the plot says the two things
+/// that matter most for whether a storm goes up and leaves the rest to the
+/// tap readout. Temperature and dewpoint together are also the pair that
+/// reads as a boundary when it changes between neighbours, which is the
+/// thing worth seeing on a map.
+class _StationPlot extends StatelessWidget {
+  const _StationPlot({required this.obs, required this.stale});
+
+  final SurfaceObs obs;
+  final bool stale;
+
+  @override
+  Widget build(BuildContext context) {
+    // A stale station keeps its position and loses its colour, so a quiet
+    // patch of the network reads as quiet rather than as fair weather.
+    final tempColor = stale ? Wx.obsStale : Wx.obsTemp;
+    final dewColor = stale ? Wx.obsStale : Wx.obsDewpoint;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _num(obs.tempC, tempColor),
+          _num(obs.dewpointC, dewColor),
+        ],
+      ),
+    );
+  }
+
+  /// Whole degrees: a tenth of a degree is below what anyone reads off a map
+  /// at this size, and the extra glyph is what makes neighbours collide.
+  Widget _num(double? v, Color color) => Text(
+        v == null ? '·' : v.round().toString(),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          height: 1.05,
+          fontWeight: FontWeight.w600,
+          // The map underneath is arbitrary — a dark outline is what keeps
+          // these legible over the satellite basemap and over the radar.
+          shadows: const [Shadow(blurRadius: 2.5, color: Wx.bg0)],
+        ),
+      );
 }

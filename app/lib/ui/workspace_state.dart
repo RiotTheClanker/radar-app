@@ -21,6 +21,7 @@ import '../data/alerts_fetcher.dart';
 import '../data/glm_fetcher.dart';
 import '../data/lightning.dart';
 import '../data/spc_fetcher.dart';
+import '../data/surface_obs.dart';
 import 'pane_models.dart';
 import 'request_cache.dart';
 
@@ -150,6 +151,57 @@ class WorkspaceState extends ChangeNotifier {
       _ping();
     } catch (_) {}
   }
+
+  // ------------------------------------------------------ surface obs ----
+
+  /// Current surface observations, shared by every pane.
+  ///
+  /// One fetch covers the whole country, so four panes comparing four
+  /// products all read the same list rather than each holding a copy — the
+  /// ownership test in docs/ui-contract.md, applied.
+  List<SurfaceObs> surfaceObs = const [];
+  bool showObs = false;
+
+  /// Surfaced rather than swallowed, the same as [alertError]: a layer that
+  /// is switched on and empty should be able to say why.
+  String? obsError;
+
+  Timer? _obsTimer;
+
+  Future<void> toggleObs() async {
+    showObs = !showObs;
+    _ping();
+    if (!showObs) {
+      // Stop polling, but keep what was fetched: switching the layer back on
+      // should not stare at an empty map while a request runs.
+      _obsTimer?.cancel();
+      _obsTimer = null;
+      return;
+    }
+    // Routine METARs are hourly with specials in between, so polling faster
+    // than this only refetches the same readings.
+    _obsTimer ??= Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => unawaited(_loadObs()),
+    );
+    if (surfaceObs.isEmpty) await _loadObs();
+  }
+
+  Future<void> _loadObs() async {
+    try {
+      final obs = await fetchSurfaceObs();
+      if (_disposed) return;
+      surfaceObs = obs;
+      obsError = null;
+      _ping();
+    } catch (e) {
+      if (_disposed) return;
+      obsError = e.toString();
+      _ping();
+    }
+  }
+
+  Future<void> refreshObs() => _loadObs();
 
   // ---------------------------------------------------------- lightning ----
 
@@ -415,6 +467,7 @@ class WorkspaceState extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _alertTimer?.cancel();
+    _obsTimer?.cancel();
     _animTimer?.cancel();
     _refreshTimer?.cancel();
     _strikeTimer?.cancel();

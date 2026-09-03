@@ -57,6 +57,26 @@ Strikes are aged out at 20 minutes and the map is repainted on a 2-second
 timer rather than per strike, since a busy night delivers them faster than
 anyone can see.
 
+## Surface observations
+
+| Source | Endpoint | Notes |
+|---|---|---|
+| **METAR** | `aviationweather.gov/api/data/metar?bbox=…&format=json` | Current surface observations: temperature, dewpoint, wind, gust, altimeter setting, station elevation, all in one record. Keyless. Takes a bounding box, which is what makes one request enough — the app asks for CONUS once and shares it across panes. Polled every 10 minutes; routine METARs are hourly with specials between, so faster only refetches the same readings |
+
+Two fields are **not the type they look like**, and a plain cast throws on
+ordinary weather: `wdir` is the string `"VRB"` when the wind will not sit
+still, and `visib` is `"10+"` when it is unlimited. `readNum` in
+`lib/data/surface_obs.dart` exists for that, and anything unparseable becomes
+"not reported" rather than a number nobody measured.
+
+`altim` is the **altimeter setting**, not true mean-sea-level pressure — the
+reduction uses the standard atmosphere rather than the column's real
+temperature. Fine to plot and to compare between neighbours; not the right
+input for an MSLP analysis without correcting it first.
+
+CONUS-only, which matches the MRMS mosaic — so this is an existing coverage
+edge rather than a new one.
+
 ## Soundings
 
 | Source | Endpoint | Notes |

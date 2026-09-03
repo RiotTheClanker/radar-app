@@ -837,13 +837,14 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   Widget _layersMenu() {
     final beyondDefault = _shared.showOutlook ||
         _shared.showReports ||
+        _shared.showObs ||
         _shared.alertLayers.length > 1 ||
         !_shared.alertLayers.contains(AlertCategory.warning);
 
     return WxMenu<String>(
       label: _wide ? 'Layers' : null,
       icon: Icons.layers_outlined,
-      tooltip: 'Warnings, outlooks, lightning',
+      tooltip: 'Warnings, outlooks, lightning, surface observations',
       active: beyondDefault || _shared.showLightning,
       onSelected: (v) {
         switch (v) {
@@ -851,6 +852,8 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             unawaited(_shared.toggleOutlook());
           case 'reports':
             unawaited(_shared.toggleReports());
+          case 'obs':
+            unawaited(_shared.toggleObs());
           case 'list':
             showAlertList(context, _shared.alerts, onZoom: _zoomToAlert);
           case 'key':
@@ -895,6 +898,13 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             label: s.label,
             checked: _shared.lightning == s,
           ),
+        const PopupMenuDivider(),
+        wxMenuHeading<String>('OBSERVATIONS'),
+        wxMenuItem(
+          value: 'obs',
+          label: 'Surface observations',
+          checked: _shared.showObs,
+        ),
         const PopupMenuDivider(),
         wxMenuHeading<String>('SPC'),
         wxMenuItem(
