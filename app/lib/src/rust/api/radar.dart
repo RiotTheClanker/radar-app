@@ -181,6 +181,33 @@ Future<RawFrame> volume3DRenderFly({
   height: height,
 );
 
+/// Render an HRRR model field into a view box.
+///
+/// `data` is one GRIB2 message, pulled out of the hourly file by byte range
+/// rather than the whole 130 MB of it.
+///
+/// The frame's `timestamp` is the **model run time**, not when it was
+/// fetched. Everything else this engine renders was measured by an
+/// instrument; this was computed by a forecast model, and it must not be
+/// drawn as though the two were the same kind of thing.
+Future<RadarFrame> renderCapeView({
+  required List<int> data,
+  required double north,
+  required double south,
+  required double east,
+  required double west,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarRenderCapeView(
+  data: data,
+  north: north,
+  south: south,
+  east: east,
+  west: west,
+  width: width,
+  height: height,
+);
+
 /// Decode an MRMS national mosaic (gzipped GRIB2) and render a view box.
 Future<RadarFrame> renderMrmsView({
   required List<int> data,
@@ -313,6 +340,11 @@ Future<ColorScale> colorScale({
 /// Give the 3D ground relief. `heights` is metres above sea level on a
 /// north-up grid covering the same extent as the basemap, row-major from the
 /// north edge. Pass an empty list to go back to a flat plane.
+///
+/// Sea level is the right thing to send: the engine shifts the field onto the
+/// open volume's own datum, which is the radar antenna, since beam heights are
+/// measured from there. The caller does not need to know the radar's altitude
+/// and should not subtract anything itself.
 Future<void> volume3DSetTerrain({
   required List<double> heights,
   required int width,

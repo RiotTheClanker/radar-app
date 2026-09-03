@@ -275,6 +275,30 @@ pub fn volume3d_render_fly(
     })
 }
 
+/// Render an HRRR model field into a view box.
+///
+/// `data` is one GRIB2 message, pulled out of the hourly file by byte range
+/// rather than the whole 130 MB of it.
+///
+/// The frame's `timestamp` is the **model run time**, not when it was
+/// fetched. Everything else this engine renders was measured by an
+/// instrument; this was computed by a forecast model, and it must not be
+/// drawn as though the two were the same kind of thing.
+#[allow(clippy::too_many_arguments)]
+pub fn render_cape_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    convert(core::render_cape_view(
+        data, north, south, east, west, width, height,
+    )?)
+}
+
 /// Decode an MRMS national mosaic (gzipped GRIB2) and render a view box.
 #[allow(clippy::too_many_arguments)]
 pub fn render_mrms_view(
