@@ -82,7 +82,7 @@ map, not a substitute for reading them.
 | `volume3d_render_fly` | Render one free-fly frame — raw RGBA, no PNG encode |
 | `render_volume3d` | One-shot still, PNG |
 | `volume3d_set_threshold` / `set_hidden_classes` | Repaint without rebuilding the grid |
-| `volume3d_set_ground` / `set_terrain` / `ground_bounds` | The basemap drape and elevation relief |
+| `volume3d_set_ground` / `set_terrain` / `ground_bounds` | The basemap drape and elevation relief. Send terrain as metres above **sea level**; the engine shifts it onto the volume's datum (the antenna) itself |
 | `volume3d_show_cone` | Shade the unsampled column above the radar |
 
 **Derived and decoded**
@@ -160,6 +160,12 @@ why `WorkspaceState.paletteGeneration` exists to make them all rebuild.
 - **Ask for the pixels you will draw.** The `*_view` functions size the render
   to what you pass. Passing the window's width for a pane that is a quarter
   of the window is four times the work, and was a real bug.
+- **Two datums meet in the 3D view.** Echo heights are measured from the
+  radar antenna (`beam_height_m`); terrain arrives measured from sea level.
+  `set_terrain` reconciles them using the antenna altitude parsed out of the
+  volume's own site block. Anything else drawn in that space has to pick a
+  datum deliberately — they differ by 3.3 km at the highest site in the
+  network, and by 26 m at the lowest.
 - **wgpu with a CPU fallback** does the 3D. It is the only place the engine
   touches a GPU, and the fallback is why headless CI can still run it.
 - **The decoders are hand-written** — Level 2, Level 3, GRIB2, and the HDF5

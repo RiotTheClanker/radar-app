@@ -401,6 +401,10 @@ struct Vol3DSession {
     gpu: Option<crate::render::gpu3d::GpuVolume>,
     site_lat: f64,
     site_lon: f64,
+    /// Antenna height above sea level, metres. The grid's z is height above
+    /// the antenna, so this is what a sea-level heightfield has to be shifted
+    /// by to share the axis.
+    antenna_alt_m: f64,
     /// The two ways of filtering, held so either can be changed without the
     /// caller having to resend the other.
     threshold: f32,
@@ -605,6 +609,7 @@ pub fn volume3d_open(
         gpu,
         site_lat: vol.site_lat,
         site_lon: vol.site_lon,
+        antenna_alt_m: vol.antenna_alt_m,
         threshold,
         hidden_classes,
     });
@@ -749,11 +754,13 @@ pub fn volume3d_show_cone(show: bool) -> Result<(), String> {
 pub fn volume3d_set_terrain(heights: Vec<f32>, width: u32, height: u32) -> Result<(), String> {
     let mut guard = VOL3D.lock().unwrap();
     let s = guard.as_mut().ok_or("no 3D session")?;
+    // Heights arrive above sea level; the volume's z is above the antenna.
+    let alt = s.antenna_alt_m as f32;
     if let Some(gpu) = s.gpu.as_mut() {
         if heights.is_empty() {
             gpu.clear_terrain();
         } else {
-            gpu.set_terrain(&heights, width, height);
+            gpu.set_terrain(&heights, width, height, alt);
         }
     }
     Ok(())

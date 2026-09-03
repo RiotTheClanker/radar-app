@@ -584,13 +584,23 @@ impl GpuVolume {
     /// Upload a terrain heightfield covering the same extent as the ground
     /// image, north-up, heights in meters above sea level. Replaces the flat
     /// ground plane with a surface the ray actually collides with.
-    pub fn set_terrain(&mut self, heights: &[f32], width: u32, height: u32) {
+    /// Install a heightfield. `heights` are metres above **sea level**;
+    /// `datum_m` is the height above sea level that the volume's z=0 sits at
+    /// — the radar antenna — and is subtracted so the ground and the echoes
+    /// end up on one axis.
+    ///
+    /// Without that subtraction the terrain floated above the storm by the
+    /// radar's own altitude, times the vertical exaggeration: 3278 m at
+    /// KICX Cedar City, which at 4x buried the volume under 13 km of
+    /// mountain. Invisible in Florida, which is why it survived so long.
+    pub fn set_terrain(&mut self, heights: &[f32], width: u32, height: u32, datum_m: f32) {
         if width == 0 || height == 0 || heights.len() < (width * height) as usize {
             return;
         }
-        self.terrain_max_m = heights.iter().copied().fold(0.0f32, f32::max);
+        let rebased = rebase_to_datum(heights, datum_m);
+        self.terrain_max_m = terrain_ceiling(&rebased);
         self.terrain_view =
-            make_terrain_texture(&self.device, &self.queue, heights, width, height);
+            make_terrain_texture(&self.device, &self.queue, &rebased, width, height);
         self.has_terrain = true;
     }
 
@@ -788,6 +798,32 @@ impl GpuVolume {
 }
 
 /// Single-channel float texture of heights in meters.
+/// Shift a sea-level heightfield onto the volume's datum.
+///
+/// Ground below the radar is legitimately negative — at KICX the valleys sit
+/// over a kilometre under the antenna. Nothing downstream minds: the terrain
+/// texture is `R16Float`, which is signed, and the height march's bounding
+/// box is unbounded downward. Shifting toward zero even buys back a little
+/// half-float precision, since f16 steps 2 m at 3 km and 1 m at 1.5 km.
+///
+/// Kept a free function so it can be tested without a graphics adapter —
+/// CI has none, so anything reachable only through [`GpuVolume`] is untested
+/// there.
+fn rebase_to_datum(heights: &[f32], datum_m: f32) -> Vec<f32> {
+    heights.iter().map(|&h| h - datum_m).collect()
+}
+
+/// The highest point in a rebased heightfield, used for the march's upper
+/// bound.
+///
+/// A true maximum rather than one floored at zero. A radar standing above
+/// everything around it has no ground at or above its own height, and
+/// clamping that case to 0 only oversizes the box — harmless, but it hides
+/// what the number means.
+fn terrain_ceiling(rebased: &[f32]) -> f32 {
+    rebased.iter().copied().fold(f32::MIN, f32::max)
+}
+
 fn make_terrain_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -970,6 +1006,58 @@ mod tests {
         );
     }
 
+    /// The datum fix (#56): terrain arrives above sea level, the volume's z
+    /// is above the antenna, and the two used to be plotted on one axis
+    /// without reconciling them.
+    ///
+    /// These run without a graphics adapter, unlike the render tests below,
+    /// because CI has none — and this is the arithmetic that was actually
+    /// wrong.
+    #[test]
+    fn terrain_is_shifted_onto_the_radar_datum() {
+        // KICX Cedar City: antenna 3278 m, a 3500 m ridge nearby, and a
+        // valley floor at 1500 m — over a kilometre below the radar.
+        let alt = 3278.0;
+        let out = rebase_to_datum(&[3278.0, 3500.0, 1500.0], alt);
+        assert_eq!(out[0], 0.0, "ground at the radar sits at the radar");
+        assert_eq!(out[1], 222.0, "a ridge above the radar stays above it");
+        assert_eq!(out[2], -1778.0, "a valley below the radar goes negative");
+    }
+
+    /// The bug in one assertion: at a high site the old behaviour put the
+    /// ground kilometres above where the echoes are.
+    #[test]
+    fn a_high_site_no_longer_floats_its_terrain() {
+        let ground_asl = 3244.0;
+        let alt = 3278.0;
+        let unshifted = terrain_ceiling(&[ground_asl]);
+        let shifted = terrain_ceiling(&rebase_to_datum(&[ground_asl], alt));
+        assert!(
+            unshifted > 3000.0,
+            "unshifted, the ground reads 3.2 km up the volume: {unshifted}"
+        );
+        assert!(
+            shifted.abs() < 50.0,
+            "shifted, it sits at the radar's feet: {shifted}"
+        );
+    }
+
+    /// A sea-level radar is the case where the bug was invisible, so it is
+    /// also the case that must not change.
+    #[test]
+    fn a_sea_level_site_is_barely_touched() {
+        let out = rebase_to_datum(&[0.0, 120.0], 26.0); // KBYX Key West
+        assert_eq!(out, vec![-26.0, 94.0]);
+    }
+
+    /// The ceiling is a real maximum, not one clamped at zero: a radar on a
+    /// peak has no ground level with it.
+    #[test]
+    fn the_ceiling_can_sit_below_the_radar() {
+        let ceiling = terrain_ceiling(&rebase_to_datum(&[1500.0, 1800.0], 3278.0));
+        assert_eq!(ceiling, -1478.0);
+    }
+
     /// Flat ground vs. a ridge, through the real shader.
     ///
     /// Needs a working graphics adapter, so this is a no-op on a machine
@@ -1013,7 +1101,8 @@ mod tests {
                 heights[ty * n + tx] = 3000.0 * (-(fy * fy) / 0.01).exp();
             }
         }
-        gpu.set_terrain(&heights, n as u32, n as u32);
+        // Synthetic heights already measured from the radar, so no shift.
+        gpu.set_terrain(&heights, n as u32, n as u32, 0.0);
         let hilly = gpu.render(&params, w, h).unwrap();
 
         let changed = flat

@@ -36,6 +36,13 @@ pub struct Level2Volume {
     pub icao: String,
     pub site_lat: f64,
     pub site_lon: f64,
+    /// Antenna height above mean sea level, metres — the datum every beam
+    /// height in this volume is measured from.
+    ///
+    /// `beam_height_m` returns height above the antenna, so anything drawn
+    /// against a sea-level surface (the 3D terrain) needs this to land on the
+    /// same axis. 0.0 when the volume carried no site block.
+    pub antenna_alt_m: f64,
     pub vcp: u16,
     /// (elevation_number, moment) -> sweep, in scan order.
     sweeps: BTreeMap<(u8, String), MomentSweep>,
@@ -133,6 +140,7 @@ pub fn parse(data: &[u8]) -> Result<Level2Volume> {
         icao,
         site_lat: 0.0,
         site_lon: 0.0,
+        antenna_alt_m: 0.0,
         vcp: 0,
         sweeps: BTreeMap::new(),
         nyquist: BTreeMap::new(),
@@ -210,6 +218,14 @@ fn parse_msg31(m: &[u8], vol: &mut Level2Volume) {
                 if &b[1..4] == b"VOL" && b.len() >= 44 {
                     vol.site_lat = be_f32(b, 8) as f64;
                     vol.site_lon = be_f32(b, 12) as f64;
+                    // Site height (signed — Death Valley sites exist) plus the
+                    // feedhorn above it is where the beam actually leaves from,
+                    // and so the datum its heights are measured against.
+                    // Checked against two real volumes and the independent
+                    // NCEI site table: KICX 3244+34 = 3278 m against 10757 ft,
+                    // KBYX 2+24 = 26 m against 89 ft.
+                    vol.antenna_alt_m =
+                        (be_i16(b, 16) as f64) + (be_u16(b, 18) as f64);
                     vol.vcp = be_u16(b, 40);
                 } else if &b[1..4] == b"RAD" && b.len() >= 18 {
                     // Radial block: nyquist velocity in 0.01 m/s at offset 16

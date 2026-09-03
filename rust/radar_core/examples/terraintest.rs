@@ -78,7 +78,7 @@ fn main() {
             heights[ty * n + tx] = ridge.max(peak);
         }
     }
-    gpu.set_terrain(&heights, n as u32, n as u32);
+    gpu.set_terrain(&heights, n as u32, n as u32, 0.0);
     let terr = gpu.render(&params, w, h).unwrap();
     write("terrain.png", &terr, w, h);
 

@@ -502,6 +502,11 @@ pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, Stri
 /// Give the 3D ground relief. `heights` is metres above sea level on a
 /// north-up grid covering the same extent as the basemap, row-major from the
 /// north edge. Pass an empty list to go back to a flat plane.
+///
+/// Sea level is the right thing to send: the engine shifts the field onto the
+/// open volume's own datum, which is the radar antenna, since beam heights are
+/// measured from there. The caller does not need to know the radar's altitude
+/// and should not subtract anything itself.
 pub fn volume3d_set_terrain(heights: Vec<f32>, width: u32, height: u32) -> Result<(), String> {
     core::volume3d_set_terrain(heights, width, height)
 }
