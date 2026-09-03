@@ -527,14 +527,41 @@ class RadarPaneState extends State<RadarPane> {
                     top: 0,
                     bottom: 0,
                     child: Center(
-                      child: _c.product.short == 'HCA'
-                          ? const HydroLegend(classes: nwsHydrometeorClasses)
-                          : ColorKey(
-                              scale: _c.keyScale!,
-                              barHeight: _keyBarHeight,
-                              rangeFolded: _c.product.short.contains('VEL') ||
-                                  _c.product.short.contains('SRM'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // CAPE reads left of the product's key, because the
+                          // product's is the one this pane is chiefly about.
+                          // It needs its own: J/kg on a reflectivity scale
+                          // would be unreadable, and a key built from Dart
+                          // constants is what invariant 7 forbids.
+                          //
+                          // Two keys need roughly twice the room, so on a
+                          // pane that only just fits one this drops and the
+                          // product keeps its scale.
+                          if (shared.showCape &&
+                              shared.capeScale != null &&
+                              _paneSize.width > 320)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ColorKey(
+                                scale: shared.capeScale!,
+                                barHeight: _keyBarHeight,
+                              ),
                             ),
+                          _c.product.short == 'HCA'
+                              ? const HydroLegend(
+                                  classes: nwsHydrometeorClasses)
+                              : ColorKey(
+                                  scale: _c.keyScale!,
+                                  barHeight: _keyBarHeight,
+                                  rangeFolded:
+                                      _c.product.short.contains('VEL') ||
+                                          _c.product.short.contains('SRM'),
+                                ),
+                        ],
+                      ),
                     ),
                   ),
                 Positioned(

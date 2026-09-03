@@ -1152,11 +1152,31 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         // an observation. The run time says how old the forecast is, since a
         // three-hour-old model of a fast-moving afternoon is a different
         // claim from a fresh one.
-        '${_shared.showCape && _shared.cape != null ? ' · CAPE: HRRR model forecast, ${_runLabel(_shared.cape!.runTime)} run${_shared.capeStale ? ' (stale)' : ''}' : ''}',
+        '${_capeLabel()}',
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 9.5, color: Wx.textFaint),
       ),
     );
+  }
+
+  /// What the attribution line says about the CAPE layer.
+  ///
+  /// Three states, and the loading one matters: 800 KB over a phone
+  /// connection is several seconds, and a layer switched on but absent for
+  /// that long reads as broken rather than busy.
+  String _capeLabel() {
+    if (!_shared.showCape) return '';
+    if (_shared.capeLoading && _shared.cape == null) {
+      return ' · CAPE: loading HRRR run…';
+    }
+    final err = _shared.capeError;
+    if (_shared.cape == null) {
+      return ' · CAPE: ${err == null ? 'unavailable' : 'unavailable ($err)'}';
+    }
+    // Everything else on this map was measured. Naming the model and the run
+    // is what keeps a forecast from being read as an observation.
+    return ' · CAPE: HRRR model forecast, ${_runLabel(_shared.cape!.runTime)} run'
+        '${_shared.capeStale ? ' (stale)' : ''}';
   }
 
   /// A model run, as forecasters name them: the UTC hour, with a Z.

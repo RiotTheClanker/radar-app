@@ -268,10 +268,12 @@ pub fn rasterize_lambert_view(
         let ty = (py as f64 + 0.5) / h as f64;
         let lat = inv_merc_y(y_n + (y_s - y_n) * ty).to_degrees();
         let row = &mut pixels[py * w * 4..(py + 1) * w * 4];
-        for px in 0..w {
-            let tx = (px as f64 + 0.5) / w as f64;
-            let lon = west + (east - west) * tx;
-            let (gi, gj) = field.grid.to_grid(lat, lon);
+        // The costly half of the projection depends only on the latitude,
+        // which is fixed across a row; the rest advances by a rotation.
+        let proj = field.grid.row(lat);
+        let dlon = (east - west) / w as f64;
+        let lon0 = west + dlon * 0.5;
+        for (px, (gi, gj)) in proj.walk(lon0, dlon, w).enumerate() {
             let Some(idx) = field.grid.index(gi, gj) else {
                 continue; // outside the model domain
             };

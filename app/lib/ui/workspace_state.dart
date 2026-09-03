@@ -23,6 +23,7 @@ import '../data/lightning.dart';
 import '../data/hrrr_fetcher.dart';
 import '../data/spc_fetcher.dart';
 import '../data/surface_obs.dart';
+import '../src/rust/api/radar.dart';
 import 'pane_models.dart';
 import 'request_cache.dart';
 
@@ -215,6 +216,17 @@ class WorkspaceState extends ChangeNotifier {
   bool showCape = false;
   String? capeError;
 
+  /// True while a run is being fetched. 800 KB over a phone connection is
+  /// several seconds, and a layer that is switched on and simply absent for
+  /// that long reads as broken rather than as busy.
+  bool capeLoading = false;
+
+  /// The scale the engine actually paints CAPE with.
+  ///
+  /// From `colorScale`, not from constants here — invariant 7. It never
+  /// changes, so it is fetched once and shared rather than per pane.
+  ColorScale? capeScale;
+
   Timer? _capeTimer;
 
   /// Whether a model run is old enough to be misleading rather than useful.
@@ -245,7 +257,10 @@ class WorkspaceState extends ChangeNotifier {
   }
 
   Future<void> _loadCape() async {
+    capeLoading = true;
+    _ping();
     try {
+      capeScale ??= await colorScale(productCode: 0, moment: 'CAPE');
       final f = await fetchHrrrField(capeField);
       if (_disposed) return;
       if (f == null) {
@@ -259,6 +274,11 @@ class WorkspaceState extends ChangeNotifier {
       if (_disposed) return;
       capeError = e.toString();
       _ping();
+    } finally {
+      if (!_disposed) {
+        capeLoading = false;
+        _ping();
+      }
     }
   }
 

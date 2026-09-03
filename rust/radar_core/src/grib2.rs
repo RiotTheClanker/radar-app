@@ -144,10 +144,21 @@ impl LambertGrid {
     /// Fractional grid position of a latitude/longitude. Outside the grid is
     /// perfectly legal and comes back out of range, for the caller to reject.
     pub fn to_grid(&self, lat: f64, lon: f64) -> (f64, f64) {
-        let (x, y) = self.project(lat, lon);
-        let gi = (x - self.x0) / self.dx;
-        let gj = (y - self.y0) / self.dy;
-        (gi, if self.j_north { gj } else { -gj })
+        self.row(lat).at(lon)
+    }
+
+    /// Everything about a projection that depends only on the latitude.
+    ///
+    /// A rendered row is one latitude across many longitudes, and the
+    /// expensive half of the conic projection — a `tan` raised to the cone
+    /// constant — depends on latitude alone. Hoisting it turns one `powf` per
+    /// pixel into one per row: at 900x900 that is nine hundred instead of
+    /// eight hundred thousand.
+    pub fn row(&self, lat: f64) -> LambertRow<'_> {
+        LambertRow {
+            grid: self,
+            rho: self.rho(lat),
+        }
     }
 
     /// Index into the value array, or None when off the grid.
@@ -161,6 +172,83 @@ impl LambertGrid {
             return None;
         }
         Some(j as usize * self.nx + i as usize)
+    }
+}
+
+/// One latitude's worth of projection, with the latitude-dependent term
+/// already paid for. See [`LambertGrid::row`].
+pub struct LambertRow<'a> {
+    grid: &'a LambertGrid,
+    rho: f64,
+}
+
+impl LambertRow<'_> {
+    /// Fractional grid position of a longitude on this row.
+    pub fn at(&self, lon: f64) -> (f64, f64) {
+        let g = self.grid;
+        let dl = ((lon - g.lov + 180.0).rem_euclid(360.0)) - 180.0;
+        let theta = g.n * dl.to_radians();
+        self.from_theta(theta.sin(), theta.cos())
+    }
+
+    fn from_theta(&self, sin_t: f64, cos_t: f64) -> (f64, f64) {
+        let g = self.grid;
+        let x = self.rho * sin_t;
+        let y = -self.rho * cos_t;
+        let gi = (x - g.x0) / g.dx;
+        let gj = (y - g.y0) / g.dy;
+        (gi, if g.j_north { gj } else { -gj })
+    }
+
+    /// Walk this row at a fixed longitude step, which is what rendering into
+    /// an equirectangular view box does.
+    ///
+    /// The angle advances by a constant, so the sine and cosine advance by a
+    /// rotation rather than being recomputed — two transcendentals per pixel
+    /// become four multiplies. Over the width of a view the accumulated
+    /// error is far below a grid cell, and the projection tests would catch
+    /// it if it were not.
+    pub fn walk(&self, lon0: f64, dlon: f64, count: usize) -> LambertWalk<'_> {
+        let g = self.grid;
+        let dl0 = ((lon0 - g.lov + 180.0).rem_euclid(360.0)) - 180.0;
+        let theta0 = g.n * dl0.to_radians();
+        let step = g.n * dlon.to_radians();
+        LambertWalk {
+            row: self,
+            sin_t: theta0.sin(),
+            cos_t: theta0.cos(),
+            sin_d: step.sin(),
+            cos_d: step.cos(),
+            left: count,
+        }
+    }
+}
+
+/// A row being walked at a fixed longitude step. See [`LambertRow::walk`].
+pub struct LambertWalk<'a> {
+    row: &'a LambertRow<'a>,
+    sin_t: f64,
+    cos_t: f64,
+    sin_d: f64,
+    cos_d: f64,
+    left: usize,
+}
+
+impl Iterator for LambertWalk<'_> {
+    type Item = (f64, f64);
+
+    fn next(&mut self) -> Option<(f64, f64)> {
+        if self.left == 0 {
+            return None;
+        }
+        self.left -= 1;
+        let out = self.row.from_theta(self.sin_t, self.cos_t);
+        // Angle addition: rotate (sin, cos) by the constant step.
+        let s = self.sin_t * self.cos_d + self.cos_t * self.sin_d;
+        let c = self.cos_t * self.cos_d - self.sin_t * self.sin_d;
+        self.sin_t = s;
+        self.cos_t = c;
+        Some(out)
     }
 }
 
