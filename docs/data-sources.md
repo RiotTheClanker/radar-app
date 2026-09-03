@@ -77,6 +77,34 @@ input for an MSLP analysis without correcting it first.
 CONUS-only, which matches the MRMS mosaic — so this is an existing coverage
 edge rather than a new one.
 
+## Model fields
+
+| Source | Endpoint | Notes |
+|---|---|---|
+| **HRRR** | `noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.YYYYMMDD/conus/hrrr.tHHz.wrfsfcf00.grib2` | Hourly 3 km CONUS model. Currently surface CAPE; CIN, 0-1/0-6 km shear and storm-relative helicity are in the same file |
+
+**Never fetch the whole file.** It is around 130 MB and carries 170 fields.
+Beside it sits a `.idx` sidecar — a few kilobytes of text naming each field's
+byte offset — so one field is an HTTP range request: about **800 KB** for
+CAPE, a fifth of one Level 2 volume. `lib/data/hrrr_fetcher.dart` does this;
+a `200` response instead of a `206` means the range was ignored and is
+refused rather than accepted.
+
+**Match the level, not just the parameter.** The file holds three CAPE
+records — surface, and mixed-layer over 180-0 mb and 90-0 mb. They are
+different numbers in the same units, so a loose match draws one and labels it
+the other with nothing reporting an error.
+
+> **This is the only source here that is not a measurement.** Everything else
+> was seen by an instrument. A forecast drawn at the same apparent confidence
+> as a radar return, beside live warnings, will be read as an observation —
+> so a model layer names the model and its run time on screen whenever it is
+> on. See invariant 14 in [ui-contract.md](ui-contract.md).
+
+Decoding it needed a GRIB2 reader the MRMS one could not provide — Lambert
+Conformal grids and complex packing rather than lat/lon and PNG. See
+[engine-api.md](engine-api.md).
+
 ## Soundings
 
 | Source | Endpoint | Notes |

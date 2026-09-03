@@ -65,6 +65,7 @@ map, not a substitute for reading them.
 | `render_level3_frame` | Same for a Level 3 product file |
 | `render_level3_view` / `render_level2_view` | **Viewport-matched**: pass the visible bounds and pixel size, get exactly those pixels. This is what keeps the map sharp at any zoom — prefer these |
 | `render_mrms_view` | The national mosaic, from gzipped GRIB2 |
+| `render_cape_view` | An HRRR model field on a Lambert Conformal grid. The frame's `timestamp` is the **model run time**, not the fetch time |
 | `level2_cuts` | Elevation angles available for a moment |
 
 **Read a value**
@@ -168,6 +169,14 @@ why `WorkspaceState.paletteGeneration` exists to make them all rebuild.
   network, and by 26 m at the lowest.
 - **wgpu with a CPU fallback** does the 3D. It is the only place the engine
   touches a GPU, and the fallback is why headless CI can still run it.
+- **There are two GRIB2 readers, and they share nothing.** `mrms.rs` handles a
+  plain lat/lon grid (template 3.0) with PNG-compressed values (5.41).
+  `grib2.rs` handles Lambert Conformal (3.30) with complex packing and spatial
+  differencing (5.3), which is what model output uses. Neither reads the
+  other's files. Two traps in the format: signed integers are **sign-magnitude**
+  (a decimal scale of -1 arrives as `0x8001`, and reads as -32767 if taken as
+  two's complement), and the packed values are **second differences** that have
+  to be integrated twice from initial values stored ahead of them.
 - **The decoders are hand-written** — Level 2, Level 3, GRIB2, and the HDF5
   subset GLM needs. That is deliberate: there is no libhdf5, libgrib or
   eccodes to cross-compile for Android. Do not swap one in casually.

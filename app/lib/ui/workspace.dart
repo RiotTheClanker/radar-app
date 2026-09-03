@@ -838,6 +838,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     final beyondDefault = _shared.showOutlook ||
         _shared.showReports ||
         _shared.showObs ||
+        _shared.showCape ||
         _shared.alertLayers.length > 1 ||
         !_shared.alertLayers.contains(AlertCategory.warning);
 
@@ -854,6 +855,8 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             unawaited(_shared.toggleReports());
           case 'obs':
             unawaited(_shared.toggleObs());
+          case 'cape':
+            unawaited(_shared.toggleCape());
           case 'list':
             showAlertList(context, _shared.alerts, onZoom: _zoomToAlert);
           case 'key':
@@ -898,6 +901,15 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             label: s.label,
             checked: _shared.lightning == s,
           ),
+        const PopupMenuDivider(),
+        wxMenuHeading<String>('MODEL'),
+        wxMenuItem(
+          value: 'cape',
+          label: _shared.cape == null
+              ? 'CAPE (HRRR forecast)'
+              : 'CAPE (HRRR ${_runLabel(_shared.cape!.runTime)})',
+          checked: _shared.showCape,
+        ),
         const PopupMenuDivider(),
         wxMenuHeading<String>('OBSERVATIONS'),
         wxMenuItem(
@@ -1133,12 +1145,23 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       child: Text(
         '${_shared.basemap.attribution} · NOAA/NWS'
-        '${_shared.lightning.usesBlitzortung ? ' · lightning © Blitzortung.org' : ''}',
+        '${_shared.lightning.usesBlitzortung ? ' · lightning © Blitzortung.org' : ''}'
+        // Everything else on this map was measured by an instrument. This one
+        // was computed by a forecast model, and drawn at the same apparent
+        // confidence beside live warnings it would be read as though it were
+        // an observation. The run time says how old the forecast is, since a
+        // three-hour-old model of a fast-moving afternoon is a different
+        // claim from a fresh one.
+        '${_shared.showCape && _shared.cape != null ? ' · CAPE: HRRR model forecast, ${_runLabel(_shared.cape!.runTime)} run${_shared.capeStale ? ' (stale)' : ''}' : ''}',
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 9.5, color: Wx.textFaint),
       ),
     );
   }
+
+  /// A model run, as forecasters name them: the UTC hour, with a Z.
+  static String _runLabel(DateTime runUtc) =>
+      '${runUtc.toUtc().hour.toString().padLeft(2, '0')}Z';
 
   String _ageLabel(Duration age) {
     if (age.inHours >= 1) return '${age.inHours}h';

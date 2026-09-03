@@ -203,6 +203,13 @@ class PaneController extends ChangeNotifier {
 
   bool _disposed = false;
 
+  /// This pane's CAPE overlay, rendered from the shared GRIB2 bytes at this
+  /// pane's own viewport — the same arrangement as the radar image, and for
+  /// the same reason: four panes look at four different boxes.
+  MemoryImage? _capeImage;
+  LatLngBounds? _capeBounds;
+  int _capeGeneration = 0;
+
   void _notify() {
     if (!_disposed) notifyListeners();
   }
@@ -243,6 +250,9 @@ class PaneController extends ChangeNotifier {
   List<MesoHit> get mesos => List.unmodifiable(_mesos);
 
   ColorScale? get keyScale => _keyScale;
+
+  MemoryImage? get capeImage => _capeImage;
+  LatLngBounds? get capeBounds => _capeBounds;
 
   String? get sampleText => _sampleText;
   LatLng? get samplePos => _samplePos;
@@ -1060,6 +1070,48 @@ class PaneController extends ChangeNotifier {
   /// the whole loop before showing anything meant a twelve-frame animation
   /// took twelve renders to sharpen — and for Level 2, twelve re-decodes of
   /// a 5-15 MB volume.
+  /// Re-render the CAPE overlay for this pane's viewport.
+  ///
+  /// Separate from [renderViewport] rather than folded into it: the radar
+  /// path returns early when the pane has no frames, and a model layer should
+  /// still draw over an empty pane — that is arguably when it is most useful,
+  /// since it says where storms could go rather than where they are.
+  Future<void> renderCape() async {
+    if (_disposed) return;
+    final field = shared.cape;
+    if (!shared.showCape || field == null) {
+      if (_capeImage != null) {
+        _capeImage = null;
+        _capeBounds = null;
+        _notify();
+      }
+      return;
+    }
+    final box = _viewBox();
+    if (box == null) return;
+    final generation = ++_capeGeneration;
+    try {
+      final r = await renderCapeView(
+        data: field.bytes,
+        north: box.n,
+        south: box.s,
+        east: box.e,
+        west: box.w,
+        width: box.width,
+        height: box.height,
+      );
+      if (_disposed || generation != _capeGeneration) return;
+      final img = MemoryImage(r.png);
+      await _warmImage(img);
+      if (_disposed || generation != _capeGeneration) return;
+      _capeImage = img;
+      _capeBounds = LatLngBounds(LatLng(box.n, box.w), LatLng(box.s, box.e));
+      _notify();
+    } catch (_) {
+      // The map is still a map without it.
+    }
+  }
+
   Future<void> renderViewport() async {
     if (_frames.isEmpty || _disposed) return;
     final box = _viewBox();

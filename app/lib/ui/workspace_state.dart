@@ -20,6 +20,7 @@ import 'package:latlong2/latlong.dart';
 import '../data/alerts_fetcher.dart';
 import '../data/glm_fetcher.dart';
 import '../data/lightning.dart';
+import '../data/hrrr_fetcher.dart';
 import '../data/spc_fetcher.dart';
 import '../data/surface_obs.dart';
 import 'pane_models.dart';
@@ -202,6 +203,64 @@ class WorkspaceState extends ChangeNotifier {
   }
 
   Future<void> refreshObs() => _loadObs();
+
+  // -------------------------------------------------------------- cape ----
+
+  /// The raw GRIB2 message for the current CAPE field, shared by every pane.
+  ///
+  /// The bytes rather than a picture: each pane renders its own viewport out
+  /// of them, the same way it does with a radar volume. One fetch, four
+  /// renders.
+  HrrrField? cape;
+  bool showCape = false;
+  String? capeError;
+
+  Timer? _capeTimer;
+
+  /// Whether a model run is old enough to be misleading rather than useful.
+  ///
+  /// HRRR runs hourly. Three hours allows for the publish lag plus a missed
+  /// run without the layer vanishing mid-storm.
+  bool get capeStale {
+    final at = cape?.runTime;
+    return at == null ||
+        DateTime.now().toUtc().difference(at) > const Duration(hours: 3);
+  }
+
+  Future<void> toggleCape() async {
+    showCape = !showCape;
+    _ping();
+    if (!showCape) {
+      _capeTimer?.cancel();
+      _capeTimer = null;
+      return;
+    }
+    // Hourly runs, so checking more often than half-hourly just refetches the
+    // same 800 KB.
+    _capeTimer ??= Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => unawaited(_loadCape()),
+    );
+    if (cape == null) await _loadCape();
+  }
+
+  Future<void> _loadCape() async {
+    try {
+      final f = await fetchHrrrField(capeField);
+      if (_disposed) return;
+      if (f == null) {
+        capeError = 'no recent HRRR run';
+      } else {
+        cape = f;
+        capeError = null;
+      }
+      _ping();
+    } catch (e) {
+      if (_disposed) return;
+      capeError = e.toString();
+      _ping();
+    }
+  }
 
   // ---------------------------------------------------------- lightning ----
 
@@ -468,6 +527,7 @@ class WorkspaceState extends ChangeNotifier {
     _disposed = true;
     _alertTimer?.cancel();
     _obsTimer?.cancel();
+    _capeTimer?.cancel();
     _animTimer?.cancel();
     _refreshTimer?.cancel();
     _strikeTimer?.cancel();

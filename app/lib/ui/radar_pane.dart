@@ -210,8 +210,26 @@ class RadarPaneState extends State<RadarPane> {
   /// Shared state moved. Alerts, lightning, the clock and the basemap all
   /// just repaint; anything needing a refetch is reloaded by the workspace,
   /// which is the only side that knows a reload is warranted.
+  /// Whether the shared CAPE layer was on and rendered last time round, so a
+  /// toggle or a fresh model run can be told from any other shared change.
+  bool _capeWanted = false;
+  Object? _capeSource;
+
   void _onShared() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // The overlay is rendered per pane from shared bytes, so this pane has to
+    // notice both the switch and a new run arriving. Compared rather than
+    // re-rendered every notify: the workspace pings on alert polls, lightning
+    // strikes and every animation tick, and re-rendering a 3 km field on each
+    // of those would be constant work for an unchanged picture.
+    final wanted = widget.shared.showCape;
+    final source = widget.shared.cape;
+    if (wanted != _capeWanted || !identical(source, _capeSource)) {
+      _capeWanted = wanted;
+      _capeSource = source;
+      unawaited(_c.renderCape());
+    }
+    setState(() {});
   }
 
   /// This pane's own state moved.
@@ -663,6 +681,7 @@ class RadarPaneState extends State<RadarPane> {
             const Duration(milliseconds: 350),
             () {
               unawaited(_c.renderViewport());
+              if (widget.shared.showCape) unawaited(_c.renderCape());
               // Station plots are filtered to what this pane can see, and
               // nothing else here rebuilds on a gesture — renderViewport
               // notifies, but it returns early when there are no frames, so
@@ -679,6 +698,22 @@ class RadarPaneState extends State<RadarPane> {
           urlTemplate: shared.basemap.url,
           userAgentPackageName: appId,
         ),
+        if (shared.showCape &&
+            _c.capeImage != null &&
+            _c.capeBounds != null)
+          OverlayImageLayer(
+            overlayImages: [
+              OverlayImage(
+                bounds: _c.capeBounds!,
+                imageProvider: _c.capeImage!,
+                // Under the radar and over the basemap. The model says where
+                // storms could go; the radar says where they are, and the
+                // measurement belongs on top of the forecast.
+                opacity: 0.55,
+                gaplessPlayback: true,
+              ),
+            ],
+          ),
         if (frame != null)
           OverlayImageLayer(
             overlayImages: [

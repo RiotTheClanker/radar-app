@@ -5,6 +5,8 @@
 /// perfectly good map of the wrong quantity. The fixture is real index text.
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:radar_app/data/hrrr_fetcher.dart';
 
@@ -63,6 +65,20 @@ void main() {
       expect(rangeForTest('', capeField), isNull);
       expect(rangeForTest('nonsense\nlines\n', capeField), isNull);
       expect(rangeForTest('1:notanumber:d=x:CAPE:surface:', capeField), isNull);
+    });
+  });
+
+  group('a forecast must not read as a measurement', () {
+    /// Every other layer in this app was seen by an instrument. This one was
+    /// computed, and it is drawn beside live warnings — so the run time is
+    /// not decoration, it is the difference between "it is unstable" and "a
+    /// model thought so three hours ago".
+    test('a field carries the run it came from, not when it was fetched', () {
+      final run = DateTime.utc(2026, 9, 3, 12);
+      final f = HrrrField(Uint8List(0), run);
+      expect(f.runTime, run);
+      expect(f.runTime.isUtc, isTrue,
+          reason: 'model runs are named in UTC, and a local hour would lie');
     });
   });
 

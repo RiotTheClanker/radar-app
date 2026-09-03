@@ -125,6 +125,13 @@ Anything needing a `BuildContext` or the camera:
     per pane needs the same treatment. (`VOL3D` is still a single global; it
     holds only because 3D is a full-screen route, and stops holding the day 3D
     becomes a pane.)
+14. **A model layer says so, with its run time.** Every other source in this
+    app was measured by an instrument. CAPE comes from the HRRR forecast
+    model, and drawn at the same apparent confidence as a radar return —
+    beside live warnings, in an app whose own README says never to rely on it
+    as your only source — it will be read as an observation. The attribution
+    line names the model and the run whenever the layer is on, and says when
+    that run has gone stale. Any future model layer inherits this.
 
 ## Generated files — never hand-edit
 
