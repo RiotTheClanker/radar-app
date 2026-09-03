@@ -768,7 +768,12 @@ class RadarPaneState extends State<RadarPane> {
           onTap: () {
             final hit = _alertHit.value;
             if (hit != null && hit.hitValues.isNotEmpty) {
-              showAlertSheet(context, hit.hitValues.first);
+              // Every polygon under the tap, not just the first. Alerts
+              // stack — a tornado warning inside a severe thunderstorm watch
+              // is two shapes over the same ground — and taking `.first` was
+              // choosing by draw order, which is nobody's intent. The picker
+              // goes straight to the text when there is only one thing there.
+              showAlertPicker(context, hit.hitValues);
             }
           },
           child: PolygonLayer(
