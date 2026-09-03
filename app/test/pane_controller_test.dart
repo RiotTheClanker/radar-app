@@ -238,6 +238,73 @@ void main() {
     });
   });
 
+  /// The CAPE overlay is pinned to the geographic box it was rendered for,
+  /// so whatever is outside that box is empty until the next render lands.
+  /// Both bugs here showed up the same way: zoom out, and the layer either
+  /// vanishes or keeps showing only where you used to be.
+  group('the CAPE render box', () {
+    /// It used to reuse the radar's box, which gives up when the pane has no
+    /// frames. A model field says where storms could go, which is worth
+    /// drawing precisely when there is nothing on the radar yet.
+    test('is built even when the pane has no radar frames', () {
+      c.viewport = () => const PaneViewport(
+            north: 40, south: 35, east: -95, west: -100,
+            zoom: 7, pixelWidth: 1000,
+          );
+      expect(c.frames, isEmpty);
+      expect(c.capeBoxForTest, isNotNull,
+          reason: 'an empty pane still has a viewport to draw a model into');
+    });
+
+    /// The radar box clips to the radar's own coverage. CAPE is a CONUS-wide
+    /// field, and clipping it to one radar's circle blanked the map as soon
+    /// as you zoomed past that circle.
+    test('is not clipped to the radar site coverage', () {
+      c.viewport = () => const PaneViewport(
+            north: 49, south: 25, east: -67, west: -125,
+            zoom: 4, pixelWidth: 1200,
+          );
+      final box = c.capeBoxForTest!;
+      expect(box.n, greaterThan(49.0));
+      expect(box.s, lessThan(25.0));
+      expect(box.e, greaterThan(-67.0));
+      expect(box.w, lessThan(-125.0));
+    });
+
+    /// A margin narrower than the viewport does not survive a zoom step out:
+    /// the newly revealed edges are outside the rendered box and draw empty
+    /// until the next render.
+    test('renders well outside the viewport, so zooming out stays covered',
+        () {
+      c.viewport = () => const PaneViewport(
+            north: 40, south: 35, east: -95, west: -100,
+            zoom: 7, pixelWidth: 1000,
+          );
+      final box = c.capeBoxForTest!;
+      expect((box.n - box.s) / 5.0, greaterThan(2.0),
+          reason: 'a 2x zoom out must land inside what was already rendered');
+      expect((box.e - box.w) / 5.0, greaterThan(2.0));
+    });
+
+    /// The field is on a 3 km grid, so rendering it at full screen density
+    /// over a box two and a half times the viewport is work for detail the
+    /// model never had.
+    test('does not render finer than the model grid', () {
+      c.viewport = () => const PaneViewport(
+            north: 40, south: 35, east: -95, west: -100,
+            zoom: 7, pixelWidth: 4000,
+          );
+      final box = c.capeBoxForTest!;
+      expect(box.width, lessThanOrEqualTo(1200));
+      expect(box.height, lessThanOrEqualTo(1200));
+    });
+
+    test('gives up cleanly when the map is not attached', () {
+      c.viewport = () => null;
+      expect(c.capeBoxForTest, isNull);
+    });
+  });
+
   group('clocks', () {
     test('a linked pane reads the shared clock', () {
       expect(c.isolated, isFalse);

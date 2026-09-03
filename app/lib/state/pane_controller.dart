@@ -1070,6 +1070,54 @@ class PaneController extends ChangeNotifier {
   /// the whole loop before showing anything meant a twelve-frame animation
   /// took twelve renders to sharpen — and for Level 2, twelve re-decodes of
   /// a 5-15 MB volume.
+  /// The box to render the CAPE field into.
+  ///
+  /// Deliberately not [_viewBox], which is built for radar and does two
+  /// things that are wrong here. It clips to the radar's own data bounds,
+  /// which for a CONUS-wide model field means the map goes blank the moment
+  /// you zoom past one radar's coverage. And it gives up when the pane has no
+  /// frames, which is exactly the case a model layer should still draw in.
+  ///
+  /// The margin is much wider than the radar's 25% as well. The overlay is
+  /// pinned to the geographic box it was rendered for, so anything outside
+  /// that box is empty until the next render lands: a 25% margin survives a
+  /// small pan and vanishes the moment you zoom out. At 75% the rendered area
+  /// is two and a half times the viewport, which covers a zoom step out with
+  /// room to spare.
+  ViewBox? _capeBox() {
+    final vp = viewport?.call();
+    if (vp == null || _disposed || vp.pixelWidth <= 0) return null;
+    final dLat = (vp.north - vp.south) * 0.75;
+    final dLon = (vp.east - vp.west) * 0.75;
+    final north = math.min(vp.north + dLat, 85.0);
+    final south = math.max(vp.south - dLat, -85.0);
+    final east = vp.east + dLon;
+    final west = vp.west - dLon;
+    if (north <= south || east <= west) return null;
+
+    // Capped well below the radar's 2200. The field is on a 3 km grid, so
+    // resolving it finer than that only interpolates a value the model never
+    // had, and this box is two and a half times the viewport before scaling.
+    final pxPerLon = vp.pixelWidth / (vp.east - vp.west);
+    final width = ((east - west) * pxPerLon).round().clamp(256, 1200);
+    double mercY(double latDeg) {
+      final lat = latDeg * math.pi / 180.0;
+      return math.log(math.tan(math.pi / 4 + lat / 2));
+    }
+
+    final aspect =
+        (mercY(north) - mercY(south)) / ((east - west) * math.pi / 180.0);
+    final height = (width * aspect).round().clamp(256, 1200);
+    return (n: north, s: south, e: east, w: west, width: width, height: height);
+  }
+
+  /// The CAPE render box, for tests.
+  ///
+  /// Exposed because the two things that were wrong with it — clipping to the
+  /// radar's coverage, and refusing to draw on a pane with no frames — are
+  /// invisible from outside until someone zooms out and the layer vanishes.
+  ViewBox? get capeBoxForTest => _capeBox();
+
   /// Re-render the CAPE overlay for this pane's viewport.
   ///
   /// Separate from [renderViewport] rather than folded into it: the radar
@@ -1087,7 +1135,7 @@ class PaneController extends ChangeNotifier {
       }
       return;
     }
-    final box = _viewBox();
+    final box = _capeBox();
     if (box == null) return;
     final generation = ++_capeGeneration;
     try {
