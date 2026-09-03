@@ -10,6 +10,7 @@ short.
 | [ui-development.md](ui-development.md) | You are writing a new UI, in Flutter or otherwise |
 | [engine-api.md](engine-api.md) | You are calling the Rust engine, or changing what it offers |
 | [data-sources.md](data-sources.md) | You need to know where a byte came from, or are reimplementing the fetch layer |
+| [data-roadmap.md](data-roadmap.md) | You are adding a data layer — what is planned, in what order, and what blocks it |
 
 Setup, commands, codegen and the release process are in
 [CONTRIBUTING.md](../CONTRIBUTING.md).

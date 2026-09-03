@@ -7,6 +7,11 @@ ours anywhere in this list.
 Useful in two situations: reimplementing the fetch layer in another stack, and
 working out which upstream broke when something stops appearing.
 
+Layers that do **not** exist yet — temperature, humidity, pressure, a field
+of available energy — and what has to be true before each can, are in
+[data-roadmap.md](data-roadmap.md). Read that before adding a source: two of
+the obvious shortcuts turn out not to exist.
+
 ## Rules the fetch layer follows
 
 - **Fetchers do not decode.** They return bytes. Decoding is the engine's job
