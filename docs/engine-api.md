@@ -101,6 +101,21 @@ map, not a substitute for reading them.
 | `install_palette` | Import a `.pal`; returns the product family it applies to |
 | `reset_palettes` | Back to the built-ins |
 
+## Measuring before optimising
+
+```
+cargo run --release --example bench
+```
+
+Times every path the app runs while somebody is watching a storm, against
+real files from `tools/fetch_testdata.sh`. Release only — a debug build
+measures the absence of optimisation rather than the code.
+
+Run it before changing anything for speed. The largest win found so far was
+not making anything faster: it was noticing that reading a Level 2 volume,
+which costs about 200 ms, was happening seven times over for one frame on
+screen.
+
 ## Sessions and global state
 
 Some engine calls leave something open behind them. Which of those are
@@ -145,6 +160,27 @@ second viewer. **The day 3D becomes a pane, it needs the same handle
 treatment**, and for the same reason — the second opener would take over the
 first one's volume.
 
+### Two memos, which are not sessions
+
+The last parsed Level 2 volume and the last decoded model field are each held
+in a single global slot.
+
+That looks like the thing the inspect session got wrong, and it is worth
+being clear why it is not. A session holds *whose* it is: opening one from a
+second caller takes it away from the first, which is exactly the bug. A memo
+holds nothing but an answer. The same bytes always decode to the same volume,
+a miss only costs the work it saved, and no caller can observe another's
+use of it.
+
+One entry each, not several. A parsed volume is tens of megabytes; four panes
+comparing four moments of one scan all want the same one, so a single slot
+serves the case that matters. An animation loop steps through different
+volumes and misses on every frame — the honest cost of not holding a hundred
+megabytes on a phone.
+
+Both key on a hash of the entire message rather than a sample of it, so a hit
+cannot be a different file that happened to start the same way.
+
 ### Palettes are global on purpose
 
 A `.pal` import is meant to change every pane's map and key at once, which is
@@ -177,6 +213,12 @@ why `WorkspaceState.paletteGeneration` exists to make them all rebuild.
   (a decimal scale of -1 arrives as `0x8001`, and reads as -32767 if taken as
   two's complement), and the packed values are **second differences** that have
   to be integrated twice from initial values stored ahead of them.
+- **Level 2 decompression runs across threads.** Records are independent
+  bzip2 streams and decompression is ~90% of the cost, so they are inflated in
+  batches bounded by the core count and folded back in file order. Order
+  matters: sweeps are keyed by elevation, and a batch folded out of order
+  reshuffles the cuts. `tests/level2_test.rs` pins checksums taken from a
+  single-threaded decode.
 - **The decoders are hand-written** — Level 2, Level 3, GRIB2, and the HDF5
   subset GLM needs. That is deliberate: there is no libhdf5, libgrib or
   eccodes to cross-compile for Android. Do not swap one in casually.

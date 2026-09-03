@@ -49,11 +49,14 @@ app/                      the Flutter app
   android/ linux/ windows/  per-platform shells
 rust/radar_core/          the engine crate — pure Rust, no Flutter
   src/level2/ level3/     NEXRAD decoders (hand-written; no libhdf5/eccodes)
-  src/mrms.rs glm.rs      MRMS GRIB2 and GOES GLM readers
+  src/mrms.rs             MRMS GRIB2: lat/lon grid, PNG-packed
+  src/grib2.rs            model GRIB2: Lambert Conformal, complex packing
+  src/glm.rs              GOES GLM, via a hand-written HDF5 subset reader
   src/process/            derived products, HCA, nowcast, storm tracks, 3D grid
   src/render/             rasterizer, colour tables, wgpu raymarcher
   src/api.rs              the engine's public API
   src/bin/ examples/      headless debug tools — run these without Flutter
+  examples/bench.rs       where the time goes; run before optimising anything
 packaging/                .deb script and the Inno Setup installer
 branding/                 one SVG plus the generator that fans it out
 tools/                    NEXRAD site table generator, test-data fetcher
@@ -138,6 +141,34 @@ sessions are **per-caller**, keyed by a handle the opener passes back on every
 read. The 3D session is still **process-global**, which holds only because 3D
 is a full-screen route rather than a pane. See
 [engine-api.md](engine-api.md#sessions-and-global-state).
+
+## What things cost
+
+Measured with `cargo run --release --example bench` against real files. Worth
+knowing before adding work to any of these paths, and worth re-running rather
+than reasoning about after changing one.
+
+| | |
+|---|---|
+| Level 2 volume, first parse | ~200 ms (90% bzip2, spread across threads) |
+| Level 2 volume, already parsed | free — memoised |
+| `render_level2_view` 1600x900 | ~70 ms |
+| Level 3 parse | ~20 ms |
+| `render_level3_view` 1600x900 | ~85 ms |
+| HRRR CAPE decode | ~19 ms, then memoised |
+| `render_cape_view` 1200x800 | ~31 ms |
+| 3D grid build | ~120 ms, HCA ~250 ms |
+
+Two of these are memos rather than caches, and the distinction matters: they
+hold no caller identity, the same bytes always give the same answer, and a
+miss only costs the work it saved. That is what makes a single global slot
+safe here when a single global *session* was a bug — see
+[engine-api.md](engine-api.md#sessions-and-global-state).
+
+Each holds one entry. A parsed Level 2 volume is tens of megabytes, and four
+panes comparing four moments of one scan all want the same one; an animation
+loop steps through different volumes and misses on each, which is the price
+of not holding a hundred megabytes on a phone.
 
 ## Generated files — never hand-edit
 

@@ -76,6 +76,28 @@ CI runs `flutter analyze`, `flutter test` and `cargo test --release` as
 blocking checks, then builds all three platforms. Run the first three locally
 and you will rarely be surprised.
 
+## Before you optimise anything
+
+```
+cd rust/radar_core
+cargo run --release --example bench
+```
+
+Times every path the app runs while somebody is watching a storm, against
+real files. Release only — a debug build measures the absence of
+optimisation, not the code.
+
+Run it first and run it after. The largest speed-up found so far was not
+making anything faster: it was noticing that reading a Level 2 volume, which
+costs around 200 ms, was happening seven times over for one frame on screen.
+Guessing would not have found that, and would have sent someone into the
+bzip2 loop instead.
+
+Two paths are memoised — the last parsed Level 2 volume and the last decoded
+model field — so a benchmark that runs the same input twice measures the memo
+on the second pass. That is the point, but be aware of it when reading
+numbers.
+
 ## Working without the app
 
 The engine is a normal Rust crate and can be exercised on its own — far
@@ -109,6 +131,15 @@ cargo install flutter_rust_bridge_codegen --version 2.12.0
 cd app
 flutter_rust_bridge_codegen generate
 ```
+
+It needs the **Flutter** toolchain on `PATH`, not just Dart — it shells out to
+`flutter --version` and refuses to start without it. The version has to match
+`flutter_rust_bridge` in `app/pubspec.yaml` exactly, or the generated bindings
+and the runtime disagree about the wire format.
+
+Committing regenerated bindings, check the diff shows `rustContentHash`
+changing and the dispatch indices shifting. Both move on a real run; neither
+moves if the file was edited by hand.
 
 Config lives in `app/flutter_rust_bridge.yaml`. Commit the regenerated files
 with the change that caused them.

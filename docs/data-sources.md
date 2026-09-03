@@ -154,6 +154,15 @@ different city — so it is a last resort that only sets the initial radar site.
 Nothing is requested at startup, and the app works fine with location
 refused: it opens on the default site.
 
+## Choosing the radar to open on
+
+`lib/data/nearest_site.dart` does not simply take the geometrically closest
+site. Some entries in the station list are research radars that publish no
+routine Level 3, so the nearest one is *probed* — a listing request for the
+default product — and skipped when it returns nothing, falling back to the
+geometric nearest if every probe fails. Bounded by a per-probe timeout and an
+overall budget, since a cold start must not hang on a slow bucket.
+
 ## Local files
 
 Not network, but part of the data layer (`lib/data/user_files.dart`), plain
