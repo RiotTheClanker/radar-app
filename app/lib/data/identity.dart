@@ -22,7 +22,7 @@ const appSlug = 'taa-yuku-radar';
 
 /// Kept in step with `version:` in pubspec.yaml by a test — see
 /// test/identity_test.dart.
-const appVersion = '0.1.4';
+const appVersion = '0.2.0';
 
 /// Where to find us. Used as the contact in [userAgent].
 const appUrl = 'https://github.com/RiotTheClanker/radar-app';
