@@ -207,13 +207,21 @@ than layout. `PaneController` and `WorkspaceState` tests need no
 marker at the top:
 
 ```
-<!-- version: v0.1.4 -->
+<!-- version: v0.2.0 -->
 ```
 
 At tag time CI reads that marker and **refuses to publish if it does not match
 the tag**. So the notes and the marker are updated in the pull request that
 ships the change, not afterwards. GitHub's generated commit list is appended
 below whatever is written there.
+
+`app/pubspec.yaml`'s `version:` needs the same bump, in the same pull
+request. Nothing on desktop reads it — the `.deb` and the installer take their
+version from the tag — but it is what becomes the Android APK's `versionName`
+and `versionCode`, and `appVersion` in `lib/data/identity.dart` has to match
+it or the User-Agent we send NOAA starts lying. A test enforces that second
+half; nothing enforces the first, so v0.1.4 shipped with the pubspec still
+saying 0.1.3.
 
 Tagging `v*` builds all three platforms and attaches them to the release.
 
