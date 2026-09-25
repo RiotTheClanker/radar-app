@@ -13,14 +13,22 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+import '../data/addons.dart';
 import '../data/alerts_fetcher.dart';
+import '../data/geojson.dart';
+import '../data/identity.dart';
 import '../data/glm_fetcher.dart';
 import '../data/lightning.dart';
 import '../data/hrrr_fetcher.dart';
+import '../data/nexrad_sites.g.dart';
+import '../data/radar_source.dart';
 import '../data/spc_fetcher.dart';
 import '../data/surface_obs.dart';
 import '../src/rust/api/radar.dart';
@@ -395,6 +403,240 @@ class WorkspaceState extends ChangeNotifier {
     _ping();
   }
 
+  // ------------------------------------------------------------ addons ----
+
+  /// Every addon found, enabled or not — the addon manager lists them all.
+  List<Addon> addons = const [];
+
+  /// Files in the addons folder that could not be read as addons, by path.
+  Map<String, String> addonErrors = const {};
+
+  /// Problems that span addons (two defining one site), shown with them.
+  List<String> addonConflicts = const [];
+
+  AddonSettings _addonSettings = AddonSettings();
+
+  /// Where addons and their settings live. Null until [reloadAddons] is first
+  /// called, which the workspace does at startup — so a [WorkspaceState]
+  /// built in a test never touches the real config folder.
+  Directory? _addonDir;
+  File? _addonSettingsFile;
+
+  List<NexradSite> _radarSites = mergeSites(const []);
+
+  /// Every radar the app can show: the built-in list, with enabled addons'
+  /// sites added and any they re-define swapped in.
+  List<NexradSite> get radarSites => _radarSites;
+
+  /// The site with id [icao] as currently defined, or null.
+  NexradSite? siteById(String icao) {
+    for (final s in _radarSites) {
+      if (s.icao == icao) return s;
+    }
+    return null;
+  }
+
+  bool isAddonEnabled(Addon a) => !_addonSettings.disabled.contains(a.id);
+
+  Iterable<Addon> get activeAddons => addons.where(isAddonEnabled);
+
+  Directory? get addonFolder => _addonDir;
+
+  /// (Re)read the addons folder. Called at startup and from the addon
+  /// manager; safe to call again at any time.
+  void reloadAddons({Directory? dir, File? settings}) {
+    if (dir != null) _addonDir = dir;
+    if (settings != null) _addonSettingsFile = settings;
+    final d = _addonDir;
+    if (d == null) return;
+    final f = _addonSettingsFile;
+    if (f != null) _addonSettings = AddonSettings.load(f);
+    final result = loadAddons(d);
+    addons = result.addons;
+    addonErrors = result.errors;
+    // A reload is how edited files are picked up, so nothing fetched from the
+    // old versions survives it.
+    overlayShapes.clear();
+    overlayErrors.clear();
+    _applyAddons();
+  }
+
+  /// Seam for tests, which hand in addons without a folder.
+  @visibleForTesting
+  void setAddons(List<Addon> list, {AddonSettings? settings}) {
+    addons = list;
+    addonErrors = const {};
+    if (settings != null) _addonSettings = settings;
+    _applyAddons();
+  }
+
+  void setAddonEnabled(Addon a, bool on) {
+    if (on) {
+      _addonSettings.disabled.remove(a.id);
+    } else {
+      _addonSettings.disabled.add(a.id);
+    }
+    _saveAddonSettings();
+    _applyAddons();
+  }
+
+  void _saveAddonSettings() {
+    final f = _addonSettingsFile;
+    if (f != null) _addonSettings.save(f);
+  }
+
+  /// Rebuild everything derived from the enabled addons, and fetch what the
+  /// visible overlays need.
+  void _applyAddons() {
+    final active = activeAddons.toList();
+    addonConflicts = siteCollisions(active);
+    _radarSites = mergeSites([for (final a in active) ...a.sites]);
+    overlays = [for (final a in active) ...a.overlays];
+    placeGroups = [for (final a in active) ...a.places];
+    themes = [for (final a in active) ...a.themes];
+    addonPalettes = [for (final a in active) ...a.palettes];
+    siteGeneration++;
+    // Drop shapes, timers and errors for overlays no longer present.
+    final keys = {for (final o in overlays) o.key};
+    overlayShapes.removeWhere((k, _) => !keys.contains(k));
+    overlayErrors.removeWhere((k, _) => !keys.contains(k));
+    for (final k in _overlayTimers.keys.toList()) {
+      if (!keys.contains(k)) _overlayTimers.remove(k)?.cancel();
+    }
+    for (final o in overlays) {
+      _syncOverlay(o);
+    }
+    _ping();
+  }
+
+  /// Bumped whenever the site list changes, so the panes' cached site dots
+  /// and anything else built from [radarSites] knows to rebuild.
+  int siteGeneration = 0;
+
+  // ------------------------------------------------------ addon layers ----
+
+  List<AddonOverlay> overlays = const [];
+  List<PlaceGroup> placeGroups = const [];
+
+  /// `.pal` files from enabled addons, for the colour-table menu.
+  List<String> addonPalettes = const [];
+
+  /// Parsed GeoJSON per overlay key. Shared: four panes draw one overlay
+  /// from one fetch, the same as the alerts.
+  final Map<String, GeoShapes> overlayShapes = {};
+
+  /// Why an overlay that is switched on is not showing, by key.
+  final Map<String, String> overlayErrors = {};
+
+  final Map<String, Timer> _overlayTimers = {};
+  final Set<String> _overlayLoading = {};
+
+  bool isLayerOn(String key, {required bool byDefault}) =>
+      _addonSettings.layers[key] ?? byDefault;
+
+  bool overlayOn(AddonOverlay o) =>
+      isLayerOn(o.key, byDefault: o.visibleByDefault);
+
+  bool placesOn(PlaceGroup g) =>
+      isLayerOn(g.key, byDefault: g.visibleByDefault);
+
+  void toggleOverlay(AddonOverlay o) {
+    _addonSettings.layers[o.key] = !overlayOn(o);
+    _saveAddonSettings();
+    _syncOverlay(o);
+    _ping();
+  }
+
+  void togglePlaces(PlaceGroup g) {
+    _addonSettings.layers[g.key] = !placesOn(g);
+    _saveAddonSettings();
+    _ping();
+  }
+
+  /// Start or stop what [o] needs: its first fetch when switched on, its
+  /// refresh timer while on, nothing at all while off.
+  void _syncOverlay(AddonOverlay o) {
+    if (o.kind != OverlayKind.geojson) return;
+    final on = overlayOn(o);
+    if (!on) {
+      _overlayTimers.remove(o.key)?.cancel();
+      return;
+    }
+    if (!overlayShapes.containsKey(o.key)) unawaited(_loadOverlay(o));
+    if (o.url != null && o.refreshMinutes > 0) {
+      _overlayTimers[o.key] ??= Timer.periodic(
+        Duration(minutes: math.max(1, o.refreshMinutes)),
+        (_) => unawaited(_loadOverlay(o)),
+      );
+    }
+  }
+
+  /// Fetch and parse one GeoJSON overlay. [client] is for tests.
+  Future<void> _loadOverlay(AddonOverlay o, {http.Client? client}) async {
+    if (!_overlayLoading.add(o.key)) return;
+    try {
+      final String text;
+      if (o.inline != null) {
+        text = o.inline!;
+      } else if (o.file != null) {
+        text = await File(o.file!).readAsString();
+      } else {
+        final c = client ?? http.Client();
+        try {
+          final resp = await c
+              .get(Uri.parse(o.url!), headers: userAgentHeader)
+              .timeout(const Duration(seconds: 20));
+          if (resp.statusCode != 200) {
+            throw Exception('HTTP ${resp.statusCode}');
+          }
+          text = resp.body;
+        } finally {
+          if (client == null) c.close();
+        }
+      }
+      final shapes = parseGeoJson(text, labelKey: o.labelKey);
+      if (_disposed) return;
+      overlayShapes[o.key] = shapes;
+      overlayErrors.remove(o.key);
+      _ping();
+    } catch (e) {
+      if (_disposed) return;
+      // Keep the last good shapes; a refresh that fails should not blank a
+      // layer that was showing a moment ago.
+      overlayErrors[o.key] = e is FormatException ? e.message : '$e';
+      _ping();
+    } finally {
+      _overlayLoading.remove(o.key);
+    }
+  }
+
+  // ------------------------------------------------------------ themes ----
+
+  List<ThemeSpec> themes = const [];
+
+  /// The theme in use, or null for the built-in look. A theme whose addon
+  /// has been switched off or removed reads as null, so the app falls back
+  /// rather than holding colours nobody can switch away from.
+  ThemeSpec? get theme {
+    final key = _addonSettings.theme;
+    if (key == null) return null;
+    for (final t in themes) {
+      if (t.key == key) return t;
+    }
+    return null;
+  }
+
+  void setTheme(ThemeSpec? t) {
+    _addonSettings.theme = t?.key;
+    _saveAddonSettings();
+    if (t?.basemap != null) {
+      for (final b in basemaps) {
+        if (b.label.toLowerCase() == t!.basemap!.toLowerCase()) basemap = b;
+      }
+    }
+    _ping();
+  }
+
   // -------------------------------------------------------------- time ----
 
   /// Historical replay. Shared, because panes showing the same storm at
@@ -555,6 +797,9 @@ class WorkspaceState extends ChangeNotifier {
     _glmSub?.cancel();
     _blitz.stop();
     _glm.stop();
+    for (final t in _overlayTimers.values) {
+      t.cancel();
+    }
     super.dispose();
   }
 }

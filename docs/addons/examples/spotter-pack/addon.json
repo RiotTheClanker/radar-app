@@ -1,0 +1,47 @@
+{
+  "id": "example-spotters",
+  "name": "Example spotter pack",
+  "version": "1.0",
+  "author": "radar-app docs",
+  "description": "Places from a CSV, a boundary from GeoJSON, and a hillshade under the radar.",
+  "places": [
+    {
+      "id": "shelters",
+      "name": "Public shelters",
+      "icon": "shelter",
+      "color": "#6FBF73",
+      "file": "shelters.csv"
+    },
+    {
+      "id": "posts",
+      "name": "Spotter posts",
+      "icon": "spotter",
+      "color": "#64B5F6",
+      "items": [
+        { "name": "Post 1 — Hwy 9 overpass", "lat": 35.2078, "lon": -97.4442,
+          "notes": "Good view west and south-west" },
+        { "name": "Post 2 — Lake Thunderbird dam", "lat": 35.2186, "lon": -97.2481 }
+      ]
+    }
+  ],
+  "overlays": [
+    {
+      "id": "area",
+      "name": "Coverage area",
+      "type": "geojson",
+      "file": "area.geojson",
+      "stroke": "#FFD54F",
+      "width": 2,
+      "above": true
+    },
+    {
+      "id": "hillshade",
+      "name": "Hillshade (Esri)",
+      "type": "tiles",
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade_Dark/MapServer/tile/{z}/{y}/{x}",
+      "opacity": 0.35,
+      "visible": false,
+      "attribution": "Hillshade © Esri"
+    }
+  ]
+}

@@ -9,9 +9,13 @@
 /// so what is covered here is the surrounding state machine.
 library;
 
+import 'dart:typed_data';
+
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:radar_app/data/nexrad_sites.g.dart';
+import 'package:radar_app/src/rust/api/radar.dart';
 import 'package:radar_app/state/pane_controller.dart';
 import 'package:radar_app/ui/pane_models.dart';
 import 'package:radar_app/ui/workspace_state.dart';
@@ -378,5 +382,52 @@ void main() {
 
   test('a snapshot with nothing on screen returns no path', () {
     expect(c.saveFrameSnapshot(), isNull);
+  });
+
+  group('the area a loop covers', () {
+    DisplayFrame frame(double n, double s, double e, double w) {
+      final meta = RadarFrame(
+        productCode: 0,
+        productName: '',
+        unit: '',
+        siteLat: (n + s) / 2,
+        siteLon: (e + w) / 2,
+        timestamp: 0,
+        elevationDeg: 0.5,
+        vcp: 0,
+        width: 1,
+        height: 1,
+        png: Uint8List(0),
+        north: n,
+        south: s,
+        east: e,
+        west: w,
+      );
+      return DisplayFrame(meta, MemoryImage(Uint8List(0)), Uint8List(0));
+    }
+
+    test('a fixed radar covers its one disk', () {
+      final b = loopDataBounds([
+        frame(36, 34, -96, -98),
+        frame(36, 34, -96, -98),
+      ])!;
+      expect([b.north, b.south, b.east, b.west], [36, 34, -96, -98]);
+    });
+
+    test('a moving radar covers everywhere it scanned from', () {
+      // A ship steaming east: the newest frame's disk reaches a degree
+      // further east than the first one's. Clipping to the first cut the
+      // newest frames off along a straight line.
+      final b = loopDataBounds([
+        frame(29.3, 27.1, -90.5, -92.9),
+        frame(29.4, 27.2, -90.0, -92.4),
+        frame(29.5, 27.3, -89.5, -91.9),
+      ])!;
+      expect([b.north, b.south, b.east, b.west], [29.5, 27.1, -89.5, -92.9]);
+    });
+
+    test('no frames, no area', () {
+      expect(loopDataBounds(const []), isNull);
+    });
   });
 }

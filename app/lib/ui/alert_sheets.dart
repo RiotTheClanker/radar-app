@@ -49,7 +49,7 @@ void showAlertSheet(BuildContext context, WeatherAlert alert) {
               Expanded(
                 child: Text(
                   alert.event,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: Wx.text,
@@ -62,12 +62,12 @@ void showAlertSheet(BuildContext context, WeatherAlert alert) {
           if (alert.headline.isNotEmpty)
             Text(
               alert.headline,
-              style: const TextStyle(fontSize: 13, color: Wx.textDim),
+              style: TextStyle(fontSize: 13, color: Wx.textDim),
             ),
           const SizedBox(height: 12),
           Text(
             alert.description,
-            style: const TextStyle(fontSize: 12.5, height: 1.45, color: Wx.text),
+            style: TextStyle(fontSize: 12.5, height: 1.45, color: Wx.text),
           ),
         ],
       ),
@@ -132,7 +132,7 @@ void showAlertPicker(BuildContext context, List<WeatherAlert> alerts) {
               style: Wx.heading,
             ),
           ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Text(
               'They overlap where you tapped. Pick one to read it.',
@@ -160,9 +160,9 @@ void showAlertPicker(BuildContext context, List<WeatherAlert> alerts) {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style:
-                          const TextStyle(fontSize: 10.5, color: Wx.textDim),
+                          TextStyle(fontSize: 10.5, color: Wx.textDim),
                     ),
-                    trailing: const Icon(
+                    trailing: Icon(
                       Icons.chevron_right,
                       size: 16,
                       color: Wx.textDim,
@@ -205,7 +205,7 @@ void showAlertList(
       maxChildSize: 0.95,
       builder: (sheetContext, controller) {
         if (alerts.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
               padding: EdgeInsets.all(32),
               child: Text('Nothing active right now.', style: Wx.labelDim),
@@ -229,7 +229,7 @@ void showAlertList(
               // broken feature, and "no watches right now" is a real and
               // common answer.
               if ((byCat[c] ?? const []).isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.fromLTRB(16, 0, 4, 4),
                   child: Text('none active', style: Wx.labelDim),
                 ),
@@ -248,11 +248,11 @@ void showAlertList(
                     a.areaDesc.isEmpty ? a.headline : a.areaDesc,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10.5, color: Wx.textDim),
+                    style: TextStyle(fontSize: 10.5, color: Wx.textDim),
                   ),
                   // Only the drawn ones can be zoomed to.
                   trailing: a.hasPolygon
-                      ? const Icon(Icons.crop_free, size: 14, color: Wx.textDim)
+                      ? Icon(Icons.crop_free, size: 14, color: Wx.textDim)
                       : null,
                   // Pop with the sheet's own context, then reopen against the
                   // caller's — the sheet context is deactivated by the pop,

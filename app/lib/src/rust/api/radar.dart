@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `convert_sample`, `convert`
+// These functions are ignored because they are not marked as `pub`: `convert_sample`, `convert`, `scale_out`
 
 /// Decode a full Level 2 (Archive II) volume and render one moment at one
 /// elevation cut. `moment`: REF, VEL, SW, ZDR, PHI, or RHO.
@@ -336,6 +336,45 @@ Future<ColorScale> colorScale({
   productCode: productCode,
   moment: moment,
 );
+
+/// Render a file in the open radar format (docs/open-format.md) into a view
+/// box — data from someone else's parser, drawn like any other product.
+Future<RadarFrame> renderOpenView({
+  required List<int> data,
+  required double north,
+  required double south,
+  required double east,
+  required double west,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiRadarRenderOpenView(
+  data: data,
+  north: north,
+  south: south,
+  east: east,
+  west: west,
+  width: width,
+  height: height,
+);
+
+/// Render an open-format file's whole extent. `image_size` is the longer
+/// side in pixels.
+Future<RadarFrame> renderOpenFrame({
+  required List<int> data,
+  required int imageSize,
+}) => RustLib.instance.api.crateApiRadarRenderOpenFrame(
+  data: data,
+  imageSize: imageSize,
+);
+
+/// Open an open-format file for cursor sampling. Returns the session handle;
+/// a grid reports no site.
+Future<int> inspectOpenCustom({required List<int> data}) =>
+    RustLib.instance.api.crateApiRadarInspectOpenCustom(data: data);
+
+/// The colour scale an open-format file is drawn with.
+Future<ColorScale> openColorScale({required List<int> data}) =>
+    RustLib.instance.api.crateApiRadarOpenColorScale(data: data);
 
 /// Give the 3D ground relief. `heights` is metres above sea level on a
 /// north-up grid covering the same extent as the basemap, row-major from the

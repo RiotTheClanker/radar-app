@@ -1,0 +1,88 @@
+{
+  "id": "test-addon",
+  "name": "Test addon",
+  "version": "1.0",
+  "description": "One of everything, in one file, around Oklahoma City. Install it from a link to check addons work.",
+  "sites": [
+    {
+      "id": "XTST",
+      "name": "Test radar (KTLX via custom source)",
+      "state": "OK",
+      "lat": 35.50,
+      "lon": -97.10,
+      "elevFt": 1277,
+      "shortId": "TLX",
+      "attribution": "Test radar: NOAA KTLX via addon source",
+      "level2": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com",
+        "prefix": "{yyyy}/{MM}/{dd}/KTLX/",
+        "match": "_V06$"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "TLX_{product}_{yyyy}_{MM}_{dd}"
+      }
+    }
+  ],
+  "overlays": [
+    {
+      "id": "box",
+      "name": "Test box around OKC",
+      "type": "geojson",
+      "stroke": "#FF40FF",
+      "width": 2.5,
+      "above": true,
+      "data": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "properties": { "name": "Test box", "fill": "#FF40FF", "fill-opacity": 0.06 },
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [[[-97.85, 35.20], [-97.20, 35.20], [-97.20, 35.70], [-97.85, 35.70], [-97.85, 35.20]]]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": { "name": "Test line (I-40)", "stroke": "#40FFFF" },
+            "geometry": { "type": "LineString", "coordinates": [[-98.0, 35.43], [-97.0, 35.46]] }
+          },
+          {
+            "type": "Feature",
+            "properties": { "name": "Test point", "marker-color": "#FFFF40", "note": "Tap me" },
+            "geometry": { "type": "Point", "coordinates": [-97.52, 35.47] }
+          }
+        ]
+      }
+    }
+  ],
+  "places": [
+    {
+      "id": "spots",
+      "name": "Test places",
+      "icon": "star",
+      "color": "#FFD54F",
+      "items": [
+        { "name": "OKC downtown", "lat": 35.4676, "lon": -97.5164, "notes": "Tap to see range and beam height from the radar" },
+        { "name": "Norman", "lat": 35.2226, "lon": -97.4395 },
+        { "name": "Edmond", "lat": 35.6528, "lon": -97.4781 }
+      ]
+    }
+  ],
+  "themes": [
+    {
+      "id": "green",
+      "name": "Test green",
+      "colors": {
+        "bg1": "#0B1A10",
+        "bg2": "#12281A",
+        "line": "#1F3D29",
+        "accent": "#40E080",
+        "text": "#C8E6D0"
+      }
+    }
+  ]
+}

@@ -12,6 +12,7 @@ pub mod grib2;
 pub mod level2;
 pub mod level3;
 pub mod mrms;
+pub mod open_format;
 pub mod palette;
 pub mod process;
 pub mod render;

@@ -15,38 +15,147 @@ library;
 
 import 'package:flutter/material.dart';
 
-/// The workspace palette. One family, dark-blue-black through slate, so the
-/// chrome recedes and the radar image is the only saturated thing on screen.
+/// The colours a theme may change. Everything else in [Wx] — bar heights,
+/// hit boxes, the station-plot pair — is layout or meaning, not look, and
+/// stays put whatever theme is active.
+///
+/// The field names are the keys an addon theme uses (see docs/addons.md), so
+/// renaming one here breaks every theme file that sets it.
+class WxPalette {
+  const WxPalette({
+    required this.bg0,
+    required this.bg1,
+    required this.bg2,
+    required this.bg3,
+    required this.line,
+    required this.lineBright,
+    required this.text,
+    required this.textDim,
+    required this.textFaint,
+    required this.accent,
+    required this.warn,
+    required this.danger,
+    required this.good,
+  });
+
+  final Color bg0;
+  final Color bg1;
+  final Color bg2;
+  final Color bg3;
+  final Color line;
+  final Color lineBright;
+  final Color text;
+  final Color textDim;
+  final Color textFaint;
+  final Color accent;
+  final Color warn;
+  final Color danger;
+  final Color good;
+
+  /// The built-in look: one family, dark-blue-black through slate, so the
+  /// chrome recedes and the radar image is the only saturated thing on
+  /// screen.
+  static const standard = WxPalette(
+    bg0: Color(0xFF0D1014),
+    bg1: Color(0xFF191D23),
+    bg2: Color(0xFF232830),
+    bg3: Color(0xFF2E343E),
+    line: Color(0xFF333A44),
+    lineBright: Color(0xFF4A5462),
+    text: Color(0xFFC8CDD4),
+    textDim: Color(0xFF7C848F),
+    textFaint: Color(0xFF565D67),
+    accent: Color(0xFF3FA7E0),
+    warn: Color(0xFFE0A03F),
+    danger: Color(0xFFE05B4A),
+    good: Color(0xFF6FBF73),
+  );
+
+  /// The keys a theme file may set, in the order the docs list them.
+  static const keys = [
+    'bg0', 'bg1', 'bg2', 'bg3', 'line', 'lineBright', //
+    'text', 'textDim', 'textFaint', 'accent', 'warn', 'danger', 'good',
+  ];
+
+  /// This palette with any of [overrides] applied, by key. Unknown keys are
+  /// ignored here; the addon loader is what reports them, since it knows
+  /// which file they came from.
+  WxPalette merge(Map<String, Color> overrides) {
+    Color pick(String k, Color d) => overrides[k] ?? d;
+    return WxPalette(
+      bg0: pick('bg0', bg0),
+      bg1: pick('bg1', bg1),
+      bg2: pick('bg2', bg2),
+      bg3: pick('bg3', bg3),
+      line: pick('line', line),
+      lineBright: pick('lineBright', lineBright),
+      text: pick('text', text),
+      textDim: pick('textDim', textDim),
+      textFaint: pick('textFaint', textFaint),
+      accent: pick('accent', accent),
+      warn: pick('warn', warn),
+      danger: pick('danger', danger),
+      good: pick('good', good),
+    );
+  }
+
+  /// The selection fill: the accent, mostly transparent.
+  Color get accentFill => accent.withValues(alpha: 0.2);
+}
+
+/// Bumped whenever [Wx.apply] installs a new palette, so the app root can
+/// rebuild everything that read the old one.
+final wxPaletteGeneration = ValueNotifier<int>(0);
+
+/// The workspace palette.
+///
+/// Getters over the active [WxPalette] rather than constants, so an addon
+/// theme can change them. This is still the only place a colour is defined —
+/// a theme changes what these getters return, it does not add a second place
+/// to look.
 abstract final class Wx {
+  static WxPalette _p = WxPalette.standard;
+
+  /// The palette in use.
+  static WxPalette get palette => _p;
+
+  /// Install [p] and tell the app root to repaint. A no-op when it is
+  /// already the one in use, so re-applying on every shared notify is free.
+  static void apply(WxPalette p) {
+    if (identical(p, _p)) return;
+    _p = p;
+    wxPaletteGeneration.value++;
+  }
+
   /// Map background, and the void behind the panes.
-  static const bg0 = Color(0xFF0D1014);
+  static Color get bg0 => _p.bg0;
 
   /// Chrome strips: menu bar, product bar, status bar.
-  static const bg1 = Color(0xFF191D23);
+  static Color get bg1 => _p.bg1;
 
   /// Raised controls sitting on a strip, and menu surfaces.
-  static const bg2 = Color(0xFF232830);
+  static Color get bg2 => _p.bg2;
 
   /// Hover.
-  static const bg3 = Color(0xFF2E343E);
+  static Color get bg3 => _p.bg3;
 
   /// Hairlines between strips and between panes.
-  static const line = Color(0xFF333A44);
+  static Color get line => _p.line;
 
   /// The focused pane's border.
-  static const lineBright = Color(0xFF4A5462);
+  static Color get lineBright => _p.lineBright;
 
-  static const text = Color(0xFFC8CDD4);
-  static const textDim = Color(0xFF7C848F);
-  static const textFaint = Color(0xFF565D67);
+  static Color get text => _p.text;
+  static Color get textDim => _p.textDim;
+  static Color get textFaint => _p.textFaint;
 
   /// Selection and "this is on".
-  static const accent = Color(0xFF3FA7E0);
-  static const accentFill = Color(0x333FA7E0);
+  static Color get accent => _p.accent;
+  static Color get accentFill => _p.accentFill;
 
-  static const warn = Color(0xFFE0A03F);
-  static const danger = Color(0xFFE05B4A);
-  static const good = Color(0xFF6FBF73);
+  static Color get warn => _p.warn;
+  static Color get danger => _p.danger;
+  static Color get good => _p.good;
 
   /// Chrome strip heights. Tight on purpose — every pixel here is a pixel
   /// not showing weather.
@@ -62,14 +171,15 @@ abstract final class Wx {
   ///
   /// The same two colours the sounding screen uses for its temperature and
   /// dewpoint traces, so the pairing means one thing across the app rather
-  /// than being relearned per screen.
+  /// than being relearned per screen. Not themable for that reason: they are
+  /// data colours, not chrome.
   static const obsTemp = Color(0xFFFF5252);
   static const obsDewpoint = Color(0xFF69F0AE);
 
   /// A station that has gone quiet. Drawn dim rather than dropped — a gap in
   /// the network is information, and showing nothing looks identical to there
   /// being nothing there.
-  static const obsStale = textFaint;
+  static Color get obsStale => textFaint;
 
   /// The tap box around a station plot. Two numbers stacked need more room
   /// than a radar dot, and there are far more of them, so this is the height
@@ -87,42 +197,42 @@ abstract final class Wx {
   static const siteHit = minTouch;
   static const siteDot = 10.0;
 
-  static const label = TextStyle(
-    fontSize: 11.5,
-    height: 1.1,
-    color: text,
-    letterSpacing: 0.2,
-  );
+  static TextStyle get label => TextStyle(
+        fontSize: 11.5,
+        height: 1.1,
+        color: text,
+        letterSpacing: 0.2,
+      );
 
-  static const labelDim = TextStyle(
-    fontSize: 11.5,
-    height: 1.1,
-    color: textDim,
-    letterSpacing: 0.2,
-  );
+  static TextStyle get labelDim => TextStyle(
+        fontSize: 11.5,
+        height: 1.1,
+        color: textDim,
+        letterSpacing: 0.2,
+      );
 
   /// Numbers that update in place — timestamps, ranges, readouts. Tabular so
   /// they stop jittering as the digits change.
-  static const mono = TextStyle(
-    fontSize: 11.5,
-    height: 1.1,
-    color: text,
-    letterSpacing: 0.2,
-    fontFeatures: [FontFeature.tabularFigures()],
-  );
+  static TextStyle get mono => TextStyle(
+        fontSize: 11.5,
+        height: 1.1,
+        color: text,
+        letterSpacing: 0.2,
+        fontFeatures: [FontFeature.tabularFigures()],
+      );
 
   /// Section headings inside menus.
-  static const heading = TextStyle(
-    fontSize: 10,
-    height: 1.1,
-    color: textFaint,
-    letterSpacing: 0.9,
-    fontWeight: FontWeight.w600,
-  );
+  static TextStyle get heading => TextStyle(
+        fontSize: 10,
+        height: 1.1,
+        color: textFaint,
+        letterSpacing: 0.9,
+        fontWeight: FontWeight.w600,
+      );
 }
 
 ThemeData wxTheme() {
-  const scheme = ColorScheme.dark(
+  final scheme = ColorScheme.dark(
     primary: Wx.accent,
     secondary: Wx.accent,
     surface: Wx.bg1,
@@ -138,15 +248,15 @@ ThemeData wxTheme() {
     dividerColor: Wx.line,
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
-    textTheme: const TextTheme(
+    textTheme: TextTheme(
       bodyMedium: Wx.label,
       bodySmall: Wx.labelDim,
       labelLarge: Wx.label,
     ),
-    iconTheme: const IconThemeData(size: 16, color: Wx.text),
+    iconTheme: IconThemeData(size: 16, color: Wx.text),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 400),
-      textStyle: const TextStyle(fontSize: 11, color: Wx.text),
+      textStyle: TextStyle(fontSize: 11, color: Wx.text),
       decoration: BoxDecoration(
         color: Wx.bg2,
         border: Border.all(color: Wx.line),
@@ -156,14 +266,14 @@ ThemeData wxTheme() {
       color: Wx.bg2,
       elevation: 0,
       textStyle: Wx.label,
-      shape: const RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(
         side: BorderSide(color: Wx.line),
         borderRadius: BorderRadius.zero,
       ),
     ),
     // The sheets that survive from the old UI (alert detail, storm cells)
     // get square corners so they match the rest.
-    bottomSheetTheme: const BottomSheetThemeData(
+    bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: Wx.bg1,
       shape: RoundedRectangleBorder(
         side: BorderSide(color: Wx.line),
@@ -180,7 +290,7 @@ ThemeData wxTheme() {
       thumbColor: Wx.accent,
       overlayShape: SliderComponentShape.noOverlay,
     ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(
+    progressIndicatorTheme: ProgressIndicatorThemeData(
       color: Wx.accent,
       linearTrackColor: Colors.transparent,
     ),
@@ -221,8 +331,8 @@ class WxBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: Wx.bg1,
         border: Border(
-          top: top ? const BorderSide(color: Wx.line) : BorderSide.none,
-          bottom: bottom ? const BorderSide(color: Wx.line) : BorderSide.none,
+          top: top ? BorderSide(color: Wx.line) : BorderSide.none,
+          bottom: bottom ? BorderSide(color: Wx.line) : BorderSide.none,
         ),
       ),
       child: Row(
@@ -470,7 +580,7 @@ class _WxMenuFaceState extends State<_WxMenuFace> {
             if (widget.label != null)
               Text(widget.label!, style: Wx.label.copyWith(color: fg)),
             if (widget.caret)
-              const Icon(Icons.arrow_drop_down, size: 15, color: Wx.textDim),
+              Icon(Icons.arrow_drop_down, size: 15, color: Wx.textDim),
           ],
         ),
       ),
@@ -507,7 +617,7 @@ PopupMenuItem<T> wxMenuItem<T>({
           SizedBox(
             width: 18,
             child: checked
-                ? const Icon(Icons.check, size: 13, color: Wx.accent)
+                ? Icon(Icons.check, size: 13, color: Wx.accent)
                 : null,
           ),
         if (code != null)
@@ -540,16 +650,19 @@ class WxChip extends StatelessWidget {
   const WxChip({
     super.key,
     required this.text,
-    this.color = Wx.textDim,
+    this.color,
     this.icon,
   });
 
   final String text;
-  final Color color;
+
+  /// Defaults to [Wx.textDim] of whichever theme is active when it builds.
+  final Color? color;
   final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? Wx.textDim;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 3),
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),

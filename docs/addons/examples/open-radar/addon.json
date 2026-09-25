@@ -1,0 +1,21 @@
+{
+  "id": "example-open-radar",
+  "name": "Example open-format radar",
+  "version": "1.0",
+  "description": "A radar read from local files in the open format — no NEXRAD, no network. REF, VEL and STP have data; regenerate it with tools/open_format/radar_open.py.",
+  "sites": [
+    {
+      "id": "XOPN",
+      "name": "Open-format sample radar",
+      "state": "OK",
+      "lat": 35.45,
+      "lon": -97.35,
+      "attribution": "Synthetic sample data",
+      "open": {
+        "type": "folder",
+        "path": "data/{product}",
+        "match": "\\.json(\\.gz)?$"
+      }
+    }
+  ]
+}

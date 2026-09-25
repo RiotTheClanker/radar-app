@@ -21,10 +21,9 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../data/level2_fetcher.dart';
-import '../data/level3_fetcher.dart';
 import '../data/mrms_fetcher.dart';
 import '../data/nexrad_sites.g.dart';
+import '../data/radar_source.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
 import '../src/rust/api/radar.dart' as engine;
@@ -59,6 +58,26 @@ class PaneViewport {
     required this.zoom,
     required this.pixelWidth,
   });
+}
+
+/// The ground every frame in a loop covers between them: the union of
+/// their data extents, or null for no frames.
+///
+/// For a fixed radar every frame covers the same disk, so this is just that
+/// disk. For one that moves between scans it is the swept area, which is
+/// what the viewport render has to be allowed to reach.
+LatLngBounds? loopDataBounds(Iterable<DisplayFrame> frames) {
+  LatLngBounds? out;
+  for (final f in frames) {
+    final d = f.dataBounds;
+    out = out == null
+        ? d
+        : LatLngBounds(
+            LatLng(math.max(out.north, d.north), math.min(out.west, d.west)),
+            LatLng(math.min(out.south, d.south), math.max(out.east, d.east)),
+          );
+  }
+  return out;
 }
 
 /// Pixel box to render, in geographic coordinates.
@@ -118,6 +137,11 @@ class PaneController extends ChangeNotifier {
   int _tilt;
 
   List<DisplayFrame> _frames = [];
+
+  /// The site [_frames] were loaded from. A load that fails after a site
+  /// change must not leave the old radar's picture up under the new radar's
+  /// name — see [loadFrames].
+  String? _framesSite;
 
   /// Storm tracks. Its own overlay, drawn over whatever product is up, so it
   /// works the same on velocity or CC as on reflectivity. The cells are
@@ -242,6 +266,18 @@ class PaneController extends ChangeNotifier {
   bool get tracksOn => _tracks;
   bool get futureOn => _future;
   bool get measuringOn => _measuring;
+
+  /// Whether this pane reads open-format files — an addon site with an
+  /// `open` source, on any product but the national mosaic, which is NOAA's
+  /// whatever site is picked.
+  bool get _isOpen {
+    final s = _site;
+    return s is AddonSite && s.isOpen && !_product.isMrms;
+  }
+
+  /// The tilt as an open source's `{tilt}` names it: as numbered on the
+  /// toolbar, or none for a product without tilts.
+  int? get _openTilt => _product.hasTilts ? _tilt + 1 : null;
 
   List<DisplayFrame> get frames => List.unmodifiable(_frames);
   int get frameCountLoaded => _frames.length;
@@ -396,6 +432,20 @@ class PaneController extends ChangeNotifier {
     unawaited(loadFrames());
   }
 
+  /// Take up a new definition of the site this pane is already on.
+  ///
+  /// [selectSite] goes by id, so it would ignore this: switching an addon on
+  /// or off can swap what `KTLX` means — NOAA's bucket or someone's mirror —
+  /// without the id changing, and a pane left holding the old definition
+  /// would keep reading the old source with nothing on screen to say so.
+  void rebindSite(NexradSite s) {
+    if (identical(s, _site) || s.icao != _site.icao) return;
+    _site = s;
+    _futureFrame = null;
+    _notifyAll();
+    unawaited(loadFrames());
+  }
+
   void toggleCursor() {
     _cursor = !_cursor;
     if (!_cursor) {
@@ -491,11 +541,13 @@ class PaneController extends ChangeNotifier {
     _error = null;
     _notifyAll();
     try {
-      final frames = _product.isMrms
-          ? await _loadMrmsFrames()
-          : _product.isLevel2
-              ? await _loadLevel2Frames()
-              : await _loadLevel3Frames();
+      final frames = _isOpen
+          ? await _loadOpenFrames()
+          : _product.isMrms
+              ? await _loadMrmsFrames()
+              : _product.isLevel2
+                  ? await _loadLevel2Frames()
+                  : await _loadLevel3Frames();
       if (generation != _loadGeneration || _disposed) return;
       for (final f in frames) {
         // Warm the image cache so animation doesn't flicker.
@@ -503,6 +555,7 @@ class PaneController extends ChangeNotifier {
       }
       if (generation != _loadGeneration || _disposed) return;
       _frames = frames;
+      _framesSite = _site.icao;
       _newestKey = _pendingNewestKey;
       _loading = false;
       if (!_isolated) shared.reportFrames(paneId, frames.length);
@@ -516,6 +569,15 @@ class PaneController extends ChangeNotifier {
       if (generation != _loadGeneration || _disposed) return;
       _loading = false;
       _error = e.toString();
+      // Frames from the radar the pane was on before are not this radar's.
+      // Kept, they drew one site's weather under another's label with
+      // nothing to say so — easy to hit with an addon source that is not
+      // answering yet. Frames of the same site stay: a failed refresh
+      // should not blank a picture that is still right.
+      if (_framesSite != _site.icao) {
+        _frames = [];
+        _futureFrame = null;
+      }
       if (!_isolated) shared.reportFrames(paneId, 0);
       _notifyAll();
     }
@@ -553,6 +615,15 @@ class PaneController extends ChangeNotifier {
 
   /// The newest key available for what this pane is showing, by listing only.
   Future<String?> _latestKey() async {
+    if (_isOpen) {
+      final keys = await listSiteOpen(
+        _site as AddonSite,
+        _product.bareShort,
+        tilt: _openTilt,
+        count: 1,
+      );
+      return keys.isEmpty ? null : keys.last;
+    }
     if (_product.isMrms) {
       final keys = await listRecentMosaics(count: 1);
       return keys.isEmpty ? null : keys.last;
@@ -561,11 +632,7 @@ class PaneController extends ChangeNotifier {
       final keys = await volumeKeys(1);
       return keys.isEmpty ? null : keys.last;
     }
-    final keys = await listRecentKeys(
-      _site.shortId,
-      _product.code(_tilt),
-      count: 1,
-    );
+    final keys = await listSiteLevel3(_site, _product.code(_tilt), count: 1);
     return keys.isEmpty ? null : keys.last;
   }
 
@@ -589,8 +656,11 @@ class PaneController extends ChangeNotifier {
 
   Future<List<DisplayFrame>> _loadLevel3Frames() async {
     final productCode = _product.code(_tilt);
-    final keys = await listRecentKeys(
-      _site.shortId,
+    // Through the site's own source: NOAA's bucket for a built-in radar,
+    // wherever its addon says for one that is not.
+    final site = _site;
+    final keys = await listSiteLevel3(
+      site,
       productCode,
       count: frameCount,
       before: shared.historyTime,
@@ -600,8 +670,35 @@ class PaneController extends ChangeNotifier {
     }
     _pendingNewestKey = keys.last;
     return Future.wait(keys.map((key) async {
-      final bytes = Uint8List.fromList(await fetchObject(key));
+      final bytes = await fetchSiteLevel3(site, key);
       final frame = await renderLevel3Frame(data: bytes, imageSize: 1024);
+      return DisplayFrame(frame, MemoryImage(frame.png), bytes);
+    }));
+  }
+
+  /// Frames from an addon's open-format source: whatever someone else's
+  /// parser wrote, rendered by the engine with the app's own palettes.
+  ///
+  /// Keyed by the app's short product code — `REF`, `VEL`, `ZDR` — rather
+  /// than a NEXRAD mnemonic, since the files are not NEXRAD products and the
+  /// person naming them should not have to learn NOAA's codes to do it.
+  Future<List<DisplayFrame>> _loadOpenFrames() async {
+    final site = _site as AddonSite;
+    final keys = await listSiteOpen(
+      site,
+      _product.bareShort,
+      tilt: _openTilt,
+      count: frameCount,
+      before: shared.historyTime,
+    );
+    if (keys.isEmpty) {
+      throw Exception('no ${_product.bareShort} files from ${site.icao}\'s '
+          'open source');
+    }
+    _pendingNewestKey = keys.last;
+    return Future.wait(keys.map((key) async {
+      final bytes = await fetchSiteOpen(site, key);
+      final frame = await renderOpenFrame(data: bytes, imageSize: 1024);
       return DisplayFrame(frame, MemoryImage(frame.png), bytes);
     }));
   }
@@ -636,9 +733,10 @@ class PaneController extends ChangeNotifier {
   /// asking at the same moment issue one request.
   Future<List<String>> volumeKeys(int count) {
     final before = shared.historyTime;
+    final site = _site;
     return shared.listing(
-      'vol|${_site.icao}|$count|${before?.toIso8601String() ?? ''}',
-      () => listRecentVolumes(_site.icao, count: count, before: before),
+      'vol|${site.icao}|$count|${before?.toIso8601String() ?? ''}',
+      () => listSiteLevel2(site, count: count, before: before),
     );
   }
 
@@ -646,6 +744,7 @@ class PaneController extends ChangeNotifier {
   /// raw bytes so tilt/moment switches don't re-download.
   Future<List<DisplayFrame>> _loadLevel2Frames() async {
     final count = math.min(frameCount, 4);
+    final site = _site;
     final keys = await volumeKeys(count);
     if (keys.isEmpty) {
       throw Exception('no recent Level 2 volumes for ${_site.icao}');
@@ -655,7 +754,8 @@ class PaneController extends ChangeNotifier {
     for (final key in keys) {
       // Shared across panes: the L2 products a 2x2 compares all read the
       // same volume, so this is one download for all of them.
-      final bytes = await shared.volume(key, () => fetchVolume(key));
+      final bytes =
+          await shared.volume(key, () => fetchSiteLevel2(site, key));
       final frame = await renderLevel2Frame(
         data: bytes,
         moment: _product.l2Moment!,
@@ -679,9 +779,10 @@ class PaneController extends ChangeNotifier {
   Future<void> updateTracks() async {
     if (!_tracks || _tracksBusy) return;
     _tracksBusy = true;
+    final site = _site;
     try {
-      final keys = await listRecentKeys(
-        _site.shortId,
+      final keys = await listSiteLevel3(
+        site,
         'NST',
         count: 1,
         before: shared.historyTime,
@@ -693,7 +794,7 @@ class PaneController extends ChangeNotifier {
         }
         return;
       }
-      final bytes = Uint8List.fromList(await fetchObject(keys.last));
+      final bytes = await fetchSiteLevel3(site, keys.last);
       final tracks = await engine.stormTracks(data: bytes);
 
       // Mesocyclones ride along: same overlay, same product family, and the
@@ -702,15 +803,15 @@ class PaneController extends ChangeNotifier {
       // answer rather than a failure.
       var circs = <MesoHit>[];
       try {
-        final mdKeys = await listRecentKeys(
-          _site.shortId,
+        final mdKeys = await listSiteLevel3(
+          site,
           'NMD',
           count: 1,
           before: shared.historyTime,
         );
         if (mdKeys.isNotEmpty) {
           circs = await mesocyclones(
-            data: Uint8List.fromList(await fetchObject(mdKeys.last)),
+            data: await fetchSiteLevel3(site, mdKeys.last),
           );
         }
       } catch (_) {
@@ -737,15 +838,21 @@ class PaneController extends ChangeNotifier {
   /// Fetch the colour scale for whatever is on screen. Keyed by product plus
   /// palette generation so an imported `.pal` refreshes the key too.
   Future<void> _loadColorKey(DisplayFrame? frame) async {
-    final id = '${_product.short}|${shared.paletteGeneration}';
+    final open = _isOpen;
+    // An open file can carry its own colours, so its key is the file's —
+    // keyed on the site as well, since two addons' REF can differ.
+    final id = '${open ? '${_site.icao}|' : ''}${_product.short}'
+        '|${shared.paletteGeneration}';
     if (_keyFor == id) return;
     try {
-      final scale = await colorScale(
-        productCode: _product.isLevel2 || _product.isMrms
-            ? 0
-            : (frame?.meta.productCode ?? 0),
-        moment: _product.l2Moment ?? '',
-      );
+      final scale = open
+          ? (frame == null ? null : await openColorScale(data: frame.raw))
+          : await colorScale(
+              productCode: _product.isLevel2 || _product.isMrms
+                  ? 0
+                  : (frame?.meta.productCode ?? 0),
+              moment: _product.l2Moment ?? '',
+            );
       if (_disposed) return;
       _keyScale = scale;
       _keyFor = id;
@@ -764,7 +871,9 @@ class PaneController extends ChangeNotifier {
     final frame = _frames[shownFrame];
     final generation = ++_cursorSessionGeneration;
     try {
-      final session = _product.isLevel2
+      final session = _isOpen
+          ? await inspectOpenCustom(data: frame.raw)
+          : _product.isLevel2
           ? await inspectOpenLevel2(
               data: frame.raw,
               moment: _product.l2Moment!,
@@ -783,6 +892,7 @@ class PaneController extends ChangeNotifier {
 
       final site = await inspectSite(session: session);
       if (_disposed || _cursorSession != session) return;
+      // Empty for an open-format grid: it has no site to range from.
       _cursorSite = site.length >= 2 ? LatLng(site[0], site[1]) : null;
       _notify();
       // Keep a pinned readout current as frames advance.
@@ -898,9 +1008,13 @@ class PaneController extends ChangeNotifier {
     _loading = true;
     _notifyAll();
     try {
+      final site = _site;
       final keys = await volumeKeys(1);
-      if (keys.isEmpty) throw Exception('no volume for ${_site.icao}');
-      final bytes = await shared.volume(keys.last, () => fetchVolume(keys.last));
+      if (keys.isEmpty) throw Exception('no volume for ${site.icao}');
+      final bytes = await shared.volume(
+        keys.last,
+        () => fetchSiteLevel2(site, keys.last),
+      );
       if (_disposed) return null;
       _loading = false;
       _notifyAll();
@@ -918,7 +1032,9 @@ class PaneController extends ChangeNotifier {
     if (_frames.isEmpty || _product.isMrms) return;
     final frame = _frames[shownFrame];
     try {
-      final s = _product.isLevel2
+      final s = _isOpen
+          ? await _sampleOpen(frame.raw, p)
+          : _product.isLevel2
           ? await sampleLevel2(
               data: frame.raw,
               moment: _product.l2Moment!,
@@ -939,7 +1055,11 @@ class PaneController extends ChangeNotifier {
               : '${s.value!.toStringAsFixed(1)} ${s.unit}'.trim();
       if (_disposed) return;
       _samplePos = p;
-      _sampleText = s.distanceKm <= 0
+      // A grid has no radar to range from, so a value with no distance is
+      // still a value; only no value at no distance is "outside".
+      _sampleText = s.distanceKm <= 0 && s.value != null
+          ? valueText
+          : s.distanceKm <= 0
           ? 'outside radar coverage'
           : '$valueText  ·  ${s.distanceKm.toStringAsFixed(0)} km'
               '  ·  beam ${beamKft.toStringAsFixed(1)} kft';
@@ -953,6 +1073,20 @@ class PaneController extends ChangeNotifier {
       });
     } catch (_) {
       // Sampling is best-effort.
+    }
+  }
+
+  /// One-shot sample of an open-format file: open a session, read, close.
+  Future<SampleResult> _sampleOpen(Uint8List raw, LatLng p) async {
+    final session = await inspectOpenCustom(data: raw);
+    try {
+      return await inspectSample(
+        session: session,
+        lat: p.latitude,
+        lon: p.longitude,
+      );
+    } finally {
+      unawaited(inspectClose(session: session));
     }
   }
 
@@ -970,7 +1104,11 @@ class PaneController extends ChangeNotifier {
     var south = vp.south - dLat;
     var east = vp.east + dLon;
     var west = vp.west - dLon;
-    final d = _frames.first.dataBounds;
+    // Every frame's coverage, not the first's. The frames are rendered
+    // into one shared box, and a radar that moves between scans — a ship —
+    // covers different ground in each; clipping to the first frame's disk
+    // cut the later frames off along a straight line at its edge.
+    final d = loopDataBounds(_frames)!;
     north = math.min(north, d.north);
     south = math.max(south, d.south);
     east = math.min(east, d.east);
@@ -996,6 +1134,12 @@ class PaneController extends ChangeNotifier {
   /// Extrapolate the two most recent frames forward on-device.
   Future<void> renderFuture() async {
     if (!_future || _futureBusy) return;
+    if (_isOpen) {
+      // The nowcaster reads NEXRAD and MRMS encodings, not the open format.
+      _error = 'Future radar is not available for addon open-format data';
+      _notifyAll();
+      return;
+    }
     if (_product.isLevel2) {
       _error = 'Future radar needs a Level 3 or mosaic product';
       _notifyAll();
@@ -1169,7 +1313,17 @@ class PaneController extends ChangeNotifier {
 
     Future<MemoryImage?> renderOne(DisplayFrame f) async {
       try {
-        final r = _product.isMrms
+        final r = _isOpen
+            ? await renderOpenView(
+                data: f.raw,
+                north: box.n,
+                south: box.s,
+                east: box.e,
+                west: box.w,
+                width: box.width,
+                height: box.height,
+              )
+            : _product.isMrms
             ? await renderMrmsView(
                 data: f.raw,
                 north: box.n,

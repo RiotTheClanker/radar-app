@@ -29,9 +29,11 @@ import '../data/identity.dart';
 import '../data/locate.dart';
 import '../data/nearest_site.dart';
 import '../data/nexrad_sites.g.dart';
+import '../data/radar_source.dart';
 import '../data/sounding_fetcher.dart';
 import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
+import 'addon_ui.dart';
 import 'alert_sheets.dart';
 import 'pane_models.dart';
 import 'radar_pane.dart';
@@ -75,7 +77,18 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   @override
   void initState() {
     super.initState();
-    final start = nexradSites.firstWhere((s) => s.icao == 'KTLX');
+    // Before the first pane is built, so an addon's theme is up from the
+    // first frame and an addon that re-defines the default site is the one
+    // the panes open on.
+    try {
+      _shared.reloadAddons(dir: addonDir(), settings: addonSettingsFile());
+    } catch (_) {
+      // No writable config folder (a locked-down machine): run without
+      // addons rather than not at all.
+    }
+    _applyTheme();
+    final start = _shared.siteById('KTLX') ??
+        nexradSites.firstWhere((s) => s.icao == 'KTLX');
     _seedSites = List.filled(PaneLayout.quad.count, start);
     _seedProducts = List.of(panelPreset);
     _shared.addListener(_onShared);
@@ -92,7 +105,38 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   }
 
   void _onShared() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _applyTheme();
+    _rebindSites();
+    setState(() {});
+  }
+
+  /// The theme key last installed, so re-applying on every shared notify —
+  /// alerts, lightning, the animation clock — costs a string compare.
+  String? _themeKey = '';
+
+  void _applyTheme() {
+    final t = _shared.theme;
+    if (t?.key == _themeKey) return;
+    _themeKey = t?.key;
+    Wx.apply(t == null
+        ? WxPalette.standard
+        : WxPalette.standard.merge(t.colors));
+  }
+
+  int _sitesSeen = -1;
+
+  /// Addons switched on or off can change what a site id means. Panes on
+  /// such a site take up the new definition; a pane on a site whose addon
+  /// went away keeps what it had, since yanking it to another radar
+  /// unasked would be worse than a site that is no longer in the list.
+  void _rebindSites() {
+    if (_sitesSeen == _shared.siteGeneration) return;
+    _sitesSeen = _shared.siteGeneration;
+    for (final p in _livePanes) {
+      final s = _shared.siteById(p.site.icao);
+      if (s != null) p.rebindSite(s);
+    }
   }
 
   /// How long the first fetch waits on geolocation before giving up on it.
@@ -133,7 +177,11 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     _shared.setMyLocation(loc);
     // Probed, not just measured: the closest radar is sometimes one that
     // publishes nothing, and opening on it looks like a broken app (#37).
-    final nearest = await nearestPublishingSite(loc.latitude, loc.longitude);
+    final nearest = await nearestPublishingSite(
+      loc.latitude,
+      loc.longitude,
+      sites: _shared.radarSites,
+    );
     if (!mounted) return;
     _seedSites = List.filled(PaneLayout.quad.count, nearest);
     _lastCenter = loc;
@@ -358,7 +406,11 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     for (final p in _groupWith(focused, linked: _shared.linkViews)) {
       p.applyCamera(loc, zoom);
     }
-    final nearest = await nearestPublishingSite(loc.latitude, loc.longitude);
+    final nearest = await nearestPublishingSite(
+      loc.latitude,
+      loc.longitude,
+      sites: _shared.radarSites,
+    );
     if (!mounted) return;
     if (focused != null && nearest.icao != focused.site.icao) {
       _setSite(nearest);
@@ -445,7 +497,11 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
   Future<void> _pickSite() async {
     final chosen = await showDialog<NexradSite>(
       context: context,
-      builder: (_) => _SitePicker(current: _active?.site),
+      builder: (_) => _SitePicker(
+        current: _active?.site,
+        sites: _shared.radarSites,
+        addonNames: {for (final a in _shared.addons) a.id: a.name},
+      ),
     );
     if (chosen != null) _setSite(chosen);
   }
@@ -772,7 +828,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         ),
         if (product?.hasTilts ?? false) ...[
           const WxSep(),
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(right: 4),
             child: Text('TILT', style: Wx.heading),
           ),
@@ -791,7 +847,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         // workspace, which nothing previously said.
         if (_effective != PaneLayout.single) ...[
           const WxSep(),
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(right: 4),
             child: Text('PANE', style: Wx.heading),
           ),
@@ -836,6 +892,8 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
 
   Widget _layersMenu() {
     final beyondDefault = _shared.showOutlook ||
+        _shared.overlays.any(_shared.overlayOn) ||
+        _shared.placeGroups.any(_shared.placesOn) ||
         _shared.showReports ||
         _shared.showObs ||
         _shared.showCape ||
@@ -862,7 +920,17 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
           case 'key':
             _shared.toggleKey();
           default:
-            if (v.startsWith('lt:')) {
+            if (v.startsWith('ov:')) {
+              final key = v.substring(3);
+              for (final o in _shared.overlays) {
+                if (o.key == key) _shared.toggleOverlay(o);
+              }
+            } else if (v.startsWith('pl:')) {
+              final key = v.substring(3);
+              for (final g in _shared.placeGroups) {
+                if (g.key == key) _shared.togglePlaces(g);
+              }
+            } else if (v.startsWith('lt:')) {
               _shared.setLightning(
                 LightningSource.values.firstWhere(
                   (s) => s.name == v.substring(3),
@@ -929,6 +997,28 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
           label: "Today's storm reports",
           checked: _shared.showReports,
         ),
+        if (_shared.overlays.isNotEmpty ||
+            _shared.placeGroups.isNotEmpty) ...[
+          const PopupMenuDivider(),
+          wxMenuHeading<String>('ADDONS'),
+          for (final o in _shared.overlays)
+            wxMenuItem(
+              value: 'ov:${o.key}',
+              // Says why a layer that is on shows nothing, instead of
+              // leaving an empty map to be read as "nothing there".
+              label: _shared.overlayErrors[o.key] == null
+                  ? o.name
+                  : '${o.name} — ${_shared.overlayErrors[o.key]}',
+              color: _shared.overlayErrors[o.key] == null ? null : Wx.warn,
+              checked: _shared.overlayOn(o),
+            ),
+          for (final g in _shared.placeGroups)
+            wxMenuItem(
+              value: 'pl:${g.key}',
+              label: '${g.name} (${g.places.length})',
+              checked: _shared.placesOn(g),
+            ),
+        ],
         const PopupMenuDivider(),
         wxMenuItem(
           value: 'key',
@@ -947,6 +1037,11 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         return <File>[];
       }
     }();
+    final addonPals = [
+      for (final p in _shared.addonPalettes)
+        if (File(p).existsSync()) File(p),
+    ];
+    final theme = _shared.theme;
 
     return WxMenu<String>(
       label: _wide ? 'Tools' : null,
@@ -963,8 +1058,21 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
             _openSounding();
           case 'palette_reset':
             unawaited(_applyPalette(''));
+          case 'addons':
+            unawaited(showDialog<void>(
+              context: context,
+              builder: (_) => AddonManager(shared: _shared),
+            ));
+          case 'theme:':
+            _shared.setTheme(null);
           default:
             if (v.startsWith('pal:')) unawaited(_applyPalette(v.substring(4)));
+            if (v.startsWith('theme:')) {
+              final key = v.substring(6);
+              for (final t in _shared.themes) {
+                if (t.key == key) _shared.setTheme(t);
+              }
+            }
         }
       },
       itemBuilder: (_) => [
@@ -987,16 +1095,40 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
           showCheck: true,
           checked: false,
         ),
+        wxMenuItem(
+          value: 'addons',
+          label: _shared.addons.isEmpty
+              ? 'Addons…'
+              : 'Addons (${_shared.activeAddons.length} on)…',
+          showCheck: true,
+          checked: false,
+          color: _shared.addonErrors.isEmpty ? null : Wx.warn,
+        ),
+        if (_shared.themes.isNotEmpty) ...[
+          const PopupMenuDivider(),
+          wxMenuHeading<String>('THEME'),
+          wxMenuItem(
+            value: 'theme:',
+            label: 'Built-in',
+            checked: theme == null,
+          ),
+          for (final t in _shared.themes)
+            wxMenuItem(
+              value: 'theme:${t.key}',
+              label: t.name,
+              checked: theme?.key == t.key,
+            ),
+        ],
         const PopupMenuDivider(),
         wxMenuHeading<String>('COLOUR TABLES'),
-        for (final f in pals)
+        for (final f in [...pals, ...addonPals])
           wxMenuItem(
             value: 'pal:${f.path}',
             label: f.uri.pathSegments.last,
             showCheck: true,
             checked: false,
           ),
-        if (pals.isEmpty)
+        if (pals.isEmpty && addonPals.isEmpty)
           PopupMenuItem<String>(
             enabled: false,
             height: 34,
@@ -1093,7 +1225,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         // Says which loop the transport is driving, so a paused group and a
         // running isolated pane are not confusable.
         if (solo != null)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(left: 2),
             child: Tooltip(
               message: 'These controls are driving the isolated pane, not '
@@ -1128,6 +1260,21 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
               icon: Icons.cloud_off,
             ),
           ),
+        // The focused pane's load error. The pane header carries this once
+        // there are several panes; with one there is no header, and a radar
+        // that failed to load looked like a radar with nothing to show.
+        if (active?.error case final err?)
+          GestureDetector(
+            onTap: () => _toast(err),
+            child: Tooltip(
+              message: err,
+              child: WxChip(
+                text: 'LOAD FAILED',
+                color: Wx.warn,
+                icon: Icons.error_outline,
+              ),
+            ),
+          ),
         if (_shared.alertError != null)
           WxChip(
             text: 'ALERTS',
@@ -1146,6 +1293,9 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       child: Text(
         '${_shared.basemap.attribution} · NOAA/NWS'
         '${_shared.lightning.usesBlitzortung ? ' · lightning © Blitzortung.org' : ''}'
+        // Addon layers and radars carry their owners' credit on the same
+        // terms as the basemap: when it is on screen, so is the name.
+        '${_addonAttribution()}'
         // Everything else on this map was measured by an instrument. This one
         // was computed by a forecast model, and drawn at the same apparent
         // confidence beside live warnings it would be read as though it were
@@ -1154,9 +1304,28 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
         // claim from a fresh one.
         '${_capeLabel()}',
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 9.5, color: Wx.textFaint),
+        style: TextStyle(fontSize: 9.5, color: Wx.textFaint),
       ),
     );
+  }
+
+  /// Credit for the addon overlays switched on and the addon radars the
+  /// panes are showing, each named once.
+  String _addonAttribution() {
+    final credits = <String>{};
+    for (final o in _shared.overlays) {
+      if (o.attribution != null && _shared.overlayOn(o)) {
+        credits.add(o.attribution!);
+      }
+    }
+    for (final p in _livePanes) {
+      final s = p.site;
+      if (s is! AddonSite || p.product.isMrms) continue;
+      final src = s.isOpen ? s.open : (p.product.isLevel2 ? s.level2 : s.level3);
+      final credit = src?.attribution ?? s.attribution;
+      if (credit != null) credits.add(credit);
+    }
+    return credits.map((c) => ' · $c').join();
   }
 
   /// What the attribution line says about the CAPE layer.
@@ -1196,9 +1365,19 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
 /// else. Matching on id, name and state covers the three ways people know a
 /// radar: "KTLX", "Norman", "OK".
 class _SitePicker extends StatefulWidget {
-  const _SitePicker({this.current});
+  const _SitePicker({
+    this.current,
+    required this.sites,
+    required this.addonNames,
+  });
 
   final NexradSite? current;
+
+  /// The built-in radars and any addons have added.
+  final List<NexradSite> sites;
+
+  /// Addon id to display name, to say where an addon's radar came from.
+  final Map<String, String> addonNames;
 
   @override
   State<_SitePicker> createState() => _SitePickerState();
@@ -1211,18 +1390,22 @@ class _SitePickerState extends State<_SitePicker> {
   Widget build(BuildContext context) {
     final q = _query.trim().toLowerCase();
     final matches = [
-      for (final s in nexradSites)
+      for (final s in widget.sites)
         if (!s.isTdwr &&
             (q.isEmpty ||
                 s.icao.toLowerCase().contains(q) ||
                 s.name.toLowerCase().contains(q) ||
-                s.state.toLowerCase() == q))
+                s.state.toLowerCase() == q ||
+                (s is AddonSite &&
+                    (widget.addonNames[s.addonId] ?? s.addonId)
+                        .toLowerCase()
+                        .contains(q))))
           s,
     ];
 
     return Dialog(
       backgroundColor: Wx.bg1,
-      shape: const RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(
         side: BorderSide(color: Wx.line),
         borderRadius: BorderRadius.zero,
       ),
@@ -1237,7 +1420,7 @@ class _SitePickerState extends State<_SitePicker> {
                 autofocus: true,
                 style: Wx.label,
                 onChanged: (v) => setState(() => _query = v),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   isDense: true,
                   prefixIcon: Icon(Icons.search, size: 16),
                   prefixIconConstraints: BoxConstraints(minWidth: 32),
@@ -1261,7 +1444,7 @@ class _SitePickerState extends State<_SitePicker> {
             const Divider(height: 1),
             Expanded(
               child: matches.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text('No radar matches that.',
                           style: Wx.labelDim),
                     )
@@ -1289,11 +1472,21 @@ class _SitePickerState extends State<_SitePicker> {
                               ),
                               Expanded(
                                 child: Text(
-                                  '${s.name}, ${s.state}',
+                                  s.state.isEmpty
+                                      ? s.name
+                                      : '${s.name}, ${s.state}',
                                   overflow: TextOverflow.ellipsis,
                                   style: Wx.labelDim,
                                 ),
                               ),
+                              if (s is AddonSite)
+                                WxChip(
+                                  text: (widget.addonNames[s.addonId] ??
+                                          s.addonId)
+                                      .toUpperCase(),
+                                  color: Wx.accent,
+                                  icon: Icons.extension,
+                                ),
                             ],
                           ),
                           onTap: () => Navigator.of(context).pop(s),
