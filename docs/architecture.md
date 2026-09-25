@@ -7,6 +7,7 @@ docs go deeper on one layer each.
 - [ui-development.md](ui-development.md) — building a new UI on the Dart seams
 - [engine-api.md](engine-api.md) — the Rust engine surface and its constraints
 - [data-sources.md](data-sources.md) — every external endpoint the app hits
+- [addons.md](addons.md) — the addon format, and where the loader lives
 
 ## The shape of it
 
@@ -61,6 +62,7 @@ packaging/                .deb script and the Inno Setup installer
 branding/                 one SVG plus the generator that fans it out
 tools/                    NEXRAD site table generator, test-data fetcher
 docs/                     you are here
+  addons/examples/        example addons; a test loads every one
 ```
 
 ## The four layers, and the one-way rule

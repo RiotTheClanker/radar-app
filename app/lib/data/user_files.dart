@@ -1,4 +1,4 @@
-/// User file locations: imported `.pal` palettes and exported
+/// User file locations: imported `.pal` palettes, addons, and exported
 /// snapshots. Plain filesystem paths, no plugins, so this works the same on
 /// Linux, Windows, and (with the app's own data dir) Android.
 library;
@@ -50,6 +50,25 @@ List<File> listPalettes() {
   files.sort((a, b) => a.path.compareTo(b.path));
   return files;
 }
+
+/// `~/.config/taa-yuku-radar/addons`, created on first use with a README.
+Directory addonDir() {
+  final dir = Directory('${_home()}/.config/$appSlug/addons');
+  if (!dir.existsSync()) {
+    dir.createSync(recursive: true);
+    File('${dir.path}/README.txt').writeAsStringSync(
+      'Drop addon .json files here, or folders holding an addon.json.\n'
+      'They add radar sites, map overlays, places and themes.\n'
+      'Format: $appUrl/blob/main/docs/addons.md\n',
+    );
+  }
+  return dir;
+}
+
+/// Which addons are switched off, the theme, and layer toggles. Beside the
+/// addons folder rather than in it, so it is never mistaken for an addon.
+File addonSettingsFile() =>
+    File('${_home()}/.config/$appSlug/addon-settings.json');
 
 /// Save a PNG snapshot and return the file written.
 File saveSnapshot(Uint8List png, String label) {

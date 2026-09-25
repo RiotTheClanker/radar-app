@@ -163,6 +163,27 @@ default product — and skipped when it returns nothing, falling back to the
 geometric nearest if every probe fails. Bounded by a per-probe timeout and an
 overall budget, since a cold start must not hang on a slow bucket.
 
+## Addon sources
+
+Addons (see [addons.md](addons.md)) can add endpoints this page cannot list,
+because the user chose them: a radar site's own Level 2 or Level 3 source, a
+GeoJSON overlay URL, a tile server, or the link an addon was installed from.
+Nothing is fetched from an addon that is switched off, or from an overlay that
+is.
+
+They follow the same rules as the rest: `lib/data/radar_source.dart` returns
+bytes and decodes nothing, sends the User-Agent (under any headers the addon
+sets), time-boxes listings at 20 s and downloads at 90 s, and its Level 2
+volumes go through the same shared `VolumeCache`. What they cannot follow is
+the etiquette section's polling floors, since the cadence is the addon's.
+`refreshMinutes` is clamped to at least one.
+
+**Every radar fetch goes through `radar_source.dart`.** A built-in site is
+passed straight to the Level 2 and Level 3 fetchers above; an `AddonSite` is
+listed from its own source. A new site id with no source for a level is an
+error rather than a fall-through to NOAA, because NOAA's Level 3 keys use
+only the last three letters of the id.
+
 ## Local files
 
 Not network, but part of the data layer (`lib/data/user_files.dart`), plain
@@ -171,6 +192,8 @@ paths with no plugins so all three platforms behave the same:
 | What | Where |
 |---|---|
 | Imported `.pal` colour tables | `~/.config/taa-yuku-radar/palettes/` (app data dir on Android) |
+| Addons | `~/.config/taa-yuku-radar/addons/` |
+| Which addons are on, theme, layer toggles | `~/.config/taa-yuku-radar/addon-settings.json` |
 | PNG snapshots | `~/Pictures/taa-yuku-radar/` |
 
 ## Etiquette

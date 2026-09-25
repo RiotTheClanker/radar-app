@@ -14,19 +14,24 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../data/addons.dart';
 import '../data/alerts_fetcher.dart';
+import '../data/geojson.dart';
 import '../data/hydrometeor.dart';
 import '../data/identity.dart';
 import '../data/lightning.dart';
 import '../data/nexrad_sites.g.dart';
+import '../data/radar_source.dart';
 import '../data/surface_obs.dart';
 import '../src/rust/api/radar.dart';
+import 'addon_ui.dart';
 import 'alert_sheets.dart';
 import 'color_key.dart';
 import 'geo.dart';
@@ -157,6 +162,11 @@ class RadarPaneState extends State<RadarPane> {
   /// — and shared state notifies often enough for that to matter.
   List<Marker>? _siteMarkers;
   String? _siteMarkersFor;
+
+  /// Ceiling on GeoJSON point markers drawn per pane, after culling to the
+  /// view. Somebody's overlay can be a hundred thousand points; the map is
+  /// not the place to find that out.
+  static const _maxOverlayPoints = 1500;
 
   Timer? _viewDebounce;
 
@@ -308,6 +318,7 @@ class RadarPaneState extends State<RadarPane> {
       _c.selectSite(s, moveMap: moveMap);
   void toggleCursor() => _c.toggleCursor();
   void toggleTracks() => _c.toggleTracks();
+  void rebindSite(NexradSite s) => _c.rebindSite(s);
   void syncTo({NexradSite? site, int? tilt}) =>
       _c.syncTo(site: site, tilt: tilt);
   void toggleIsolate() => _c.toggleIsolate();
@@ -622,7 +633,7 @@ class RadarPaneState extends State<RadarPane> {
               message: 'No new scan for '
                   '${_ageLabel(dataAge ?? Duration.zero)} — the radar or the '
                   'NOAA feed is behind, not the app',
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.only(right: 5),
                 child: Icon(Icons.cloud_off, size: 12, color: Wx.danger),
               ),
@@ -630,7 +641,7 @@ class RadarPaneState extends State<RadarPane> {
           if (_c.error != null)
             Tooltip(
               message: _c.error!,
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.only(right: 5),
                 child: Icon(Icons.error_outline, size: 12, color: Wx.warn),
               ),
@@ -714,7 +725,10 @@ class RadarPaneState extends State<RadarPane> {
               // notifies, but it returns early when there are no frames, so
               // panning an empty pane would leave the old set on screen.
               // Once per settled gesture, and only when the layer is on.
-              if (mounted && widget.shared.showObs) setState(() {});
+              if (mounted &&
+                  (widget.shared.showObs || _addonLayersNeedCamera)) {
+                setState(() {});
+              }
             },
           );
         },
@@ -725,6 +739,9 @@ class RadarPaneState extends State<RadarPane> {
           urlTemplate: shared.basemap.url,
           userAgentPackageName: appId,
         ),
+        // Addon layers that asked to sit under the radar: imagery, model
+        // fields, shaded areas — things the echoes should be read on top of.
+        ..._addonLayers(shared, above: false),
         if (shared.showCape &&
             _c.capeImage != null &&
             _c.capeBounds != null)
@@ -899,7 +916,7 @@ class RadarPaneState extends State<RadarPane> {
                   point: p,
                   width: 12,
                   height: 12,
-                  child: const Icon(Icons.circle, size: 10, color: Wx.accent),
+                  child: Icon(Icons.circle, size: 10, color: Wx.accent),
                 ),
             ],
           ),
@@ -1022,6 +1039,11 @@ class RadarPaneState extends State<RadarPane> {
             ],
           ),
         ],
+        // Boundaries and roads that want to be read through the echoes, then
+        // the places, which are what someone is watching the storm *for*.
+        ..._addonLayers(shared, above: true),
+        if (shared.placeGroups.any(shared.placesOn))
+          MarkerLayer(markers: _placeMarkers(shared)),
         MarkerLayer(markers: _sites()),
         if (shared.myLocation != null)
           MarkerLayer(
@@ -1111,10 +1133,14 @@ class RadarPaneState extends State<RadarPane> {
   }
 
   List<Marker> _sites() {
+    // Keyed on the theme and the addon site list as well as the selection:
+    // either changes what the dots look like or which dots there are.
+    final key = '${_c.site.icao}|${widget.shared.siteGeneration}'
+        '|${wxPaletteGeneration.value}';
     final cached = _siteMarkers;
-    if (cached != null && _siteMarkersFor == _c.site.icao) return cached;
+    if (cached != null && _siteMarkersFor == key) return cached;
     final built = [
-      for (final s in nexradSites)
+      for (final s in widget.shared.radarSites)
         if (!s.isTdwr)
           Marker(
             point: LatLng(s.lat, s.lon),
@@ -1126,18 +1152,27 @@ class RadarPaneState extends State<RadarPane> {
               behavior: HitTestBehavior.opaque,
               onTap: () => widget.onSitePicked(s),
               child: Center(
-                child: Container(
-                  width: Wx.siteDot,
-                  height: Wx.siteDot,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    // Was white at 24% — under a translucent radar overlay,
-                    // on a dark basemap, at night, which is when this app
-                    // gets used. The dark ring is what keeps it legible on
-                    // the satellite and topographic basemaps too, where a
-                    // pale dot on pale ground would otherwise disappear.
-                    color: s.icao == _c.site.icao ? Wx.accent : Wx.text,
-                    border: Border.all(color: Wx.bg0, width: 1.5),
+                // An addon's radar is a diamond rather than a dot: its data
+                // comes from somebody other than NOAA, and that should be
+                // visible before anyone taps it.
+                child: Transform.rotate(
+                  angle: s is AddonSite ? math.pi / 4 : 0,
+                  child: Container(
+                    width: s is AddonSite ? Wx.siteDot - 1 : Wx.siteDot,
+                    height: s is AddonSite ? Wx.siteDot - 1 : Wx.siteDot,
+                    decoration: BoxDecoration(
+                      shape: s is AddonSite
+                          ? BoxShape.rectangle
+                          : BoxShape.circle,
+                      // Was white at 24% — under a translucent radar
+                      // overlay, on a dark basemap, at night, which is when
+                      // this app gets used. The dark ring is what keeps it
+                      // legible on the satellite and topographic basemaps
+                      // too, where a pale dot on pale ground would otherwise
+                      // disappear.
+                      color: s.icao == _c.site.icao ? Wx.accent : Wx.text,
+                      border: Border.all(color: Wx.bg0, width: 1.5),
+                    ),
                   ),
                 ),
               ),
@@ -1145,8 +1180,163 @@ class RadarPaneState extends State<RadarPane> {
           ),
     ];
     _siteMarkers = built;
-    _siteMarkersFor = _c.site.icao;
+    _siteMarkersFor = key;
     return built;
+  }
+
+  // ------------------------------------------------------ addon layers ----
+
+  /// Whether a settled gesture should rebuild the pane for addon layers:
+  /// point overlays and places are culled to the view, and zoom-limited
+  /// overlays come and go with the zoom.
+  bool get _addonLayersNeedCamera {
+    final sh = widget.shared;
+    return sh.placeGroups.any(sh.placesOn) ||
+        sh.overlays.any((o) =>
+            sh.overlayOn(o) &&
+            (o.minZoom != null ||
+                o.maxZoom != null ||
+                (sh.overlayShapes[o.key]?.points.isNotEmpty ?? false)));
+  }
+
+  bool _inZoom(AddonOverlay o) {
+    if (!_mapReady) return true;
+    final z = _mapController.camera.zoom;
+    return (o.minZoom == null || z >= o.minZoom!) &&
+        (o.maxZoom == null || z <= o.maxZoom!);
+  }
+
+  /// The map layers for the switched-on addon overlays on one side of the
+  /// radar, in the order the addons list them.
+  List<Widget> _addonLayers(WorkspaceState shared, {required bool above}) {
+    final out = <Widget>[];
+    for (final o in shared.overlays) {
+      if (o.aboveRadar != above || !shared.overlayOn(o) || !_inZoom(o)) {
+        continue;
+      }
+      switch (o.kind) {
+        case OverlayKind.tiles:
+          out.add(Opacity(
+            opacity: o.opacity,
+            child: TileLayer(
+              urlTemplate: o.url!,
+              userAgentPackageName: appId,
+              // Transparent where the server has nothing, rather than the
+              // grey "tile failed" square over the whole country.
+              evictErrorTileStrategy: EvictErrorTileStrategy.dispose,
+            ),
+          ));
+        case OverlayKind.geojson:
+          final shapes = shared.overlayShapes[o.key];
+          if (shapes == null) continue;
+          out.addAll(_geoLayers(o, shapes));
+      }
+    }
+    return out;
+  }
+
+  List<Widget> _geoLayers(AddonOverlay o, GeoShapes shapes) {
+    Widget faded(Widget w) =>
+        o.opacity >= 1 ? w : Opacity(opacity: o.opacity, child: w);
+    return [
+      if (shapes.polygons.isNotEmpty)
+        faded(PolygonLayer(
+          polygons: [
+            for (final p in shapes.polygons)
+              Polygon(
+                points: p.outer,
+                holePointsList: p.holes.isEmpty ? null : p.holes,
+                color: p.style.fill ?? o.fill,
+                borderColor: p.style.stroke ?? o.stroke,
+                borderStrokeWidth: p.style.width ?? o.width,
+              ),
+          ],
+        )),
+      if (shapes.lines.isNotEmpty)
+        faded(PolylineLayer(
+          polylines: [
+            for (final l in shapes.lines)
+              Polyline(
+                points: l.points,
+                color: l.style.stroke ?? o.stroke,
+                strokeWidth: l.style.width ?? o.width,
+              ),
+          ],
+        )),
+      if (shapes.points.isNotEmpty)
+        faded(MarkerLayer(markers: _geoPointMarkers(o, shapes.points))),
+    ];
+  }
+
+  List<Marker> _geoPointMarkers(AddonOverlay o, List<GeoPoint> points) {
+    final vis = _mapReady ? _mapController.camera.visibleBounds : null;
+    final out = <Marker>[];
+    for (final p in points) {
+      if (vis != null && !vis.contains(p.pos)) continue;
+      final color = p.style.stroke ?? o.stroke;
+      out.add(Marker(
+        point: p.pos,
+        width: Wx.minTouch,
+        height: Wx.minTouch,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => showFeatureDetail(context, o, p),
+          child: Center(
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color,
+                border: Border.all(color: Colors.black54),
+              ),
+            ),
+          ),
+        ),
+      ));
+      if (out.length >= _maxOverlayPoints) break;
+    }
+    return out;
+  }
+
+  /// Ground locations from every switched-on place group.
+  ///
+  /// Not cached: they are few, and culling to the view keeps a county's
+  /// worth of shelters from all being laid out at a continental zoom.
+  List<Marker> _placeMarkers(WorkspaceState shared) {
+    final vis = _mapReady ? _mapController.camera.visibleBounds : null;
+    final out = <Marker>[];
+    for (final g in shared.placeGroups) {
+      if (!shared.placesOn(g)) continue;
+      for (final p in g.places) {
+        if (vis != null && !vis.contains(p.pos)) continue;
+        out.add(Marker(
+          point: p.pos,
+          width: Wx.minTouch,
+          height: Wx.minTouch,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => showPlaceDetail(
+              context,
+              group: g,
+              place: p,
+              site: _c.site,
+              elevationDeg: _c.elevationDeg,
+            ),
+            child: Tooltip(
+              message: p.name,
+              child: Icon(
+                placeIconData(g.icon),
+                size: 18,
+                color: g.color,
+                shadows: const [Shadow(blurRadius: 3, color: Colors.black)],
+              ),
+            ),
+          ),
+        ));
+      }
+    }
+    return out;
   }
 
   /// Tool readouts, stacked at the foot of the pane. Each only appears while
@@ -1162,7 +1352,7 @@ class RadarPaneState extends State<RadarPane> {
           color: Wx.bg1.withValues(alpha: 0.92),
           child: Row(
             children: [
-              const Icon(Icons.fast_forward, size: 13, color: Wx.good),
+              Icon(Icons.fast_forward, size: 13, color: Wx.good),
               const SizedBox(width: 6),
               Text(
                 _c.futureMinutes == 0 ? 'now' : '+${_c.futureMinutes.round()} min',
@@ -1177,7 +1367,7 @@ class RadarPaneState extends State<RadarPane> {
                   onChangeEnd: (_) => _c.commitFutureMinutes(),
                 ),
               ),
-              const Text('forecast', style: Wx.labelDim),
+              Text('forecast', style: Wx.labelDim),
             ],
           ),
         ),
@@ -1295,7 +1485,7 @@ class RadarPaneState extends State<RadarPane> {
             children: [
               Text(
                 'Storm cell ${s.id}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: Wx.text,
@@ -1309,7 +1499,7 @@ class RadarPaneState extends State<RadarPane> {
                         '${s.speedKt.round()} kt'
                     : 'The NWS has no movement solution for this cell yet, '
                         'so it has no track.',
-                style: const TextStyle(
+                style: TextStyle(
                   color: Wx.text,
                   fontSize: 12.5,
                   height: 1.4,
@@ -1319,11 +1509,11 @@ class RadarPaneState extends State<RadarPane> {
               if (s.tracked && s.errorNm > 0)
                 Text(
                   'NWS forecast track error: ${s.errorNm} NM',
-                  style: const TextStyle(color: Wx.textDim, fontSize: 12.5),
+                  style: TextStyle(color: Wx.textDim, fontSize: 12.5),
                 ),
               if (s.tracked) ...[
                 const SizedBox(height: 10),
-                const Text(
+                Text(
                   'Positions are the NWS forecast, which assumes the cell '
                   'keeps its current speed and direction. Storms turn, split '
                   'and decay; treat the far end of the track as a hint.',
@@ -1366,19 +1556,19 @@ class RadarPaneState extends State<RadarPane> {
               Text(
                 'Circulation ${m.id}'
                 '${m.stormId.isEmpty ? '' : ' · storm ${m.stormId}'}',
-                style: const TextStyle(color: Wx.text, fontSize: 12.5),
+                style: TextStyle(color: Wx.text, fontSize: 12.5),
               ),
               const SizedBox(height: 4),
               Text(
                 'Peak rotational velocity ${m.maxRvKt.round()} kt'
                 '${m.msi >= 0 ? '  ·  strength index ${m.msi}' : ''}',
-                style: const TextStyle(color: Wx.text, fontSize: 12.5),
+                style: TextStyle(color: Wx.text, fontSize: 12.5),
               ),
               if (m.motion.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
                   'Motion ${m.motion} (deg/kt, as the product reports it)',
-                  style: const TextStyle(color: Wx.text, fontSize: 12.5),
+                  style: TextStyle(color: Wx.text, fontSize: 12.5),
                 ),
               ],
               const SizedBox(height: 10),
@@ -1392,7 +1582,7 @@ class RadarPaneState extends State<RadarPane> {
                         'which requires rotation to persist through depth and '
                         'between volumes. Rank 5 and above is treated as '
                         'significant.',
-                style: const TextStyle(
+                style: TextStyle(
                   color: Wx.textFaint,
                   fontSize: 11.5,
                   height: 1.35,
@@ -1449,7 +1639,7 @@ class _StationPlot extends StatelessWidget {
           fontWeight: FontWeight.w600,
           // The map underneath is arbitrary — a dark outline is what keeps
           // these legible over the satellite basemap and over the radar.
-          shadows: const [Shadow(blurRadius: 2.5, color: Wx.bg0)],
+          shadows: [Shadow(blurRadius: 2.5, color: Wx.bg0)],
         ),
       );
 }

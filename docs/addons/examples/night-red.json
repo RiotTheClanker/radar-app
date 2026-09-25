@@ -1,0 +1,28 @@
+{
+  "id": "night-red",
+  "name": "Night (red)",
+  "version": "1.0",
+  "description": "All-red chrome that keeps your night vision on a dark road.",
+  "themes": [
+    {
+      "id": "night-red",
+      "name": "Night (red)",
+      "basemap": "Dark",
+      "colors": {
+        "bg0": "#000000",
+        "bg1": "#0A0000",
+        "bg2": "#140000",
+        "bg3": "#200000",
+        "line": "#2A0000",
+        "lineBright": "#440000",
+        "text": "#E03030",
+        "textDim": "#992020",
+        "textFaint": "#601414",
+        "accent": "#FF4040",
+        "warn": "#FF6A00",
+        "danger": "#FF0000",
+        "good": "#C04040"
+      }
+    }
+  ]
+}

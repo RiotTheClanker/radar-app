@@ -1,0 +1,27 @@
+{
+  "id": "example-radar",
+  "name": "Example private radar",
+  "version": "1.0",
+  "description": "Template for a radar you host yourself. Edit the URLs before use.",
+  "sites": [
+    {
+      "id": "XEXM",
+      "name": "Example radar",
+      "state": "OK",
+      "lat": 35.40,
+      "lon": -97.60,
+      "elevFt": 1200,
+      "attribution": "Radar data © Example",
+      "level2": {
+        "type": "s3",
+        "url": "https://example-radar.s3.amazonaws.com",
+        "prefix": "{yyyy}/{MM}/{dd}/{site}/",
+        "match": "_V0[0-9]$"
+      },
+      "level3": {
+        "type": "index",
+        "url": "https://radar.example.org/l3/{site3}/{product}/"
+      }
+    }
+  ]
+}

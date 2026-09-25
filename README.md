@@ -65,6 +65,21 @@ your device.
 - `.pal` color table import
 - Four basemaps: dark, OpenStreetMap, satellite, topographic
 
+**Addons** — JSON files, no code, for the uses the app does not ship for:
+- **Radar sites** with their own data source — an S3-compatible bucket or any
+  web folder listing — for a radar nobody put on AWS, or a mirror of one that
+  is
+- **Map overlays**: GeoJSON (roads, boundaries, live positions on a refresh)
+  and tile layers, under or over the radar
+- **Places**: shelters, spotter posts, schools, from a list or a CSV — tap one
+  for its range from the radar and how high the beam is over it
+- **Themes** for the chrome, such as an all-red night-vision theme, and
+  bundled `.pal` colour tables
+
+Install from a link in Tools → Addons, or drop files in the addons folder.
+The format is in [docs/addons.md](docs/addons.md), with
+[examples](docs/addons/examples/).
+
 ## Controls
 
 **Map** — drag to pan, pinch or scroll to zoom. Long-press for a one-shot
@@ -103,7 +118,8 @@ to IP geolocation otherwise, which is city-level and on mobile data resolves
 your carrier rather than you. Nothing is asked for at startup and the app
 works fine with location refused — it just opens on the default site.
 
-**Files** — drop `.pal` color tables in `~/.config/taa-yuku-radar/palettes/`.
+**Files** — drop `.pal` color tables in `~/.config/taa-yuku-radar/palettes/`,
+and addons in `~/.config/taa-yuku-radar/addons/`.
 Snapshots are written to `~/Pictures/taa-yuku-radar/`. A palette directory
 left over from before the app was named is moved across on first run.
 
@@ -208,7 +224,8 @@ rucsoundings.noaa.gov) for radiosonde data.
 
 Every endpoint, its cadence, and its attribution terms are listed in
 [docs/data-sources.md](docs/data-sources.md). All of it is free and keyless;
-there is no server of ours anywhere in the app.
+there is no server of ours anywhere in the app. Addons can add sources of
+their own; the app fetches from those only while you have them switched on.
 
 ## Contributing
 

@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Example coverage area", "fill": "#FFD54F", "fill-opacity": 0.05 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-97.67, 35.06], [-97.14, 35.06], [-97.14, 35.46], [-97.67, 35.46], [-97.67, 35.06]]]
+      }
+    }
+  ]
+}

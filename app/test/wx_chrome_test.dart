@@ -31,7 +31,7 @@ Future<void> _pumpBar(
                     WxButton(label: '${t + 1}', dense: true),
                 ],
             trailing: trailing ??
-                const [
+                [
                   WxButton(icon: Icons.ads_click, dense: true),
                   WxButton(icon: Icons.timeline, dense: true),
                 ],
@@ -144,7 +144,7 @@ void main() {
       await _pumpBar(
         tester,
         const Size(360, 740),
-        trailing: const [WxButton(label: 'PINNED', dense: true)],
+        trailing: [WxButton(label: 'PINNED', dense: true)],
       );
 
       // Whatever the leading group does, the tools pinned to the right stay

@@ -11,6 +11,7 @@ app/lib/
   ui/workspace.dart          layout, linking, the docked toolbars
   ui/radar_pane.dart         one pane's map and chrome — widgets only
   ui/wx_theme.dart           every colour, type style and metric
+  ui/addon_ui.dart           the Addons dialog, place and feature sheets
   ui/pane_models.dart        plain data: RadarProduct, Basemap, DisplayFrame
   ui/geo.dart                distance/bearing, beam height, geodesic rings
   state/pane_controller.dart ONE PANE's state + orchestration
@@ -80,7 +81,9 @@ Anything needing a `BuildContext` or the camera:
    source is on — `lightning © Blitzortung.org`.
 2. **Dark theme is functional.** The app is used outdoors at night during
    severe weather. A light UI washes out the radar palettes and wrecks night
-   vision. `wx_theme.dart` is the only place colours are defined.
+   vision. `wx_theme.dart` is the only place colours are defined — an addon
+   theme changes the values `Wx` returns, it does not add a second place.
+   The loader lets a light theme through but warns about it.
 3. **The bars scroll, they do not wrap.** A fixed-height docked strip cannot
    wrap, and on a phone in portrait the buttons are wider than the screen —
    hence the horizontal scroll with a fade at the edge, so a clipped label
@@ -132,6 +135,21 @@ Anything needing a `BuildContext` or the camera:
     as your only source — it will be read as an observation. The attribution
     line names the model and the run whenever the layer is on, and says when
     that run has gone stale. Any future model layer inherits this.
+
+15. **Addon credit is shown on the same terms as the basemap's.** An addon
+    overlay's `attribution` is on the map whenever that overlay is, and an
+    addon radar's whenever a pane is on it. Tile servers make it a licence
+    condition, and a radar's owner is owed the same as NOAA.
+16. **An addon radar never looks like a NOAA one.** It is a diamond on the
+    map, not a dot, and carries its addon's name in the site picker. A pane
+    that fails to load a new site drops the previous site's frames rather
+    than drawing them under the new name — kept, they were one radar's
+    weather labelled as another's.
+17. **Theme colours are read through `Wx`, never cached.** `Wx.bg0` and the
+    rest are getters over the active `WxPalette`, so they cannot be `const`,
+    and anything that builds a colour into a cache (the site markers) keys
+    it on `wxPaletteGeneration`. A theme changes chrome only: radar colours
+    are data and come from the engine (invariant 7).
 
 ## Generated files — never hand-edit
 

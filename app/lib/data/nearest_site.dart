@@ -16,8 +16,8 @@ library;
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'level3_fetcher.dart';
 import 'nexrad_sites.g.dart';
+import 'radar_source.dart';
 
 /// Base reflectivity. Every operational WSR-88D publishes it, which is what
 /// makes it the right question to ask when the question is "is this radar
@@ -37,11 +37,19 @@ double _dist2(double lat1, double lon1, double lat2, double lon2) {
 ///
 /// TDWR sites are left out: their products are a later phase, and offering
 /// one as a startup default would open on a radar the app cannot draw.
-List<NexradSite> sitesByDistance(double lat, double lon) {
-  final sites = [for (final s in nexradSites) if (!s.isTdwr) s];
-  sites.sort((a, b) => _dist2(lat, lon, a.lat, a.lon)
+///
+/// [sites] is the list to choose from — the built-in one unless the caller
+/// has addon sites to include (see `mergeSites`).
+List<NexradSite> sitesByDistance(
+  double lat,
+  double lon, {
+  Iterable<NexradSite>? sites,
+}) {
+  final pool = sites ?? nexradSites;
+  final ranked = [for (final s in pool) if (!s.isTdwr) s];
+  ranked.sort((a, b) => _dist2(lat, lon, a.lat, a.lon)
       .compareTo(_dist2(lat, lon, b.lat, b.lon)));
-  return sites;
+  return ranked;
 }
 
 /// The nearest site, geometrically. What the app used to open on.
@@ -51,9 +59,12 @@ List<NexradSite> sitesByDistance(double lat, double lon) {
 NexradSite nearestSite(double lat, double lon) => sitesByDistance(lat, lon).first;
 
 /// Whether a site has published base reflectivity recently.
+///
+/// Asks wherever the site's data actually lives, so an addon site is probed
+/// at its own source rather than at NOAA's bucket under a borrowed id.
 Future<bool> _publishesLevel3(NexradSite site) async {
   try {
-    final keys = await listRecentKeys(site.shortId, _probeProduct, count: 1)
+    final keys = await listSiteLevel3(site, _probeProduct, count: 1)
         .timeout(const Duration(seconds: 6));
     return keys.isNotEmpty;
   } catch (_) {
@@ -91,8 +102,9 @@ Future<NexradSite> nearestPublishingSite(
   int maxProbes = 4,
   Duration budget = const Duration(seconds: 8),
   Future<bool> Function(NexradSite)? publishes,
+  Iterable<NexradSite>? sites,
 }) async {
-  final ranked = sitesByDistance(lat, lon);
+  final ranked = sitesByDistance(lat, lon, sites: sites);
   if (ranked.isEmpty) return nexradSites.first;
   final probe = publishes ?? _publishesLevel3;
 
