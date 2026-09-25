@@ -15,13 +15,22 @@ is data, never code — nothing in one runs.
 
 One addon can add any mix of:
 
-- **Radar sites, with their own data.** A site's Level 2 and Level 3 files
-  can come from any S3-compatible bucket (the same protocol NOAA's use, and
-  what MinIO, R2 and Wasabi answer to) or from any web folder that lists its
-  files — nginx with `autoindex on` is enough. Headers can be set for a
-  source that needs a key. An addon can also re-point an existing site, such
-  as KTLX, at a mirror. The files still have to be NEXRAD Archive II or NIDS;
-  a source changes where the data is, not what it is.
+- **Radar sites, with their own data.** A site's files can come from any
+  S3-compatible bucket (the same protocol NOAA's use, and what MinIO, R2 and
+  Wasabi answer to), from any web folder that lists its files — nginx with
+  `autoindex on` is enough — or from **a folder on your own device**, such as
+  a receiver's output directory. Headers can be set for a source that needs
+  a key. An addon can also re-point an existing site, such as KTLX, at a
+  mirror.
+- **Your own parser, for any radar format.** NEXRAD files are decoded by the
+  app. For anything else there is now an **open radar format**: a small,
+  documented JSON description of a sweep (site, radials, gates, values) or
+  of a lat/lon grid. Your converter, in any language, writes it; the app
+  draws it with its own palettes (including imported `.pal` files), colour
+  key, aiming cursor, loops and replay. A file can bring its own colour
+  scale for data no radar palette fits. A standard-library Python writer is
+  in `tools/open_format/radar_open.py`, and an example addon reads
+  synthetic sample files from a local folder with no network at all.
 - **Map overlays.** GeoJSON — from a file, a URL (optionally refreshed every
   few minutes, for live positions), or written inline — and tile layers.
   Each chooses whether it sits under the radar, like imagery, or over it,

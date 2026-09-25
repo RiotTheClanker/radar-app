@@ -297,6 +297,63 @@ pub fn rasterize_lambert_view(
     })
 }
 
+/// Render an open-format lat/lon grid of physical values into a Web Mercator
+/// view box. Like [`rasterize_lambert_view`] it samples the colour table per
+/// pixel rather than through a byte LUT, because the values are whatever the
+/// file's author measured, on whatever range, and quantising them to 256
+/// steps would be deciding their precision for them.
+#[allow(clippy::too_many_arguments)]
+pub fn rasterize_value_grid_view(
+    grid: &crate::open_format::ValueGrid,
+    table: &ColorTable,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Option<GeoImage> {
+    if north <= south || east <= west || grid.values.is_empty() {
+        return None;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let mut pixels = vec![0u8; w * h * 4];
+    let y_n = merc_y(north.to_radians());
+    let y_s = merc_y(south.to_radians());
+    let dx = (grid.east - grid.west) / grid.nx as f64;
+    let dy = (grid.north - grid.south) / grid.ny as f64;
+    for py in 0..h {
+        let ty = (py as f64 + 0.5) / h as f64;
+        let lat = inv_merc_y(y_n + (y_s - y_n) * ty).to_degrees();
+        let gy = ((grid.north - lat) / dy).floor() as i64;
+        if gy < 0 || gy >= grid.ny as i64 {
+            continue;
+        }
+        let grow = &grid.values[gy as usize * grid.nx..(gy as usize + 1) * grid.nx];
+        let row = &mut pixels[py * w * 4..(py + 1) * w * 4];
+        for px in 0..w {
+            let tx = (px as f64 + 0.5) / w as f64;
+            let lon = west + (east - west) * tx;
+            let gx = ((lon - grid.west) / dx).floor() as i64;
+            if gx < 0 || gx >= grid.nx as i64 {
+                continue;
+            }
+            let v = grow[gx as usize];
+            if v.is_nan() {
+                continue;
+            }
+            let color = table.sample(v);
+            if color[3] == 0 {
+                continue;
+            }
+            let o = px * 4;
+            row[o..o + 4].copy_from_slice(&color);
+        }
+    }
+    Some(GeoImage { width, height, pixels, north, south, east, west })
+}
+
 /// Build a 0.1°-resolution azimuth -> radial-index lookup table.
 /// Map each 0.1-degree azimuth slot to the radial that covers it.
 ///

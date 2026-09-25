@@ -226,6 +226,70 @@ void main() {
     });
   });
 
+  group('open-format and folder sources', () {
+    Addon site(String body) => parseAddon(
+      '{"id": "t", "name": "T", "sites": [{"id": "XOPN", "lat": 1, '
+      '"lon": 2, $body}]}',
+      path: '/x/t',
+      baseDir: '/x/t',
+    );
+
+    test('an open source makes the site open-format', () {
+      final a = site('"open": {"type": "folder", "path": "data/{product}"}');
+      final s = a.sites.single;
+      expect(s.isOpen, isTrue);
+      expect(s.open!.kind, SourceKind.folder);
+      expect(s.open!.url, '/x/t/data/{product}');
+      expect(a.warnings, isEmpty, reason: a.warnings.join());
+    });
+
+    test(
+      'folder paths may be absolute or under home, relative stays inside',
+      () {
+        expect(
+          site(
+            '"open": {"type": "folder", "path": "/srv/radar/{product}"}',
+          ).sites.single.open!.url,
+          '/srv/radar/{product}',
+        );
+        final home = Platform.environment['HOME'];
+        if (home != null) {
+          expect(
+            site(
+              '"open": {"type": "folder", "path": "~/radar/{product}"}',
+            ).sites.single.open!.url,
+            '$home/radar/{product}',
+          );
+        }
+        final bad = site(
+          '"open": {"type": "folder", "path": "../../{product}"}',
+        );
+        expect(bad.sites.single.open, isNull);
+        expect(bad.warnings.join(), contains('outside the addon folder'));
+      },
+    );
+
+    test('an open source without {product} is called out', () {
+      final a = site('"open": {"type": "folder", "path": "/srv/all"}');
+      expect(a.warnings.single, contains('{product}'));
+    });
+
+    test('open alongside level2/level3 wins, and says so', () {
+      final a = site(
+        '"open": {"type": "folder", "path": "/d/{product}"}, '
+        '"level2": {"url": "https://e.org/"}',
+      );
+      expect(a.sites.single.isOpen, isTrue);
+      expect(a.warnings.single, contains('ignored'));
+    });
+
+    test('a folder source with no path', () {
+      final a = site('"open": {"type": "folder"}');
+      expect(a.sites.single.open, isNull);
+      expect(a.warnings.join(), contains('"path"'));
+    });
+  });
+
   group('files stay inside the addon folder', () {
     Addon withFile(String rel) => parseAddon(
       '{"id": "t", "name": "T", "overlays": [{"id": "o", '
@@ -434,6 +498,7 @@ void main() {
         'example-spotters',
         'example-radar',
         'test-addon',
+        'example-open-radar',
       ]),
     );
     for (final a in r.addons) {

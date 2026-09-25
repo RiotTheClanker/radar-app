@@ -5,14 +5,18 @@
 /// has put on AWS — or point an existing site somewhere else, and this is
 /// the layer that decides which bucket a pane's listing and download go to.
 ///
-/// The bytes still have to be something the engine decodes: an Archive II
-/// volume for Level 2, a NIDS product for Level 3. A source changes where the
-/// file is, not what it is. Nothing here decodes, the same as every other
-/// fetcher (docs/data-sources.md).
+/// A source can be a bucket, a web listing, or a folder on this device. What
+/// the files are depends on the source's role: `level2` and `level3` sources
+/// hold NEXRAD files, which the engine's own decoders read; an `open` source
+/// holds files in the open radar format (docs/open-format.md), which is how
+/// someone with their own parser brings data the app has no decoder for.
+/// Nothing here decodes, the same as every other fetcher
+/// (docs/data-sources.md).
 library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -34,13 +38,21 @@ enum SourceKind {
   /// lowest bar there is for someone with their own data — a folder behind
   /// nginx with `autoindex on` is enough.
   listing,
+
+  /// A folder on this device: a radar receiver's output directory, a sync
+  /// folder, files a converter writes out. [DataSource.url] is then the
+  /// folder's path (a template, like a URL's), already resolved to an
+  /// absolute one by the addon loader.
+  folder,
 }
 
 /// One place a site's Level 2 or Level 3 files live.
 ///
 /// [url] and [prefix] are templates. `{site}` is the site id, `{site3}` the
 /// three-letter id NOAA's Level 3 keys use, `{product}` the Level 3 code
-/// (`N0B`, `N0G`, …), and `{yyyy}` `{MM}` `{dd}` the UTC date. A template with
+/// (`N0B`, `N0G`, …) — or for an open-format source the app's short product
+/// code (`REF`, `VEL`, `ZDR`, …) — `{tilt}` the elevation cut as numbered on
+/// the toolbar (1-4), and `{yyyy}` `{MM}` `{dd}` the UTC date. A template with
 /// a date in it is listed one day at a time, walking back up to [days] days,
 /// which is what keeps a busy bucket's listing to one day's worth of keys.
 class DataSource {
@@ -97,6 +109,7 @@ class AddonSite extends NexradSite {
     required this.addonId,
     this.level2,
     this.level3,
+    this.open,
     this.attribution,
     this.overridesBuiltIn = false,
     this.shortIdOverride,
@@ -107,6 +120,15 @@ class AddonSite extends NexradSite {
 
   final DataSource? level2;
   final DataSource? level3;
+
+  /// Open-format files, for every product this site shows. When set it is
+  /// used instead of [level2] and [level3]: the files carry their own
+  /// product, units and colours, so which NEXRAD family a product belongs to
+  /// no longer says anything about where its data is.
+  final DataSource? open;
+
+  bool get isOpen => open != null;
+
   final String? attribution;
 
   /// Whether this re-defines a site the app already knows (an addon pointing
@@ -135,7 +157,12 @@ class NoSourceException implements Exception {
   final String level;
 
   @override
-  String toString() => '${site.icao} (from addon "${site.addonId}") has no '
+  String toString() => site.isOpen
+      // An open-format site has every product it has, and no NEXRAD at all;
+      // what needs NEXRAD (3D wants a Level 2 volume) cannot be added to it.
+      ? '${site.icao} reads open-format data, which has no $level to give — '
+          '3D needs a Level 2 volume'
+      : '${site.icao} (from addon "${site.addonId}") has no '
       '$level source — pick a Level ${level == 'Level 2' ? '3' : '2'} product '
       'or add a "${level == 'Level 2' ? 'level2' : 'level3'}" source to the '
       'addon';
@@ -241,6 +268,34 @@ Future<Uint8List> fetchSiteLevel2(
   return fetchVolume(key);
 }
 
+/// Recent open-format keys for [site]'s [product] (the app's short code:
+/// `REF`, `VEL`, …) at [tilt], newest last.
+Future<List<String>> listSiteOpen(
+  AddonSite site,
+  String product, {
+  int? tilt,
+  int count = 10,
+  DateTime? before,
+  http.Client? client,
+}) =>
+    listSource(
+      site.open!,
+      site: site,
+      product: product,
+      tilt: tilt,
+      count: count,
+      before: before,
+      client: client,
+    );
+
+/// One open-format file for [site].
+Future<Uint8List> fetchSiteOpen(
+  AddonSite site,
+  String key, {
+  http.Client? client,
+}) =>
+    fetchSourceObject(site.open!, key, client: client);
+
 // ------------------------------------------------------------ sources ----
 
 /// Fill in a source template for one site, product and day.
@@ -248,13 +303,15 @@ String expandTemplate(
   String template, {
   required NexradSite site,
   String product = '',
+  int? tilt,
   DateTime? day,
 }) {
   String p(int v) => v.toString().padLeft(2, '0');
   var out = template
       .replaceAll('{site}', site.icao)
       .replaceAll('{site3}', site.shortId)
-      .replaceAll('{product}', product);
+      .replaceAll('{product}', product)
+      .replaceAll('{tilt}', '${tilt ?? 1}');
   if (day != null) {
     out = out
         .replaceAll('{yyyy}', '${day.year}')
@@ -280,6 +337,7 @@ Future<List<String>> listSource(
   DataSource src, {
   required NexradSite site,
   String product = '',
+  int? tilt,
   int count = 10,
   DateTime? before,
   http.Client? client,
@@ -292,8 +350,10 @@ Future<List<String>> listSource(
     for (var back = 0; back < days; back++) {
       final day = now.subtract(Duration(days: back));
       final entries = switch (src.kind) {
-        SourceKind.s3 => await _listS3(c, src, site, product, day),
-        SourceKind.listing => await _listIndex(c, src, site, product, day),
+        SourceKind.s3 => await _listS3(c, src, site, product, tilt, day),
+        SourceKind.listing =>
+          await _listIndex(c, src, site, product, tilt, day),
+        SourceKind.folder => await _listFolder(src, site, product, tilt, day),
       };
       found.insertAll(0, entries);
       if (_usable(found, before).length >= count) break;
@@ -338,11 +398,13 @@ Future<List<SourceEntry>> _listS3(
   DataSource src,
   NexradSite site,
   String product,
+  int? tilt,
   DateTime day,
 ) async {
-  final base = _trimSlash(expandTemplate(src.url, site: site, day: day));
-  final prefix =
-      expandTemplate(src.prefix, site: site, product: product, day: day);
+  final base =
+      _trimSlash(expandTemplate(src.url, site: site, tilt: tilt, day: day));
+  final prefix = expandTemplate(src.prefix,
+      site: site, product: product, tilt: tilt, day: day);
   final out = <SourceEntry>[];
   String? token;
   // Pages rather than one request: a prefix without a date in it can hold
@@ -382,9 +444,11 @@ Future<List<SourceEntry>> _listIndex(
   DataSource src,
   NexradSite site,
   String product,
+  int? tilt,
   DateTime day,
 ) async {
-  final url = expandTemplate(src.url, site: site, product: product, day: day);
+  final url = expandTemplate(src.url,
+      site: site, product: product, tilt: tilt, day: day);
   final resp = await c
       .get(Uri.parse(url), headers: _headersFor(src))
       .timeout(const Duration(seconds: 20));
@@ -393,6 +457,41 @@ Future<List<SourceEntry>> _listIndex(
     throw Exception('listing $url failed: HTTP ${resp.statusCode}');
   }
   return parseIndex(resp.body, Uri.parse(url), match: src.match);
+}
+
+/// The files in a local folder. A folder that does not exist (yet) is an
+/// empty listing, not an error: a receiver that has not written today's
+/// directory is a quiet radar, the same as an empty day in a bucket.
+///
+/// Time comes from the file name like every other source, falling back to
+/// the file's modified time — a local file has one, where a URL does not, so
+/// even undated names can be ordered and replayed.
+Future<List<SourceEntry>> _listFolder(
+  DataSource src,
+  NexradSite site,
+  String product,
+  int? tilt,
+  DateTime day,
+) async {
+  final path = expandTemplate(src.url,
+      site: site, product: product, tilt: tilt, day: day);
+  final dir = Directory(path);
+  if (!await dir.exists()) return const [];
+  final out = <SourceEntry>[];
+  await for (final e in dir.list(followLinks: true)) {
+    if (e is! File) continue;
+    final name = e.uri.pathSegments.last;
+    if (name.startsWith('.')) continue;
+    if (src.match != null && !src.match!.hasMatch(name)) continue;
+    DateTime? time = entryTime(name);
+    if (time == null) {
+      try {
+        time = (await e.lastModified()).toUtc();
+      } catch (_) {}
+    }
+    out.add(SourceEntry(e.path, time));
+  }
+  return out;
 }
 
 /// Read a file list in any of the shapes [SourceKind.listing] accepts.
@@ -506,6 +605,15 @@ Future<Uint8List> fetchSourceObject(
   String url, {
   http.Client? client,
 }) async {
+  if (src.kind == SourceKind.folder) {
+    // The key is the path the listing found. Checked against the folder it
+    // came from, so a key can only ever be a file this source listed.
+    final file = File(url);
+    if (!file.absolute.path.startsWith(_folderRoot(src))) {
+      throw Exception('$url is not inside the source folder');
+    }
+    return file.readAsBytes();
+  }
   final c = client ?? http.Client();
   try {
     final uri = Uri.parse(url);
@@ -537,6 +645,13 @@ Map<String, String> _headersFor(DataSource src) =>
 bool _sameHost(DataSource src, Uri uri) {
   final own = Uri.tryParse(src.url.replaceAll(RegExp(r'\{[^}]*\}'), 'x'));
   return own != null && own.host.toLowerCase() == uri.host.toLowerCase();
+}
+
+/// The fixed part of a folder template — everything before the first
+/// `{token}` — which every listed file sits under.
+String _folderRoot(DataSource src) {
+  final i = src.url.indexOf('{');
+  return File(i < 0 ? src.url : src.url.substring(0, i)).absolute.path;
 }
 
 String _trimSlash(String s) =>

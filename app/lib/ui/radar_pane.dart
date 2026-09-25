@@ -857,7 +857,9 @@ class RadarPaneState extends State<RadarPane> {
                 ),
             ],
           ),
-        if (_c.cursorOn && _c.cursorPos != null && _c.cursorSite != null) ...[
+        // The range ring and radial need a radar to measure from; an
+        // open-format grid has none, but still gets the crosshair.
+        if (_c.cursorOn && _c.cursorPos != null && _c.cursorSite != null)
           PolylineLayer(
             polylines: [
               Polyline(
@@ -878,6 +880,7 @@ class RadarPaneState extends State<RadarPane> {
               ),
             ],
           ),
+        if (_c.cursorOn && _c.cursorPos != null)
           MarkerLayer(
             markers: [
               Marker(
@@ -897,7 +900,6 @@ class RadarPaneState extends State<RadarPane> {
               ),
             ],
           ),
-        ],
         if (_c.measurePts.length == 2)
           PolylineLayer(
             polylines: [
@@ -1394,11 +1396,16 @@ class RadarPaneState extends State<RadarPane> {
           accent: Wx.warn,
           leading: _c.cursorPinned ? Icons.push_pin : Icons.ads_click,
           value: value,
-          detail: '${km.toStringAsFixed(1)} km '
-              '(${(km * 0.621371).toStringAsFixed(1)} mi)'
-              '  ·  ${brg.round()}°'
-              '  ·  ${kft.toStringAsFixed(1)} kft'
-              '  @ ${c.elevationDeg.toStringAsFixed(1)}°',
+          // An open-format grid has no radar, so no range, bearing or
+          // beam — just where the cursor is.
+          detail: site == null && c.distanceKm <= 0
+              ? '${_c.cursorPos!.latitude.toStringAsFixed(3)}, '
+                  '${_c.cursorPos!.longitude.toStringAsFixed(3)}'
+              : '${km.toStringAsFixed(1)} km '
+                  '(${(km * 0.621371).toStringAsFixed(1)} mi)'
+                  '  ·  ${brg.round()}°'
+                  '  ·  ${kft.toStringAsFixed(1)} kft'
+                  '  @ ${c.elevationDeg.toStringAsFixed(1)}°',
         ),
       );
     }

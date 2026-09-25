@@ -502,8 +502,11 @@ pub struct ColorScale {
 /// Pass `moment` for Level 2 and derived products, or leave it empty and pass
 /// the Level 3 `product_code` from the rendered frame.
 pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, String> {
-    let s = core::color_scale(product_code, moment)?;
-    Ok(ColorScale {
+    Ok(scale_out(core::color_scale(product_code, moment)?))
+}
+
+fn scale_out(s: core::ColorScale) -> ColorScale {
+    ColorScale {
         stops: s
             .stops
             .into_iter()
@@ -520,7 +523,39 @@ pub fn color_scale(product_code: i32, moment: String) -> Result<ColorScale, Stri
         rf_r: s.rf_r,
         rf_g: s.rf_g,
         rf_b: s.rf_b,
-    })
+    }
+}
+
+/// Render a file in the open radar format (docs/open-format.md) into a view
+/// box — data from someone else's parser, drawn like any other product.
+#[allow(clippy::too_many_arguments)]
+pub fn render_open_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    convert(core::render_open_view(data, north, south, east, west, width, height)?)
+}
+
+/// Render an open-format file's whole extent. `image_size` is the longer
+/// side in pixels.
+pub fn render_open_frame(data: Vec<u8>, image_size: u32) -> Result<RadarFrame, String> {
+    convert(core::render_open_frame(data, image_size)?)
+}
+
+/// Open an open-format file for cursor sampling. Returns the session handle;
+/// a grid reports no site.
+pub fn inspect_open_custom(data: Vec<u8>) -> Result<u32, String> {
+    core::inspect_open_custom(data)
+}
+
+/// The colour scale an open-format file is drawn with.
+pub fn open_color_scale(data: Vec<u8>) -> Result<ColorScale, String> {
+    Ok(scale_out(core::open_color_scale(data)?))
 }
 
 /// Give the 3D ground relief. `heights` is metres above sea level on a

@@ -1,8 +1,10 @@
 # Addons
 
 An addon is a JSON file that adds things the app does not ship for everyone:
-**radar sites** (with their own data source), **map overlays**, **ground
-locations**, **themes**, and **colour tables**. It is for the niche uses — a
+**radar sites** (with their own data source — a bucket, a web listing, or a
+folder on this device, and in NEXRAD or in [your own parser's
+output](open-format.md)), **map overlays**, **ground locations**, **themes**,
+and **colour tables**. It is for the niche uses — a
 county's roads and shelters, a university radar nobody put on AWS, a chase
 team's own tile server, a red night-vision theme.
 
@@ -106,14 +108,19 @@ link is a single file with no folder, so it has to reach everything by `url`.
 | `name`, `state`, `elevFt` | Optional; a built-in id borrows the built-in's |
 | `shortId` | The id Level 3 file names use, if it is not the last three letters of `id` |
 | `attribution` | Shown on the map while a pane is on this site |
-| `level2`, `level3` | Where the data is. See below |
+| `level2`, `level3` | Where NEXRAD data is. See below |
+| `open` | Where **open-format** data is — for data the app has no decoder for. Used for every product; `level2`/`level3` are then ignored. See [open-format.md](open-format.md) |
 
 An addon site shows on the map as a **diamond** rather than a dot, and in the
 radar picker with its addon's name, so it is always clear the data is not
 from NOAA.
 
-**The files must be a format the engine reads**: NEXRAD Archive II for Level
-2, NIDS for Level 3. A source changes where the file is, not what it is.
+**What the files are depends on the role.** A `level2` source holds NEXRAD
+Archive II, a `level3` source NIDS products — the formats the app decodes
+itself. Anything else goes through an `open` source: your own parser (in any
+language) writes the [open radar format](open-format.md), a small JSON
+description of a sweep or a grid, and the app renders it with its own
+palettes, cursor and key.
 
 **A missing level.** A site that re-defines a built-in id falls back to
 NOAA's bucket for any level it gives no source for. A *new* id does not — it
@@ -124,8 +131,9 @@ a private radar called `XTLX` would otherwise quietly be shown KTLX's data.
 
 | Field | |
 |---|---|
-| `type` | `s3` or `index` (the default) |
+| `type` | `s3`, `index` (the default), or `folder` |
 | `url` | For `s3`, the bucket's base URL. For `index`, the URL of the listing |
+| `path` | For `folder`: the folder, absolute, under `~/`, or relative to the addon's folder |
 | `prefix` | `s3` only: the key prefix to list |
 | `match` | A regular expression; only matching entries are frames |
 | `headers` | Sent with every listing and download from this source |
@@ -138,7 +146,8 @@ a private radar called `XTLX` would otherwise quietly be shown KTLX's data.
 |---|---|
 | `{site}` | the site id, `XOKC` |
 | `{site3}` | the short id, `OKC` |
-| `{product}` | the Level 3 product code: `N0B`, `N0G`, `N1B`, `NST`, … |
+| `{product}` | the Level 3 product code: `N0B`, `N0G`, `N1B`, `NST`, … For an `open` source, the app's short code instead: `REF`, `VEL`, `ZDR`, `CC`, … |
+| `{tilt}` | the tilt as numbered on the toolbar, 1–4 (`open` sources) |
 | `{yyyy}` `{MM}` `{dd}` | the UTC date |
 
 A template with a date in it is listed a day at a time, newest first. Use one
@@ -163,6 +172,13 @@ credentials in `headers`.
 - **plain text** — one name or URL per line; `#` starts a comment
 
 Relative names resolve against the listing's URL.
+
+**`folder`** lists a folder on this device — a receiver's output directory,
+a sync folder, whatever a converter writes into. The files are only ever
+read and decoded, never sent anywhere. A folder that does not exist yet is an
+empty listing rather than an error. A file whose name carries no time is
+placed by when it was written. On Android the folder has to be one the app
+can read — its own data directory is the reliable choice.
 
 ### Scan times
 

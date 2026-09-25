@@ -317,6 +317,30 @@ class _Ctx {
   }
 }
 
+extension on _Ctx {
+  /// A folder a data source reads from.
+  ///
+  /// Wider than [file]: a radar's data rarely lives inside the addon, so an
+  /// absolute path or one under `~/` is accepted as well as one relative to
+  /// the addon folder. Only read, never sent anywhere — the files go to the
+  /// decoder and nowhere else — and a relative path is still held inside the
+  /// addon folder, so a copied addon cannot quietly aim at someone's home.
+  String? folder(String raw, String what) {
+    final p = raw.replaceAll('\\', '/');
+    if (p.startsWith('~/')) {
+      final home = Platform.environment['HOME'] ??
+          Platform.environment['USERPROFILE'];
+      if (home == null) {
+        warnings.add('$what: "~" has no home folder to mean here');
+        return null;
+      }
+      return '$home/${p.substring(2)}';
+    }
+    if (p.startsWith('/') || RegExp(r'^[A-Za-z]:/').hasMatch(p)) return p;
+    return file(p, what);
+  }
+}
+
 List<T> _list<T>(
   Object? v,
   String field,
@@ -363,15 +387,26 @@ AddonSite? _site(Object? v, int i, _Ctx ctx) {
   final builtIn = nexradSites.where((s) => s.icao == id).firstOrNull;
   final l2 = _source(v['level2'], '$what level2', ctx);
   final l3 = _source(v['level3'], '$what level3', ctx);
+  final open = _source(v['open'], '$what open', ctx);
+  if (open != null && (l2 != null || l3 != null)) {
+    ctx.warnings.add('$what: has an "open" source, which is used for every '
+        'product — its level2/level3 sources are ignored');
+  }
+  if (open != null &&
+      !open.url.contains('{product}') &&
+      !open.prefix.contains('{product}')) {
+    ctx.warnings.add('$what: open source has no {product} in it, so every '
+        'product button will show the same files');
+  }
   if (l3 != null &&
       !l3.url.contains('{product}') &&
       !l3.prefix.contains('{product}')) {
     ctx.warnings.add('$what: level3 source has no {product} in it, so every '
         'Level 3 product will show the same files');
   }
-  if (builtIn == null && l2 == null && l3 == null) {
-    ctx.warnings.add('$what: a new site needs a "level2" or "level3" source '
-        '— it has nowhere to get data from');
+  if (builtIn == null && l2 == null && l3 == null && open == null) {
+    ctx.warnings.add('$what: a new site needs a "level2", "level3" or "open" '
+        'source — it has nowhere to get data from');
   }
   final shortId = _str(v['shortId']);
   return AddonSite(
@@ -385,6 +420,7 @@ AddonSite? _site(Object? v, int i, _Ctx ctx) {
     addonId: ctx.addonId,
     level2: l2,
     level3: l3,
+    open: open,
     attribution: _str(v['attribution']),
     overridesBuiltIn: builtIn != null,
     shortIdOverride: shortId,
@@ -400,16 +436,30 @@ DataSource? _source(Object? v, String what, _Ctx ctx) {
   final kind = switch (v['type']) {
     's3' => SourceKind.s3,
     'index' || null => SourceKind.listing,
+    'folder' => SourceKind.folder,
     _ => null,
   };
   if (kind == null) {
-    ctx.warnings.add('$what: "type" must be "s3" or "index"');
+    ctx.warnings.add('$what: "type" must be "s3", "index" or "folder"');
     return null;
   }
-  final url = _str(v['url']);
-  if (url == null || !(url.startsWith('https://') || url.startsWith('http://'))) {
-    ctx.warnings.add('$what: needs an http(s) "url"');
-    return null;
+  final String url;
+  if (kind == SourceKind.folder) {
+    final path = _str(v['path']);
+    if (path == null) {
+      ctx.warnings.add('$what: a folder source needs a "path"');
+      return null;
+    }
+    final resolved = ctx.folder(path, what);
+    if (resolved == null) return null;
+    url = resolved;
+  } else {
+    final u = _str(v['url']);
+    if (u == null || !(u.startsWith('https://') || u.startsWith('http://'))) {
+      ctx.warnings.add('$what: needs an http(s) "url"');
+      return null;
+    }
+    url = u;
   }
   if (url.startsWith('http://')) {
     ctx.warnings.add('$what: plain http — data and any headers travel '

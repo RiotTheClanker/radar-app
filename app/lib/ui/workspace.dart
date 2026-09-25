@@ -1321,7 +1321,7 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
     for (final p in _livePanes) {
       final s = p.site;
       if (s is! AddonSite || p.product.isMrms) continue;
-      final src = p.product.isLevel2 ? s.level2 : s.level3;
+      final src = s.isOpen ? s.open : (p.product.isLevel2 ? s.level2 : s.level3);
       final credit = src?.attribution ?? s.attribution;
       if (credit != null) credits.add(credit);
     }

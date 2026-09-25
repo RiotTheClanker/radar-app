@@ -8,6 +8,7 @@ docs go deeper on one layer each.
 - [engine-api.md](engine-api.md) — the Rust engine surface and its constraints
 - [data-sources.md](data-sources.md) — every external endpoint the app hits
 - [addons.md](addons.md) — the addon format, and where the loader lives
+- [open-format.md](open-format.md) — the file format for bringing your own parser
 
 ## The shape of it
 
@@ -51,6 +52,7 @@ app/                      the Flutter app
 rust/radar_core/          the engine crate — pure Rust, no Flutter
   src/level2/ level3/     NEXRAD decoders (hand-written; no libhdf5/eccodes)
   src/mrms.rs             MRMS GRIB2: lat/lon grid, PNG-packed
+  src/open_format.rs      the open radar format: other people's parsers' output
   src/grib2.rs            model GRIB2: Lambert Conformal, complex packing
   src/glm.rs              GOES GLM, via a hand-written HDF5 subset reader
   src/process/            derived products, HCA, nowcast, storm tracks, 3D grid
@@ -60,7 +62,8 @@ rust/radar_core/          the engine crate — pure Rust, no Flutter
   examples/bench.rs       where the time goes; run before optimising anything
 packaging/                .deb script and the Inno Setup installer
 branding/                 one SVG plus the generator that fans it out
-tools/                    NEXRAD site table generator, test-data fetcher
+tools/                    NEXRAD site table generator, test-data fetcher,
+                          open_format/radar_open.py (open-format writer)
 docs/                     you are here
   addons/examples/        example addons; a test loads every one
 ```

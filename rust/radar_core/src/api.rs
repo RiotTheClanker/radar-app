@@ -1126,9 +1126,17 @@ pub fn reset_palettes() {
 // open returns a handle and every read takes it back.
 // ---------------------------------------------------------------------------
 
-/// A decoded sweep held open for sampling, with the unit its values are in.
+/// What an inspect session holds open: a polar sweep, or an open-format
+/// grid, which has no site and no beam to report.
+enum Inspected {
+    Sweep(Sweep),
+    Grid(crate::open_format::ValueGrid),
+}
+
+/// A decoded sweep (or grid) held open for sampling, with the unit its
+/// values are in.
 struct InspectSession {
-    sweep: Sweep,
+    data: Inspected,
     unit: String,
 }
 
@@ -1141,11 +1149,15 @@ static NEXT_INSPECT: AtomicU32 = AtomicU32::new(1);
 
 /// File a decoded sweep and hand back the handle that reads it.
 fn inspect_store(sweep: Sweep, unit: String) -> u32 {
+    inspect_store_any(Inspected::Sweep(sweep), unit)
+}
+
+fn inspect_store_any(data: Inspected, unit: String) -> u32 {
     let id = NEXT_INSPECT.fetch_add(1, Ordering::Relaxed);
     INSPECT
         .lock()
         .unwrap()
-        .insert(id, InspectSession { sweep, unit });
+        .insert(id, InspectSession { data, unit });
     id
 }
 
@@ -1182,14 +1194,27 @@ pub fn inspect_open_level2(
 
 /// Sample the session at a point.
 pub fn inspect_sample(session: u32, lat: f64, lon: f64) -> Result<SampleResult, String> {
-    with_inspect(session, |s| {
-        sample_sweep(&s.sweep, s.unit.clone(), lat, lon)
+    with_inspect(session, |s| match &s.data {
+        Inspected::Sweep(sweep) => sample_sweep(sweep, s.unit.clone(), lat, lon),
+        Inspected::Grid(grid) => SampleResult {
+            value: grid.sample(lat, lon),
+            range_folded: false,
+            unit: s.unit.clone(),
+            distance_km: 0.0,
+            beam_height_m: 0.0,
+            azimuth_deg: 0.0,
+            elevation_deg: 0.0,
+        },
     })
 }
 
-/// Radar site position of the session: [lat, lon].
+/// Radar site position of the session: [lat, lon]. Empty for a grid, which
+/// was not measured from one place.
 pub fn inspect_site(session: u32) -> Result<Vec<f64>, String> {
-    with_inspect(session, |s| vec![s.sweep.site_lat, s.sweep.site_lon])
+    with_inspect(session, |s| match &s.data {
+        Inspected::Sweep(sweep) => vec![sweep.site_lat, sweep.site_lon],
+        Inspected::Grid(_) => vec![],
+    })
 }
 
 /// Drop a session and free its sweep. Closing a handle that is already gone
@@ -1202,6 +1227,111 @@ pub fn inspect_close(session: u32) {
 /// How many sessions are open. For tests — the UI has no use for it.
 pub fn inspect_open_count() -> usize {
     INSPECT.lock().unwrap().len()
+}
+
+// ---------------------------------------------------------------------------
+// The open format: data from someone else's parser, in the neutral shape
+// described in docs/open-format.md.
+// ---------------------------------------------------------------------------
+
+/// The last parsed open-format file, for the same reason as [`VOLUME_MEMO`]:
+/// every entry point parses from bytes, and a JSON sweep is not free to read.
+static OPEN_MEMO: Mutex<Option<(u64, std::sync::Arc<crate::open_format::OpenFile>)>> =
+    Mutex::new(None);
+
+fn decode_open(data: &[u8]) -> Result<std::sync::Arc<crate::open_format::OpenFile>, String> {
+    let key = field_key(data);
+    if let Some((k, f)) = OPEN_MEMO.lock().unwrap().as_ref() {
+        if *k == key {
+            return Ok(f.clone());
+        }
+    }
+    let file = std::sync::Arc::new(crate::open_format::parse(data)?);
+    *OPEN_MEMO.lock().unwrap() = Some((key, file.clone()));
+    Ok(file)
+}
+
+/// Full extent of an open-format file: the data disk for a sweep, the grid's
+/// own box for a grid.
+fn open_bounds(file: &crate::open_format::OpenFile) -> (f64, f64, f64, f64) {
+    match &file.data {
+        crate::open_format::OpenData::Polar(s) => render::sweep_bounds(s),
+        crate::open_format::OpenData::Grid(g) => (g.north, g.south, g.east, g.west),
+    }
+}
+
+/// Render an open-format file into a Web Mercator view box.
+#[allow(clippy::too_many_arguments)]
+pub fn render_open_view(
+    data: Vec<u8>,
+    north: f64,
+    south: f64,
+    east: f64,
+    west: f64,
+    width: u32,
+    height: u32,
+) -> Result<RadarFrame, String> {
+    let file = decode_open(&data)?;
+    let table = file.meta.table();
+    let (img, site_lat, site_lon, elevation) = match &file.data {
+        crate::open_format::OpenData::Polar(s) => (
+            render::rasterize_sweep_view(s, &table, north, south, east, west, width, height),
+            s.site_lat,
+            s.site_lon,
+            s.elevation_deg,
+        ),
+        crate::open_format::OpenData::Grid(g) => (
+            render::rasterize_value_grid_view(g, &table, north, south, east, west, width, height),
+            (g.north + g.south) * 0.5,
+            (g.east + g.west) * 0.5,
+            0.0,
+        ),
+    };
+    let img = img.ok_or_else(|| "empty view".to_string())?;
+    Ok(RadarFrame {
+        product_code: 0,
+        product_name: file.meta.name.clone(),
+        unit: file.meta.unit.clone(),
+        site_lat,
+        site_lon,
+        timestamp: file.meta.timestamp,
+        elevation_deg: elevation,
+        vcp: 0,
+        width: img.width,
+        height: img.height,
+        png: encode_png(img.width, img.height, &img.pixels)?,
+        north: img.north,
+        south: img.south,
+        east: img.east,
+        west: img.west,
+    })
+}
+
+/// Render an open-format file's whole extent, the counterpart of
+/// [`render_level3_frame`]. `image_size` is the longer side in pixels.
+pub fn render_open_frame(data: Vec<u8>, image_size: u32) -> Result<RadarFrame, String> {
+    let file = decode_open(&data)?;
+    let (n, s, e, w) = open_bounds(&file);
+    render_open_view(data, n, s, e, w, image_size, image_size)
+}
+
+/// Open an open-format file for the aiming cursor. Returns a session handle,
+/// read back with [`inspect_sample`] and [`inspect_site`] like any other.
+pub fn inspect_open_custom(data: Vec<u8>) -> Result<u32, String> {
+    let file = decode_open(&data)?;
+    let unit = file.meta.unit.clone();
+    Ok(match &file.data {
+        crate::open_format::OpenData::Polar(s) => inspect_store(s.clone(), unit),
+        crate::open_format::OpenData::Grid(g) => inspect_store_any(Inspected::Grid(g.clone()), unit),
+    })
+}
+
+/// The colour scale an open-format file is drawn with: its own `colors` if
+/// it brought some, otherwise its product's palette (which a user's `.pal`
+/// can replace) — the key always matches the map.
+pub fn open_color_scale(data: Vec<u8>) -> Result<ColorScale, String> {
+    let file = decode_open(&data)?;
+    Ok(scale_from(file.meta.table(), file.meta.unit.clone()))
 }
 
 /// One breakpoint of a product's color scale.

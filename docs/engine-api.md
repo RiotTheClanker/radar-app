@@ -66,6 +66,8 @@ map, not a substitute for reading them.
 | `render_level3_view` / `render_level2_view` | **Viewport-matched**: pass the visible bounds and pixel size, get exactly those pixels. This is what keeps the map sharp at any zoom — prefer these |
 | `render_mrms_view` | The national mosaic, from gzipped GRIB2 |
 | `render_cape_view` | An HRRR model field on a Lambert Conformal grid. The frame's `timestamp` is the **model run time**, not the fetch time |
+| `render_open_view` / `render_open_frame` | A file in the [open radar format](open-format.md) — polar or grid, from someone else's parser. Polar files become an ordinary `Sweep` and render exactly like NEXRAD |
+| `open_color_scale` | The key for an open-format file: its own `colors`, or its product's palette |
 | `level2_cuts` | Elevation angles available for a moment |
 
 **Read a value**
@@ -73,6 +75,7 @@ map, not a substitute for reading them.
 |---|---|
 | `sample_level3` / `sample_level2` | One-shot: decode, sample a point, throw away |
 | `inspect_open_level3` / `inspect_open_level2` | Open a session, keeping the decoded sweep. Returns a handle |
+| `inspect_open_custom` | The same for an open-format file. A grid session has no site: `inspect_site` returns an empty list and samples carry no range or beam |
 | `inspect_sample` / `inspect_site` | Repeated cheap lookups against the handle |
 | `inspect_close` | Free a session. A no-op on an unknown handle |
 

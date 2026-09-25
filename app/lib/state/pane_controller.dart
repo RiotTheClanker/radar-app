@@ -247,6 +247,18 @@ class PaneController extends ChangeNotifier {
   bool get futureOn => _future;
   bool get measuringOn => _measuring;
 
+  /// Whether this pane reads open-format files — an addon site with an
+  /// `open` source, on any product but the national mosaic, which is NOAA's
+  /// whatever site is picked.
+  bool get _isOpen {
+    final s = _site;
+    return s is AddonSite && s.isOpen && !_product.isMrms;
+  }
+
+  /// The tilt as an open source's `{tilt}` names it: as numbered on the
+  /// toolbar, or none for a product without tilts.
+  int? get _openTilt => _product.hasTilts ? _tilt + 1 : null;
+
   List<DisplayFrame> get frames => List.unmodifiable(_frames);
   int get frameCountLoaded => _frames.length;
 
@@ -509,11 +521,13 @@ class PaneController extends ChangeNotifier {
     _error = null;
     _notifyAll();
     try {
-      final frames = _product.isMrms
-          ? await _loadMrmsFrames()
-          : _product.isLevel2
-              ? await _loadLevel2Frames()
-              : await _loadLevel3Frames();
+      final frames = _isOpen
+          ? await _loadOpenFrames()
+          : _product.isMrms
+              ? await _loadMrmsFrames()
+              : _product.isLevel2
+                  ? await _loadLevel2Frames()
+                  : await _loadLevel3Frames();
       if (generation != _loadGeneration || _disposed) return;
       for (final f in frames) {
         // Warm the image cache so animation doesn't flicker.
@@ -581,6 +595,15 @@ class PaneController extends ChangeNotifier {
 
   /// The newest key available for what this pane is showing, by listing only.
   Future<String?> _latestKey() async {
+    if (_isOpen) {
+      final keys = await listSiteOpen(
+        _site as AddonSite,
+        _product.bareShort,
+        tilt: _openTilt,
+        count: 1,
+      );
+      return keys.isEmpty ? null : keys.last;
+    }
     if (_product.isMrms) {
       final keys = await listRecentMosaics(count: 1);
       return keys.isEmpty ? null : keys.last;
@@ -629,6 +652,33 @@ class PaneController extends ChangeNotifier {
     return Future.wait(keys.map((key) async {
       final bytes = await fetchSiteLevel3(site, key);
       final frame = await renderLevel3Frame(data: bytes, imageSize: 1024);
+      return DisplayFrame(frame, MemoryImage(frame.png), bytes);
+    }));
+  }
+
+  /// Frames from an addon's open-format source: whatever someone else's
+  /// parser wrote, rendered by the engine with the app's own palettes.
+  ///
+  /// Keyed by the app's short product code — `REF`, `VEL`, `ZDR` — rather
+  /// than a NEXRAD mnemonic, since the files are not NEXRAD products and the
+  /// person naming them should not have to learn NOAA's codes to do it.
+  Future<List<DisplayFrame>> _loadOpenFrames() async {
+    final site = _site as AddonSite;
+    final keys = await listSiteOpen(
+      site,
+      _product.bareShort,
+      tilt: _openTilt,
+      count: frameCount,
+      before: shared.historyTime,
+    );
+    if (keys.isEmpty) {
+      throw Exception('no ${_product.bareShort} files from ${site.icao}\'s '
+          'open source');
+    }
+    _pendingNewestKey = keys.last;
+    return Future.wait(keys.map((key) async {
+      final bytes = await fetchSiteOpen(site, key);
+      final frame = await renderOpenFrame(data: bytes, imageSize: 1024);
       return DisplayFrame(frame, MemoryImage(frame.png), bytes);
     }));
   }
@@ -768,15 +818,21 @@ class PaneController extends ChangeNotifier {
   /// Fetch the colour scale for whatever is on screen. Keyed by product plus
   /// palette generation so an imported `.pal` refreshes the key too.
   Future<void> _loadColorKey(DisplayFrame? frame) async {
-    final id = '${_product.short}|${shared.paletteGeneration}';
+    final open = _isOpen;
+    // An open file can carry its own colours, so its key is the file's —
+    // keyed on the site as well, since two addons' REF can differ.
+    final id = '${open ? '${_site.icao}|' : ''}${_product.short}'
+        '|${shared.paletteGeneration}';
     if (_keyFor == id) return;
     try {
-      final scale = await colorScale(
-        productCode: _product.isLevel2 || _product.isMrms
-            ? 0
-            : (frame?.meta.productCode ?? 0),
-        moment: _product.l2Moment ?? '',
-      );
+      final scale = open
+          ? (frame == null ? null : await openColorScale(data: frame.raw))
+          : await colorScale(
+              productCode: _product.isLevel2 || _product.isMrms
+                  ? 0
+                  : (frame?.meta.productCode ?? 0),
+              moment: _product.l2Moment ?? '',
+            );
       if (_disposed) return;
       _keyScale = scale;
       _keyFor = id;
@@ -795,7 +851,9 @@ class PaneController extends ChangeNotifier {
     final frame = _frames[shownFrame];
     final generation = ++_cursorSessionGeneration;
     try {
-      final session = _product.isLevel2
+      final session = _isOpen
+          ? await inspectOpenCustom(data: frame.raw)
+          : _product.isLevel2
           ? await inspectOpenLevel2(
               data: frame.raw,
               moment: _product.l2Moment!,
@@ -814,6 +872,7 @@ class PaneController extends ChangeNotifier {
 
       final site = await inspectSite(session: session);
       if (_disposed || _cursorSession != session) return;
+      // Empty for an open-format grid: it has no site to range from.
       _cursorSite = site.length >= 2 ? LatLng(site[0], site[1]) : null;
       _notify();
       // Keep a pinned readout current as frames advance.
@@ -953,7 +1012,9 @@ class PaneController extends ChangeNotifier {
     if (_frames.isEmpty || _product.isMrms) return;
     final frame = _frames[shownFrame];
     try {
-      final s = _product.isLevel2
+      final s = _isOpen
+          ? await _sampleOpen(frame.raw, p)
+          : _product.isLevel2
           ? await sampleLevel2(
               data: frame.raw,
               moment: _product.l2Moment!,
@@ -974,7 +1035,11 @@ class PaneController extends ChangeNotifier {
               : '${s.value!.toStringAsFixed(1)} ${s.unit}'.trim();
       if (_disposed) return;
       _samplePos = p;
-      _sampleText = s.distanceKm <= 0
+      // A grid has no radar to range from, so a value with no distance is
+      // still a value; only no value at no distance is "outside".
+      _sampleText = s.distanceKm <= 0 && s.value != null
+          ? valueText
+          : s.distanceKm <= 0
           ? 'outside radar coverage'
           : '$valueText  ·  ${s.distanceKm.toStringAsFixed(0)} km'
               '  ·  beam ${beamKft.toStringAsFixed(1)} kft';
@@ -988,6 +1053,20 @@ class PaneController extends ChangeNotifier {
       });
     } catch (_) {
       // Sampling is best-effort.
+    }
+  }
+
+  /// One-shot sample of an open-format file: open a session, read, close.
+  Future<SampleResult> _sampleOpen(Uint8List raw, LatLng p) async {
+    final session = await inspectOpenCustom(data: raw);
+    try {
+      return await inspectSample(
+        session: session,
+        lat: p.latitude,
+        lon: p.longitude,
+      );
+    } finally {
+      unawaited(inspectClose(session: session));
     }
   }
 
@@ -1031,6 +1110,12 @@ class PaneController extends ChangeNotifier {
   /// Extrapolate the two most recent frames forward on-device.
   Future<void> renderFuture() async {
     if (!_future || _futureBusy) return;
+    if (_isOpen) {
+      // The nowcaster reads NEXRAD and MRMS encodings, not the open format.
+      _error = 'Future radar is not available for addon open-format data';
+      _notifyAll();
+      return;
+    }
     if (_product.isLevel2) {
       _error = 'Future radar needs a Level 3 or mosaic product';
       _notifyAll();
@@ -1204,7 +1289,17 @@ class PaneController extends ChangeNotifier {
 
     Future<MemoryImage?> renderOne(DisplayFrame f) async {
       try {
-        final r = _product.isMrms
+        final r = _isOpen
+            ? await renderOpenView(
+                data: f.raw,
+                north: box.n,
+                south: box.s,
+                east: box.e,
+                west: box.w,
+                width: box.width,
+                height: box.height,
+              )
+            : _product.isMrms
             ? await renderMrmsView(
                 data: f.raw,
                 north: box.n,
