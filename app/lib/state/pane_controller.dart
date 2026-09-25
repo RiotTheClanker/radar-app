@@ -60,6 +60,26 @@ class PaneViewport {
   });
 }
 
+/// The ground every frame in a loop covers between them: the union of
+/// their data extents, or null for no frames.
+///
+/// For a fixed radar every frame covers the same disk, so this is just that
+/// disk. For one that moves between scans it is the swept area, which is
+/// what the viewport render has to be allowed to reach.
+LatLngBounds? loopDataBounds(Iterable<DisplayFrame> frames) {
+  LatLngBounds? out;
+  for (final f in frames) {
+    final d = f.dataBounds;
+    out = out == null
+        ? d
+        : LatLngBounds(
+            LatLng(math.max(out.north, d.north), math.min(out.west, d.west)),
+            LatLng(math.min(out.south, d.south), math.max(out.east, d.east)),
+          );
+  }
+  return out;
+}
+
 /// Pixel box to render, in geographic coordinates.
 typedef ViewBox = ({
   double n,
@@ -1084,7 +1104,11 @@ class PaneController extends ChangeNotifier {
     var south = vp.south - dLat;
     var east = vp.east + dLon;
     var west = vp.west - dLon;
-    final d = _frames.first.dataBounds;
+    // Every frame's coverage, not the first's. The frames are rendered
+    // into one shared box, and a radar that moves between scans — a ship —
+    // covers different ground in each; clipping to the first frame's disk
+    // cut the later frames off along a straight line at its edge.
+    final d = loopDataBounds(_frames)!;
     north = math.min(north, d.north);
     south = math.max(south, d.south);
     east = math.min(east, d.east);
