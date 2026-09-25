@@ -6,6 +6,7 @@ install one from its raw GitHub link. The format is in
 
 | Example | Shows |
 |---|---|
+| [test-addon.json](test-addon.json) | One of everything in a single file, to check addons work: a radar reading KTLX's live data through the custom-source path (drawn as a diamond east of OKC), an inline GeoJSON overlay, places and a theme |
 | [night-red.json](night-red.json) | A theme on its own |
 | [spotter-pack/](spotter-pack/) | A folder addon: places from inline items and a CSV, a GeoJSON area, an optional tile layer |
 | [custom-radar.json](custom-radar.json) | A radar site with its own Level 2 (S3) and Level 3 (web index) sources — a template, the URLs are placeholders |

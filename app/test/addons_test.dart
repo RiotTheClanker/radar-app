@@ -121,29 +121,35 @@ void main() {
       expect(() => parseAddon('{nope', path: 'p'), throwsFormatException);
     });
     test('no id', () {
-      expect(() => parseAddon('{"name": "x"}', path: 'p'),
-          throwsFormatException);
+      expect(
+        () => parseAddon('{"name": "x"}', path: 'p'),
+        throwsFormatException,
+      );
     });
     test('an id with a path in it', () {
-      expect(() => parseAddon('{"id": "../x", "name": "x"}', path: 'p'),
-          throwsFormatException);
+      expect(
+        () => parseAddon('{"id": "../x", "name": "x"}', path: 'p'),
+        throwsFormatException,
+      );
     });
     test('no name', () {
-      expect(() => parseAddon('{"id": "x"}', path: 'p'),
-          throwsFormatException);
+      expect(() => parseAddon('{"id": "x"}', path: 'p'), throwsFormatException);
     });
   });
 
   group('skipped with a warning, the rest kept', () {
     Addon parse(String body) => parseAddon(
-        '{"id": "t", "name": "T", $body}',
-        path: '/x/t.json',
-        baseDir: '/x');
+      '{"id": "t", "name": "T", $body}',
+      path: '/x/t.json',
+      baseDir: '/x',
+    );
 
     test('a site with no position', () {
-      final a = parse('"sites": [{"id": "XAAA"}, '
-          '{"id": "XBBB", "lat": 1, "lon": 2, '
-          '"level2": {"url": "https://e.org/"}}]');
+      final a = parse(
+        '"sites": [{"id": "XAAA"}, '
+        '{"id": "XBBB", "lat": 1, "lon": 2, '
+        '"level2": {"url": "https://e.org/"}}]',
+      );
       expect(a.sites.map((s) => s.icao), ['XBBB']);
       expect(a.warnings.single, contains('XAAA'));
     });
@@ -155,34 +161,44 @@ void main() {
     });
 
     test('a level3 source that ignores the product', () {
-      final a = parse('"sites": [{"id": "XAAA", "lat": 1, "lon": 2, '
-          '"level3": {"url": "https://e.org/all/"}}]');
+      final a = parse(
+        '"sites": [{"id": "XAAA", "lat": 1, "lon": 2, '
+        '"level3": {"url": "https://e.org/all/"}}]',
+      );
       expect(a.warnings.single, contains('{product}'));
     });
 
     test('a bad regex drops that source', () {
-      final a = parse('"sites": [{"id": "XAAA", "lat": 1, "lon": 2, '
-          '"level2": {"url": "https://e.org/", "match": "("}}]');
+      final a = parse(
+        '"sites": [{"id": "XAAA", "lat": 1, "lon": 2, '
+        '"level2": {"url": "https://e.org/", "match": "("}}]',
+      );
       expect(a.sites.single.level2, isNull);
       expect(a.warnings.join(), contains('regular expression'));
     });
 
     test('an overlay of an unknown type', () {
-      final a = parse('"overlays": [{"id": "x", "type": "kml", '
-          '"url": "https://e.org/x.kml"}]');
+      final a = parse(
+        '"overlays": [{"id": "x", "type": "kml", '
+        '"url": "https://e.org/x.kml"}]',
+      );
       expect(a.overlays, isEmpty);
       expect(a.warnings.single, contains('"tiles" or "geojson"'));
     });
 
     test('a tile layer with no {z}', () {
-      final a = parse('"overlays": [{"id": "x", "type": "tiles", '
-          '"url": "https://e.org/tile.png"}]');
+      final a = parse(
+        '"overlays": [{"id": "x", "type": "tiles", '
+        '"url": "https://e.org/tile.png"}]',
+      );
       expect(a.overlays, isEmpty);
     });
 
     test('an unknown icon falls back to a pin', () {
-      final a = parse('"places": [{"icon": "unicorn", '
-          '"items": [{"lat": 1, "lon": 2}]}]');
+      final a = parse(
+        '"places": [{"icon": "unicorn", '
+        '"items": [{"lat": 1, "lon": 2}]}]',
+      );
       expect(a.places.single.icon, 'pin');
       expect(a.warnings.single, contains('unicorn'));
     });
@@ -212,17 +228,21 @@ void main() {
 
   group('files stay inside the addon folder', () {
     Addon withFile(String rel) => parseAddon(
-          '{"id": "t", "name": "T", "overlays": [{"id": "o", '
-          '"type": "geojson", "file": "$rel"}]}',
-          path: '/x/t',
-          baseDir: '/x/t',
-        );
+      '{"id": "t", "name": "T", "overlays": [{"id": "o", '
+      '"type": "geojson", "file": "$rel"}]}',
+      path: '/x/t',
+      baseDir: '/x/t',
+    );
 
     test('a relative file resolves into the folder', () {
-      expect(withFile('roads.geojson').overlays.single.file,
-          '/x/t/roads.geojson');
-      expect(withFile('data/roads.geojson').overlays.single.file,
-          '/x/t/data/roads.geojson');
+      expect(
+        withFile('roads.geojson').overlays.single.file,
+        '/x/t/roads.geojson',
+      );
+      expect(
+        withFile('data/roads.geojson').overlays.single.file,
+        '/x/t/data/roads.geojson',
+      );
     });
 
     for (final bad in [
@@ -251,7 +271,9 @@ void main() {
 
   group('places from files', () {
     test('CSV without a header', () {
-      final p = parsePlacesCsv('Home,35.1,-97.2\n"Smith, J.",35.2,-97.3,"a ""b"""');
+      final p = parsePlacesCsv(
+        'Home,35.1,-97.2\n"Smith, J.",35.2,-97.3,"a ""b"""',
+      );
       expect(p.map((x) => x.name), ['Home', 'Smith, J.']);
       expect(p.last.notes, 'a "b"');
       expect(p.first.pos.latitude, 35.1);
@@ -259,8 +281,9 @@ void main() {
 
     test('CSV with a header in its own order', () {
       final p = parsePlacesCsv(
-          'Longitude,Latitude,Title,Description\n-97.2,35.1,Home,Front door\n'
-          'bad,row,,\n');
+        'Longitude,Latitude,Title,Description\n-97.2,35.1,Home,Front door\n'
+        'bad,row,,\n',
+      );
       expect(p, hasLength(1));
       expect(p.single.name, 'Home');
       expect(p.single.notes, 'Front door');
@@ -268,9 +291,11 @@ void main() {
     });
 
     test('GeoJSON points', () {
-      final p = placesFromGeoJson('{"type": "FeatureCollection", "features": ['
-          '{"type": "Feature", "properties": {"name": "A", "description": "d"},'
-          ' "geometry": {"type": "Point", "coordinates": [-97, 35]}}]}');
+      final p = placesFromGeoJson(
+        '{"type": "FeatureCollection", "features": ['
+        '{"type": "Feature", "properties": {"name": "A", "description": "d"},'
+        ' "geometry": {"type": "Point", "coordinates": [-97, 35]}}]}',
+      );
       expect(p.single.name, 'A');
       expect(p.single.notes, 'd');
       expect(p.single.pos.latitude, 35);
@@ -283,26 +308,39 @@ void main() {
     tearDown(() => dir.deleteSync(recursive: true));
 
     test('reads single files and folders, and reports the rest', () {
-      File('${dir.path}/b.json')
-          .writeAsStringSync('{"id": "b", "name": "Bravo"}');
+      File(
+        '${dir.path}/b.json',
+      ).writeAsStringSync('{"id": "b", "name": "Bravo"}');
       final folder = Directory('${dir.path}/alpha')..createSync();
       File('${folder.path}/addon.json').writeAsStringSync(
-          '{"id": "a", "name": "Alpha", "places": [{"file": "p.csv"}]}');
+        '{"id": "a", "name": "Alpha", "places": [{"file": "p.csv"}]}',
+      );
       File('${folder.path}/p.csv').writeAsStringSync('X,1,2\n');
       File('${dir.path}/broken.json').writeAsStringSync('{');
-      File('${dir.path}/dupe.json')
-          .writeAsStringSync('{"id": "b", "name": "Again"}');
+      File(
+        '${dir.path}/dupe.json',
+      ).writeAsStringSync('{"id": "b", "name": "Again"}');
       File('${dir.path}/README.txt').writeAsStringSync('hi');
 
       final r = loadAddons(dir);
-      expect(r.addons.map((a) => a.name), ['Alpha', 'Bravo'],
-          reason: 'sorted by name');
-      expect(r.addons.first.places.single.places.single.name, 'X',
-          reason: 'files resolve inside the folder');
-      expect(r.addons.first.path, folder.path,
-          reason: 'removing a folder addon removes the folder');
-      expect(r.errors.keys.map((k) => k.split('/').last),
-          unorderedEquals(['broken.json', 'dupe.json']));
+      expect(r.addons.map((a) => a.name), [
+        'Alpha',
+        'Bravo',
+      ], reason: 'sorted by name');
+      expect(
+        r.addons.first.places.single.places.single.name,
+        'X',
+        reason: 'files resolve inside the folder',
+      );
+      expect(
+        r.addons.first.path,
+        folder.path,
+        reason: 'removing a folder addon removes the folder',
+      );
+      expect(
+        r.errors.keys.map((k) => k.split('/').last),
+        unorderedEquals(['broken.json', 'dupe.json']),
+      );
     });
 
     test('a missing folder is no addons, not an error', () {
@@ -311,12 +349,15 @@ void main() {
       expect(r.errors, isEmpty);
     });
 
-    test('installing from a link validates, then saves as <id>.json',
-        () async {
-      final client = MockClient((req) async =>
-          http.Response('{"id": "web", "name": "Web pack"}', 200));
+    test('installing from a link validates, then saves as <id>.json', () async {
+      final client = MockClient(
+        (req) async => http.Response('{"id": "web", "name": "Web pack"}', 200),
+      );
       final a = await installAddonFromUrl(
-          'https://e.org/pack.json', dir, client: client);
+        'https://e.org/pack.json',
+        dir,
+        client: client,
+      );
       expect(a.id, 'web');
       expect(File('${dir.path}/web.json').existsSync(), isTrue);
       expect(loadAddons(dir).addons.single.id, 'web');
@@ -325,10 +366,8 @@ void main() {
       expect(File('${dir.path}/web.json').existsSync(), isFalse);
     });
 
-    test('installing something that is not an addon writes nothing',
-        () async {
-      final client =
-          MockClient((req) async => http.Response('<html>', 200));
+    test('installing something that is not an addon writes nothing', () async {
+      final client = MockClient((req) async => http.Response('<html>', 200));
       await expectLater(
         installAddonFromUrl('https://e.org/x', dir, client: client),
         throwsFormatException,
@@ -338,7 +377,11 @@ void main() {
 
     test('settings survive a round trip, and a damaged file resets', () {
       final f = File('${dir.path}/s.json');
-      final s = AddonSettings(disabled: {'a'}, theme: 'a/t', layers: {'a/o': false});
+      final s = AddonSettings(
+        disabled: {'a'},
+        theme: 'a/t',
+        layers: {'a/o': false},
+      );
       s.save(f);
       final back = AddonSettings.load(f);
       expect(back.disabled, {'a'});
@@ -352,10 +395,10 @@ void main() {
 
   group('sites across addons', () {
     Addon withSite(String id, String site) => parseAddon(
-          '{"id": "$id", "name": "$id", "sites": [{"id": "$site", '
-          '"lat": 1, "lon": 2, "level2": {"url": "https://e.org/"}}]}',
-          path: id,
-        );
+      '{"id": "$id", "name": "$id", "sites": [{"id": "$site", '
+      '"lat": 1, "lon": 2, "level2": {"url": "https://e.org/"}}]}',
+      path: id,
+    );
 
     test('an override replaces the built-in rather than duplicating it', () {
       final merged = mergeSites(withSite('m', 'KTLX').sites);
@@ -384,8 +427,15 @@ void main() {
     // drifted from the parser teaches the wrong format.
     final r = loadAddons(Directory('../docs/addons/examples'));
     expect(r.errors, isEmpty);
-    expect(r.addons.map((a) => a.id),
-        unorderedEquals(['night-red', 'example-spotters', 'example-radar']));
+    expect(
+      r.addons.map((a) => a.id),
+      unorderedEquals([
+        'night-red',
+        'example-spotters',
+        'example-radar',
+        'test-addon',
+      ]),
+    );
     for (final a in r.addons) {
       expect(a.warnings, isEmpty, reason: '${a.id}: ${a.warnings}');
     }
