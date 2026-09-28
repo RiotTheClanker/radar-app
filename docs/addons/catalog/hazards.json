@@ -1,0 +1,46 @@
+{
+  "id": "hazards",
+  "name": "Hurricanes, wildfires and earthquakes",
+  "version": "1",
+  "author": "Taa'a Yuku Radar",
+  "description": "The NHC's forecast cones, tracks and coastal watches for every active tropical storm; the perimeters of large US wildfires; and earthquakes of magnitude 2.5 and up in the last day. Each refreshes on its own and is its own switch in Layers.",
+  "format": 1,
+  "overlays": [
+    {
+      "id": "tropical",
+      "name": "Tropical storms (NHC cones)",
+      "type": "wms",
+      "url": "https://mapservices.weather.noaa.gov/tropical/services/tropical/NHC_tropical_weather/MapServer/WMSServer",
+      "layers": "391,392,390,365,366,364,339,340,338,313,314,312,287,288,286,131,132,130,105,106,104,79,80,78,53,54,52,27,28,26,261,262,260,235,236,234,209,210,208,183,184,182,157,158,156",
+      "above": true,
+      "opacity": 0.85,
+      "refreshMinutes": 30,
+      "attribution": "Tropical: NOAA National Hurricane Center"
+    },
+    {
+      "id": "wildfires",
+      "name": "Wildfire perimeters (US, 1000+ acres)",
+      "type": "geojson",
+      "url": "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query?where=attr_IncidentSize%3E%3D1000&outFields=poly_IncidentName,attr_IncidentSize,attr_PercentContained&outSR=4326&f=geojson&maxAllowableOffset=0.002&geometryPrecision=4",
+      "label": "poly_IncidentName",
+      "simplify": 150,
+      "stroke": "#FF6D00",
+      "fill": "#FF6D0040",
+      "width": 1.5,
+      "above": true,
+      "refreshMinutes": 30,
+      "attribution": "Wildfires: NIFC WFIGS"
+    },
+    {
+      "id": "earthquakes",
+      "name": "Earthquakes (M2.5+, past day)",
+      "type": "geojson",
+      "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
+      "label": "title",
+      "stroke": "#FFEB3B",
+      "above": true,
+      "refreshMinutes": 5,
+      "attribution": "Earthquakes: USGS"
+    }
+  ]
+}

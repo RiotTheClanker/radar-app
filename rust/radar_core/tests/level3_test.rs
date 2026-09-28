@@ -54,3 +54,44 @@ fn rasterizes_n0b() {
     assert!(img.north > f.site_lat && img.south < f.site_lat);
     assert!(img.pixels.iter().skip(3).step_by(4).any(|&a| a > 0), "image is fully transparent");
 }
+
+fn tdwr(product: &str) -> Option<Vec<u8>> {
+    let path = format!(
+        "{}/../../tools/testdata/latest_TDWR_{product}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    std::fs::read(path).ok()
+}
+
+/// Gate count and spacing together are the range. A TDWR decoded with the
+/// NEXRAD 250 m gate would draw its 89 km disk at 148 km, every echo 1.7x
+/// too far from the airport, and look entirely plausible doing it.
+#[test]
+fn parses_tdwr_products() {
+    for (product, code, gate, max_km) in [
+        ("TZ0", 180, 150.0, 90.0),
+        ("TV0", 182, 150.0, 90.0),
+        ("TZL", 186, 300.0, 420.0),
+    ] {
+        let Some(data) = tdwr(product) else {
+            eprintln!("TDWR testdata missing, skipping (run tools/fetch_testdata.sh)");
+            return;
+        };
+        let f = level3::parse(&data).expect("parse");
+        assert_eq!(f.product_code, code, "{product}");
+        // TOKC, the Norman WFO TDWR
+        assert!((f.site_lat - 35.276).abs() < 0.01, "{product} lat {}", f.site_lat);
+        let r = f.radial.as_ref().expect("radial data");
+        assert_eq!(r.gate_size_m, gate, "{product}");
+        let km = f.max_range_m() / 1000.0;
+        assert!(km > max_km * 0.8 && km <= max_km, "{product} reaches {km} km");
+        let (lo, hi) = if product == "TV0" { (-64.0, 64.0) } else { (-33.0, 95.0) };
+        for rad in &r.radials {
+            for &b in &rad.data {
+                if let level3::BinValue::Value(v) = r.decoder.decode(b as u16) {
+                    assert!((lo..=hi).contains(&v), "{product} value out of range: {v}");
+                }
+            }
+        }
+    }
+}

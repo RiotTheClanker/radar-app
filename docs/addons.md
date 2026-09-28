@@ -13,6 +13,25 @@ do is point at a URL that does not answer.
 
 Working examples are in [addons/examples/](addons/examples/).
 
+## Ready-made addons
+
+[addons/catalog/](addons/catalog/) holds addons we maintain, for the website
+to host so people can install them from a link:
+
+| File | What it adds |
+|---|---|
+| `tdwr.json` | The 45 TDWR airport radars, reading NOAA's Level 3 bucket |
+| `map-layers.json` | US county and state lines, place names, roads, hillshade |
+| `hazards.json` | NHC tropical cones and tracks, US wildfire perimeters, USGS earthquakes |
+| `themes.json` | Night (red), High contrast, OLED black |
+
+All but `themes.json` are written by scripts in `tools/` (`gen_tdwr_addon.py`,
+`gen_extras_addons.py`) from the sources they name — edit the script, not
+the JSON, and re-run it. The ArcGIS WMS servers (Census TIGERweb, the NHC)
+name layers by number and renumber them, so those are looked up by title
+each run. A test loads each one as a single file, the way a link install
+does, and fails on any warning.
+
 ## Installing
 
 **From a link.** Tools → Addons… → paste a link to the `.json` → Install. It
@@ -60,6 +79,9 @@ and anything the loader skipped is listed under it with the reason.
 Only `id` and `name` are required. `id` is letters, digits, `.`, `-` and
 `_`; it names the file an installed addon is saved as, and it is what the
 app remembers your choices by, so keep it stable across versions.
+
+`"enabled": false` makes the addon start switched off, waiting for someone
+to turn it on — for an addon that bundles several optional things.
 
 A mistake in one item skips that item with a warning, and the rest of the
 addon still loads. A file that is not JSON, or has no `id`/`name`, is listed
@@ -110,6 +132,8 @@ link is a single file with no folder, so it has to reach everything by `url`.
 | `attribution` | Shown on the map while a pane is on this site |
 | `level2`, `level3` | Where NEXRAD data is. See below |
 | `open` | Where **open-format** data is — for data the app has no decoder for. Used for every product; `level2`/`level3` are then ignored. See [open-format.md](open-format.md) |
+| `products` | For a radar whose Level 3 products are named differently: the app's code → the radar's, e.g. `{"N0B": "TZ0", "N0G": "TV0"}`. When set it is the complete list — a product not in it is reported as one the radar does not make |
+| `tdwr` | `true` for a TDWR that is not in the built-in list. A TDWR is never chosen as the startup radar, and has no Level 2 to fall back to |
 
 An addon site shows on the map as a **diamond** rather than a dot, and in the
 radar picker with its addon's name, so it is always clear the data is not
@@ -226,15 +250,19 @@ since the data and any token travel in the clear.
 
 | Field | |
 |---|---|
-| `type` | `geojson` or `tiles` |
-| `url` | GeoJSON URL, or a tile template with `{z}`, `{x}`, `{y}` |
+| `type` | `geojson`, `tiles` or `wms` |
+| `url` | GeoJSON URL, a tile template with `{z}`, `{x}`, `{y}`, or a WMS server's base URL |
+| `layers`, `styles` | `wms` only: layer and style names, as the server's GetCapabilities lists them (a list, or comma-separated) |
+| `format`, `version`, `transparent`, `params` | `wms` only: defaults `image/png`, `1.3.0`, `true`; `params` adds anything else to the query (`TIME`, a key) |
+| `bounds` | `[south, west, north, east]`: a tile or WMS layer is only fetched inside it |
 | `file` | GeoJSON beside the manifest (folder addons) |
 | `data` | GeoJSON written inline in the manifest |
 | `stroke`, `fill`, `width` | Default style. Features can override with [simplestyle](https://github.com/mapbox/simplestyle-spec) keys: `stroke`, `fill`, `stroke-width`, `stroke-opacity`, `fill-opacity`, `marker-color` |
 | `opacity` | 0–1 for the whole layer |
 | `label` | Property to name features by (default `name`, then `title`) |
 | `above` | `true` draws over the radar (boundaries, roads). Default is under it (imagery, shading) |
-| `refreshMinutes` | Refetch a GeoJSON `url` this often; 0 (default) fetches once |
+| `simplify` | GeoJSON only: drop detail finer than this many metres when loading — rings smaller than about three times it, and vertices closer than it to the line. For heavy live feeds; a few hundred metres keeps a map-scale shape and saves thousands of polygons |
+| `refreshMinutes` | Refetch a GeoJSON `url` this often, or give a tile or WMS layer fresh tiles this often (for a radar mosaic); 0 (default) fetches once |
 | `minZoom`, `maxZoom` | Only drawn between these zooms |
 | `visible` | `false` to start switched off |
 | `attribution` | Shown on the map while the layer is on. **Required by most tile providers** |

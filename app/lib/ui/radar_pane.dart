@@ -1143,7 +1143,7 @@ class RadarPaneState extends State<RadarPane> {
     if (cached != null && _siteMarkersFor == key) return cached;
     final built = [
       for (final s in widget.shared.radarSites)
-        if (!s.isTdwr)
+        if (isSelectableSite(s))
           Marker(
             point: LatLng(s.lat, s.lon),
             width: Wx.siteHit,
@@ -1216,15 +1216,44 @@ class RadarPaneState extends State<RadarPane> {
       if (o.aboveRadar != above || !shared.overlayOn(o) || !_inZoom(o)) {
         continue;
       }
+      final b = o.bounds;
+      final tileBounds = b == null
+          ? null
+          : LatLngBounds(LatLng(b.south, b.west), LatLng(b.north, b.east));
       switch (o.kind) {
         case OverlayKind.tiles:
           out.add(Opacity(
             opacity: o.opacity,
             child: TileLayer(
-              urlTemplate: o.url!,
+              urlTemplate: o.tileUrlAt(DateTime.now()),
               userAgentPackageName: appId,
+              tileBounds: tileBounds,
               // Transparent where the server has nothing, rather than the
               // grey "tile failed" square over the whole country.
+              evictErrorTileStrategy: EvictErrorTileStrategy.dispose,
+            ),
+          ));
+        case OverlayKind.wms:
+          final w = o.wms!;
+          final stamp = o.refreshStamp(DateTime.now());
+          out.add(Opacity(
+            opacity: o.opacity,
+            child: TileLayer(
+              wmsOptions: WMSTileLayerOptions(
+                baseUrl: _wmsBase(o.url!),
+                layers: w.layers,
+                styles: w.styles,
+                format: w.format,
+                version: w.version,
+                transparent: w.transparent,
+                otherParameters: {
+                  ...w.params,
+                  // Tiles are cached by URL; see AddonOverlay.tileUrlAt.
+                  if (stamp != null) '_': '$stamp',
+                },
+              ),
+              userAgentPackageName: appId,
+              tileBounds: tileBounds,
               evictErrorTileStrategy: EvictErrorTileStrategy.dispose,
             ),
           ));
@@ -1237,34 +1266,46 @@ class RadarPaneState extends State<RadarPane> {
     return out;
   }
 
+  /// A WMS server's URL, ready to have the request's own query appended —
+  /// flutter_map writes its parameters straight after it.
+  static String _wmsBase(String url) {
+    if (!url.contains('?')) return '$url?';
+    return url.endsWith('?') || url.endsWith('&') ? url : '$url&';
+  }
+
+  /// The polygon and line lists built for each loaded shape set.
+  ///
+  /// The pane rebuilds on every workspace tick — the animation clock alone
+  /// is three times a second — and a fresh list of fresh [Polygon]s makes
+  /// flutter_map compare them point by point to find out nothing changed.
+  /// Handing back the same list makes that an identity check.
+  final _geoPolys = Expando<List<Polygon>>();
+  final _geoLines = Expando<List<Polyline>>();
+
   List<Widget> _geoLayers(AddonOverlay o, GeoShapes shapes) {
     Widget faded(Widget w) =>
         o.opacity >= 1 ? w : Opacity(opacity: o.opacity, child: w);
+    final polys = _geoPolys[shapes] ??= [
+      for (final p in shapes.polygons)
+        Polygon(
+          points: p.outer,
+          holePointsList: p.holes.isEmpty ? null : p.holes,
+          color: p.style.fill ?? o.fill,
+          borderColor: p.style.stroke ?? o.stroke,
+          borderStrokeWidth: p.style.width ?? o.width,
+        ),
+    ];
+    final lines = _geoLines[shapes] ??= [
+      for (final l in shapes.lines)
+        Polyline(
+          points: l.points,
+          color: l.style.stroke ?? o.stroke,
+          strokeWidth: l.style.width ?? o.width,
+        ),
+    ];
     return [
-      if (shapes.polygons.isNotEmpty)
-        faded(PolygonLayer(
-          polygons: [
-            for (final p in shapes.polygons)
-              Polygon(
-                points: p.outer,
-                holePointsList: p.holes.isEmpty ? null : p.holes,
-                color: p.style.fill ?? o.fill,
-                borderColor: p.style.stroke ?? o.stroke,
-                borderStrokeWidth: p.style.width ?? o.width,
-              ),
-          ],
-        )),
-      if (shapes.lines.isNotEmpty)
-        faded(PolylineLayer(
-          polylines: [
-            for (final l in shapes.lines)
-              Polyline(
-                points: l.points,
-                color: l.style.stroke ?? o.stroke,
-                strokeWidth: l.style.width ?? o.width,
-              ),
-          ],
-        )),
+      if (polys.isNotEmpty) faded(PolygonLayer(polygons: polys)),
+      if (lines.isNotEmpty) faded(PolylineLayer(polylines: lines)),
       if (shapes.points.isNotEmpty)
         faded(MarkerLayer(markers: _geoPointMarkers(o, shapes.points))),
     ];

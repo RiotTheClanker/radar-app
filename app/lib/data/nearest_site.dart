@@ -35,8 +35,9 @@ double _dist2(double lat1, double lon1, double lat2, double lon2) {
 
 /// Selectable sites ordered by distance from a point, nearest first.
 ///
-/// TDWR sites are left out: their products are a later phase, and offering
-/// one as a startup default would open on a radar the app cannot draw.
+/// TDWR sites are left out, even with the TDWR addon on: they reach about
+/// 90 km, so opening on one because it happens to be nearest would crop the
+/// storm the NEXRAD beside it shows whole.
 ///
 /// [sites] is the list to choose from — the built-in one unless the caller
 /// has addon sites to include (see `mergeSites`).

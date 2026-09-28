@@ -1391,7 +1391,7 @@ class _SitePickerState extends State<_SitePicker> {
     final q = _query.trim().toLowerCase();
     final matches = [
       for (final s in widget.sites)
-        if (!s.isTdwr &&
+        if (isSelectableSite(s) &&
             (q.isEmpty ||
                 s.icao.toLowerCase().contains(q) ||
                 s.name.toLowerCase().contains(q) ||

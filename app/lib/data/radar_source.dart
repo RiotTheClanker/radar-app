@@ -113,6 +113,7 @@ class AddonSite extends NexradSite {
     this.attribution,
     this.overridesBuiltIn = false,
     this.shortIdOverride,
+    this.productCodes = const {},
   });
 
   /// Which addon this came from, for the addon manager and for errors.
@@ -147,6 +148,37 @@ class AddonSite extends NexradSite {
 
   @override
   String get shortId => shortIdOverride ?? super.shortId;
+
+  /// The Level 3 code this radar publishes in place of the app's, by the
+  /// app's code: `N0B` → `TZ0` for a TDWR.
+  ///
+  /// The toolbar only knows NEXRAD mnemonics, and a radar that is not a
+  /// WSR-88D names the same thing differently. When this is set it is the
+  /// whole list: a code not in it is a product the radar does not make, and
+  /// asking the bucket for it anyway would only ever come back empty.
+  final Map<String, String> productCodes;
+
+  /// [code] as this site's files name it, or null if it has no such product.
+  String? level3Code(String code) =>
+      productCodes.isEmpty ? code : productCodes[code];
+}
+
+/// Whether [s] should be offered in the picker and drawn on the map.
+///
+/// The built-in TDWR entries are not: nothing tells the app how to read them.
+/// One an addon defines is, since the addon is what supplies that.
+bool isSelectableSite(NexradSite s) => !s.isTdwr || s is AddonSite;
+
+/// Raised when a site does not make the product asked for — velocity from a
+/// radar that only has reflectivity, dual-pol from a single-pol TDWR.
+class NoProductException implements Exception {
+  NoProductException(this.site, this.code);
+  final AddonSite site;
+  final String code;
+
+  @override
+  String toString() => '${site.icao} does not make $code — it offers '
+      '${site.productCodes.keys.join(', ')}';
 }
 
 /// Raised when a site has no source for the level asked of it. Its message
@@ -162,6 +194,9 @@ class NoSourceException implements Exception {
       // what needs NEXRAD (3D wants a Level 2 volume) cannot be added to it.
       ? '${site.icao} reads open-format data, which has no $level to give — '
           '3D needs a Level 2 volume'
+      : site.isTdwr && level == 'Level 2'
+      ? '${site.icao} is a TDWR, which publishes no Level 2 — pick a Level 3 '
+          'product (REF or VEL)'
       : '${site.icao} (from addon "${site.addonId}") has no '
       '$level source — pick a Level ${level == 'Level 2' ? '3' : '2'} product '
       'or add a "${level == 'Level 2' ? 'level2' : 'level3'}" source to the '
@@ -201,6 +236,9 @@ Future<List<String>> listSiteLevel3(
   http.Client? client,
 }) {
   if (site is AddonSite) {
+    final code = site.level3Code(product);
+    if (code == null) return Future.error(NoProductException(site, product));
+    product = code;
     final src = site.level3;
     if (src != null) {
       return listSource(

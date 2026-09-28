@@ -12,6 +12,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:latlong2/latlong.dart';
@@ -191,4 +192,107 @@ Color? parseColor(Object? v) {
   final rgb = n >> 8;
   final a = n & 0xff;
   return Color((a << 24) | rgb);
+}
+
+/// [shapes] with detail finer than [tolerance] degrees taken out: rings
+/// smaller than a few tolerances dropped, and every remaining line and ring
+/// thinned with Douglas–Peucker.
+///
+/// For live feeds that were drawn for a GIS rather than a map on a phone.
+/// US wildfire perimeters are the case that forced it: eighty-odd fires came
+/// as over four thousand rings, nearly all of them unburned islands a few
+/// metres across, and the map re-triangulated every one on every repaint —
+/// the whole app slowed down while the layer was on.
+GeoShapes simplifyShapes(GeoShapes shapes, double tolerance) {
+  if (tolerance <= 0) return shapes;
+  final minSpan = tolerance * 3;
+  final polys = <GeoPolygon>[];
+  for (final p in shapes.polygons) {
+    if (_span(p.outer) < minSpan) continue;
+    final outer = _thinRing(p.outer, tolerance);
+    if (outer == null) continue;
+    polys.add(GeoPolygon(
+      outer,
+      [
+        for (final h in p.holes)
+          if (_span(h) >= minSpan) ?_thinRing(h, tolerance),
+      ],
+      p.style,
+    ));
+  }
+  return GeoShapes(
+    polygons: polys,
+    lines: [
+      for (final l in shapes.lines)
+        if (l.points.length >= 2)
+          GeoLine(_douglasPeucker(l.points, tolerance), l.style),
+    ],
+    points: shapes.points,
+  );
+}
+
+/// The larger side of a ring's bounding box, in degrees.
+double _span(List<LatLng> pts) {
+  if (pts.isEmpty) return 0;
+  var minLat = pts.first.latitude, maxLat = minLat;
+  var minLon = pts.first.longitude, maxLon = minLon;
+  for (final p in pts) {
+    if (p.latitude < minLat) minLat = p.latitude;
+    if (p.latitude > maxLat) maxLat = p.latitude;
+    if (p.longitude < minLon) minLon = p.longitude;
+    if (p.longitude > maxLon) maxLon = p.longitude;
+  }
+  return math.max(maxLat - minLat, maxLon - minLon);
+}
+
+/// A ring thinned, or null if too little of it is left to enclose anything.
+List<LatLng>? _thinRing(List<LatLng> ring, double tolerance) {
+  final out = _douglasPeucker(ring, tolerance);
+  return out.length < 4 ? null : out;
+}
+
+List<LatLng> _douglasPeucker(List<LatLng> pts, double tolerance) {
+  if (pts.length < 3) return pts;
+  final keep = List<bool>.filled(pts.length, false)
+    ..[0] = true
+    ..[pts.length - 1] = true;
+  final t2 = tolerance * tolerance;
+  // Iterative, so a 10 000-point coastline cannot overflow the stack.
+  final stack = <(int, int)>[(0, pts.length - 1)];
+  while (stack.isNotEmpty) {
+    final (a, b) = stack.removeLast();
+    var worst = -1.0;
+    var at = -1;
+    for (var i = a + 1; i < b; i++) {
+      final d = _segDist2(pts[i], pts[a], pts[b]);
+      if (d > worst) {
+        worst = d;
+        at = i;
+      }
+    }
+    if (at >= 0 && worst > t2) {
+      keep[at] = true;
+      stack
+        ..add((a, at))
+        ..add((at, b));
+    }
+  }
+  return [
+    for (var i = 0; i < pts.length; i++)
+      if (keep[i]) pts[i],
+  ];
+}
+
+/// Squared distance from [p] to segment [a]–[b], in plain degrees. Over the
+/// few hundred metres a tolerance spans the projection hardly matters.
+double _segDist2(LatLng p, LatLng a, LatLng b) {
+  final ax = a.longitude, ay = a.latitude;
+  final dx = b.longitude - ax, dy = b.latitude - ay;
+  final len2 = dx * dx + dy * dy;
+  var t = len2 == 0
+      ? 0.0
+      : ((p.longitude - ax) * dx + (p.latitude - ay) * dy) / len2;
+  t = t.clamp(0.0, 1.0);
+  final ex = ax + t * dx - p.longitude, ey = ay + t * dy - p.latitude;
+  return ex * ex + ey * ey;
 }
