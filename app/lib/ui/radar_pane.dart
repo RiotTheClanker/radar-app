@@ -1273,34 +1273,39 @@ class RadarPaneState extends State<RadarPane> {
     return url.endsWith('?') || url.endsWith('&') ? url : '$url&';
   }
 
+  /// The polygon and line lists built for each loaded shape set.
+  ///
+  /// The pane rebuilds on every workspace tick — the animation clock alone
+  /// is three times a second — and a fresh list of fresh [Polygon]s makes
+  /// flutter_map compare them point by point to find out nothing changed.
+  /// Handing back the same list makes that an identity check.
+  final _geoPolys = Expando<List<Polygon>>();
+  final _geoLines = Expando<List<Polyline>>();
+
   List<Widget> _geoLayers(AddonOverlay o, GeoShapes shapes) {
     Widget faded(Widget w) =>
         o.opacity >= 1 ? w : Opacity(opacity: o.opacity, child: w);
+    final polys = _geoPolys[shapes] ??= [
+      for (final p in shapes.polygons)
+        Polygon(
+          points: p.outer,
+          holePointsList: p.holes.isEmpty ? null : p.holes,
+          color: p.style.fill ?? o.fill,
+          borderColor: p.style.stroke ?? o.stroke,
+          borderStrokeWidth: p.style.width ?? o.width,
+        ),
+    ];
+    final lines = _geoLines[shapes] ??= [
+      for (final l in shapes.lines)
+        Polyline(
+          points: l.points,
+          color: l.style.stroke ?? o.stroke,
+          strokeWidth: l.style.width ?? o.width,
+        ),
+    ];
     return [
-      if (shapes.polygons.isNotEmpty)
-        faded(PolygonLayer(
-          polygons: [
-            for (final p in shapes.polygons)
-              Polygon(
-                points: p.outer,
-                holePointsList: p.holes.isEmpty ? null : p.holes,
-                color: p.style.fill ?? o.fill,
-                borderColor: p.style.stroke ?? o.stroke,
-                borderStrokeWidth: p.style.width ?? o.width,
-              ),
-          ],
-        )),
-      if (shapes.lines.isNotEmpty)
-        faded(PolylineLayer(
-          polylines: [
-            for (final l in shapes.lines)
-              Polyline(
-                points: l.points,
-                color: l.style.stroke ?? o.stroke,
-                strokeWidth: l.style.width ?? o.width,
-              ),
-          ],
-        )),
+      if (polys.isNotEmpty) faded(PolygonLayer(polygons: polys)),
+      if (lines.isNotEmpty) faded(PolylineLayer(polylines: lines)),
       if (shapes.points.isNotEmpty)
         faded(MarkerLayer(markers: _geoPointMarkers(o, shapes.points))),
     ];

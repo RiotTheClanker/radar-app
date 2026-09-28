@@ -182,6 +182,9 @@ def hazards():
                     "&maxAllowableOffset=0.002&geometryPrecision=4"
                 ),
                 "label": "poly_IncidentName",
+                # The feed carries every unburned island as its own ring —
+                # thousands of them. Anything under ~half a km goes.
+                "simplify": 150,
                 "stroke": "#FF6D00",
                 "fill": "#FF6D0040",
                 "width": 1.5,

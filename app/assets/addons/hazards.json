@@ -24,6 +24,7 @@
       "type": "geojson",
       "url": "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query?where=attr_IncidentSize%3E%3D1000&outFields=poly_IncidentName,attr_IncidentSize,attr_PercentContained&outSR=4326&f=geojson&maxAllowableOffset=0.002&geometryPrecision=4",
       "label": "poly_IncidentName",
+      "simplify": 150,
       "stroke": "#FF6D00",
       "fill": "#FF6D0040",
       "width": 1.5,

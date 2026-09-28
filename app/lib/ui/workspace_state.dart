@@ -602,7 +602,12 @@ class WorkspaceState extends ChangeNotifier {
           if (client == null) c.close();
         }
       }
-      final shapes = parseGeoJson(text, labelKey: o.labelKey);
+      // Off the UI thread: a live feed can be megabytes, and it is parsed
+      // again on every refresh while someone is watching the map.
+      final shapes = await compute(
+        _parseOverlay,
+        (text, o.labelKey, o.simplifyMeters / 111320.0),
+      );
       if (_disposed) return;
       overlayShapes[o.key] = shapes;
       overlayErrors.remove(o.key);
@@ -810,4 +815,10 @@ class WorkspaceState extends ChangeNotifier {
     }
     super.dispose();
   }
+}
+
+/// Top level, so [compute] sends it nothing but the text.
+GeoShapes _parseOverlay((String, String?, double) job) {
+  final (text, labelKey, tolerance) = job;
+  return simplifyShapes(parseGeoJson(text, labelKey: labelKey), tolerance);
 }

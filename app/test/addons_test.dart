@@ -605,6 +605,21 @@ void main() {
       expect(o.bounds, (south: 40.0, west: -145.0, north: 72.0, east: -50.0));
     });
 
+    test('reads a simplify distance, capped', () {
+      final a = ov(
+        '"type": "geojson", "url": "https://e.org/f.json", "simplify": 150',
+      );
+      expect(a.overlays.single.simplifyMeters, 150);
+      expect(
+        ov('"type": "geojson", "url": "https://e.org/f.json", '
+                '"simplify": 1e9')
+            .overlays
+            .single
+            .simplifyMeters,
+        50000,
+      );
+    });
+
     test('a WMS layer needs its layer names', () {
       final a = ov('"type": "wms", "url": "https://geo.example.org/wms"');
       expect(a.overlays, isEmpty);

@@ -60,6 +60,7 @@ class AddonOverlay {
     this.maxZoom,
     this.bounds,
     this.wms,
+    this.simplifyMeters = 0,
   });
 
   /// `addonId/overlayId`, unique across every loaded addon.
@@ -107,6 +108,10 @@ class AddonOverlay {
 
   /// How to ask a WMS server for tiles, for [OverlayKind.wms].
   final WmsSpec? wms;
+
+  /// GeoJSON detail finer than this is dropped on load (see
+  /// `simplifyShapes`). 0 keeps every vertex.
+  final double simplifyMeters;
 
   /// The URL a tile or WMS layer is fetched with right now.
   ///
@@ -661,6 +666,7 @@ AddonOverlay? _overlay(Object? v, int i, _Ctx ctx) {
     maxZoom: _dbl(v['maxZoom']),
     bounds: _bounds(v['bounds'], what, ctx),
     wms: wms,
+    simplifyMeters: (_dbl(v['simplify']) ?? 0).clamp(0, 50000),
   );
 }
 

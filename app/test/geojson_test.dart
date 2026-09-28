@@ -89,4 +89,30 @@ void main() {
       expect(parseColor(3), isNull);
     });
   });
+
+  group('simplifyShapes', () {
+    // A 0.1° square fire with a large unburned hole, a speck of a hole, a
+    // speck of a spot fire beside it, and a wobbly edge.
+    final text = '''
+{"type": "MultiPolygon", "coordinates": [
+  [[[0, 0], [0.05, 0.00001], [0.1, 0], [0.1, 0.1], [0, 0.1], [0, 0]],
+   [[0.02, 0.02], [0.06, 0.02], [0.06, 0.06], [0.02, 0.06], [0.02, 0.02]],
+   [[0.08, 0.08], [0.08001, 0.08], [0.08001, 0.08001], [0.08, 0.08]]],
+  [[[1, 1], [1.0001, 1], [1.0001, 1.0001], [1, 1]]]
+]}
+''';
+
+    test('drops specks and thins edges, keeps the shape', () {
+      final s = simplifyShapes(parseGeoJson(text), 0.001);
+      expect(s.polygons, hasLength(1), reason: 'the spot fire is gone');
+      final p = s.polygons.single;
+      expect(p.holes, hasLength(1), reason: 'the big hole stays');
+      expect(p.outer, hasLength(5), reason: 'the wobble vertex is gone');
+    });
+
+    test('zero tolerance changes nothing', () {
+      final raw = parseGeoJson(text);
+      expect(identical(simplifyShapes(raw, 0), raw), isTrue);
+    });
+  });
 }

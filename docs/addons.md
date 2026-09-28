@@ -24,13 +24,12 @@ addons folder and edit the copy.
 | File | What it adds |
 |---|---|
 | `tdwr.json` | The 45 TDWR airport radars, reading NOAA's Level 3 bucket |
-| `world-radar.json` | Canada, Germany, Netherlands and Finland radar mosaics (WMS); Europe's OPERA radar sites as places |
 | `map-layers.json` | US county and state lines, place names, roads, hillshade |
 | `hazards.json` | NHC tropical cones and tracks, US wildfire perimeters, USGS earthquakes |
 | `themes.json` | Night (red), High contrast, OLED black |
 
 All but `themes.json` are written by scripts in `tools/` (`gen_tdwr_addon.py`,
-`gen_world_radar_addon.py`, `gen_extras_addons.py`) from the sources they
+`gen_extras_addons.py`) from the sources they
 name — edit the script, not the JSON, and re-run it. The ArcGIS WMS servers
 (Census TIGERweb, the NHC) name layers by number and renumber them, so those
 are looked up by title each run. A test loads every built-in and fails on any
@@ -269,6 +268,7 @@ since the data and any token travel in the clear.
 | `opacity` | 0–1 for the whole layer |
 | `label` | Property to name features by (default `name`, then `title`) |
 | `above` | `true` draws over the radar (boundaries, roads). Default is under it (imagery, shading) |
+| `simplify` | GeoJSON only: drop detail finer than this many metres when loading — rings smaller than about three times it, and vertices closer than it to the line. For heavy live feeds; a few hundred metres keeps a map-scale shape and saves thousands of polygons |
 | `refreshMinutes` | Refetch a GeoJSON `url` this often, or give a tile or WMS layer fresh tiles this often (for a radar mosaic); 0 (default) fetches once |
 | `minZoom`, `maxZoom` | Only drawn between these zooms |
 | `visible` | `false` to start switched off |
