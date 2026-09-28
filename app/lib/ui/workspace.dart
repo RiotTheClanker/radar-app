@@ -867,13 +867,6 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
           onTap: active?.toggleTracks,
         ),
         WxButton(
-          icon: Icons.fast_forward,
-          tooltip: 'Future radar (on-device forecast)',
-          dense: true,
-          active: active?.futureOn ?? false,
-          onTap: active?.toggleFuture,
-        ),
-        WxButton(
           icon: Icons.straighten,
           tooltip: 'Measure distance',
           dense: true,

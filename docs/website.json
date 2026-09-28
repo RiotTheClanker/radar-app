@@ -1,0 +1,81 @@
+{
+  "summary": "A free, professional-grade weather radar for **Windows, Android and Debian Linux**. Radar data comes straight from NOAA's open data, and every calculation happens on your device.",
+  "highlights": [
+    "**Full NEXRAD Level 2**, every moment and every tilt, plus Level 3 and the national MRMS mosaic",
+    "**3D storm volumes** you can fly through, with terrain and hydrometeor classification",
+    "Warnings, SPC outlooks, lightning, soundings, and replay back to 1991",
+    "**Addons** for custom radar sites, overlays, places and themes"
+  ],
+  "lede": "A free, open, professional-grade weather radar. **No subscription. No accounts. No servers.** Radar data comes straight from NOAA's open data, and every calculation happens on your device.",
+  "pills": [
+    {
+      "value": "L2",
+      "label": "Full NEXRAD Level 2"
+    },
+    {
+      "value": "3D",
+      "label": "Fly-through volumes"
+    },
+    {
+      "value": "1991+",
+      "label": "Historical replay"
+    },
+    {
+      "value": "0",
+      "label": "Accounts needed"
+    }
+  ],
+  "features": [
+    {
+      "title": "Radar data",
+      "items": [
+        "**Full NEXRAD Level 2**: REF, VEL, SW, ZDR, PHI, RHO at every elevation cut, super-resolution",
+        "All the common **Level 3** products with tilt selection",
+        "The national **MRMS mosaic** takes over when you zoom out",
+        "Sharp at any zoom: redrawn at screen resolution, never stretched"
+      ]
+    },
+    {
+      "title": "Derived products",
+      "items": [
+        "Composite reflectivity, VIL, echo tops",
+        "Storm-relative velocity and rotation (azimuthal shear)"
+      ]
+    },
+    {
+      "title": "3D",
+      "items": [
+        "GPU-raymarched storm volumes you can **fly through**",
+        "Slice planes, optional **3D terrain**, cone of silence",
+        "Reflectivity, storm-relative and ground-relative wind, ZDR and CC fields",
+        "**Hydrometeor classification**: rain, hail, graupel, snow and more, each class its own switch"
+      ]
+    },
+    {
+      "title": "Situational awareness",
+      "items": [
+        "Live NWS **warnings, watches and advisories**, tap for the full text",
+        "SPC convective outlook and today's storm reports",
+        "**Upper-air soundings** with CAPE, CIN, shear and helicity",
+        "Lightning from Blitzortung, GOES GLM, or both"
+      ]
+    },
+    {
+      "title": "Tools",
+      "items": [
+        "**Aiming cursor**: exact value, range, heading and beam height",
+        "**Historical replay** back to 1991, 3D included",
+        "Distance and bearing, PNG snapshots of 2D and 3D",
+        "`.pal` colour tables and four basemaps"
+      ]
+    },
+    {
+      "title": "Addons",
+      "items": [
+        "Your own **radar sites**, from S3, a web folder or a local folder",
+        "An **open radar format** for any radar your own converter reads",
+        "GeoJSON and tile **overlays**, **places** with beam height, and **themes**"
+      ]
+    }
+  ]
+}

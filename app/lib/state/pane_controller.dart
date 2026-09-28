@@ -3,7 +3,7 @@
 /// [WorkspaceState] owns what is true of the whole workspace — alerts,
 /// lightning, the SPC layers, the basemap, replay time and the animation
 /// clock. This owns what is true of one pane: its site, product, tilt,
-/// frames, cursor, tracks and nowcast, and every call out to `lib/data/` and
+/// frames, cursor and tracks, and every call out to `lib/data/` and
 /// the Rust bridge that those need.
 ///
 /// Deliberately free of `BuildContext`. What it cannot see for itself — the
@@ -119,8 +119,8 @@ class PaneController extends ChangeNotifier {
   // ------------------------------------------------------------- hooks ----
 
   /// Reads the live map camera and the pane's size. Set by the widget once
-  /// the map is attached; until then viewport sharpening, the nowcast and
-  /// the mosaic hand-over simply do not run.
+  /// the map is attached; until then viewport sharpening and the mosaic
+  /// hand-over simply do not run.
   PaneViewport? Function()? viewport;
 
   /// Moves this pane's camera.
@@ -219,12 +219,6 @@ class PaneController extends ChangeNotifier {
   bool _measuring = false;
   final List<LatLng> _measurePts = [];
 
-  // Future radar (on-device nowcast)
-  bool _future = false;
-  double _futureMinutes = 30;
-  DisplayFrame? _futureFrame;
-  bool _futureBusy = false;
-
   bool _disposed = false;
 
   /// This pane's CAPE overlay, rendered from the shared GRIB2 bytes at this
@@ -264,7 +258,6 @@ class PaneController extends ChangeNotifier {
   bool get isolated => _isolated;
   bool get cursorOn => _cursor;
   bool get tracksOn => _tracks;
-  bool get futureOn => _future;
   bool get measuringOn => _measuring;
 
   /// Whether this pane reads open-format files — an addon site with an
@@ -300,14 +293,9 @@ class PaneController extends ChangeNotifier {
 
   List<LatLng> get measurePts => List.unmodifiable(_measurePts);
 
-  double get futureMinutes => _futureMinutes;
-  DisplayFrame? get futureFrame => _futureFrame;
-
-  /// The frame the pane should draw: the nowcast when future radar is on and
-  /// has produced one, otherwise the current animation frame.
-  DisplayFrame? get displayFrame => _future && _futureFrame != null
-      ? _futureFrame
-      : (_frames.isEmpty ? null : _frames[shownFrame]);
+  /// The frame the pane should draw: the current animation frame.
+  DisplayFrame? get displayFrame =>
+      _frames.isEmpty ? null : _frames[shownFrame];
 
   int get shownFrame {
     if (_frames.isEmpty) return 0;
@@ -402,7 +390,6 @@ class PaneController extends ChangeNotifier {
   void setProduct(RadarProduct p) {
     if (identical(p, _product)) return;
     _product = p;
-    _futureFrame = null;
     _notifyAll();
     unawaited(loadFrames());
   }
@@ -410,7 +397,6 @@ class PaneController extends ChangeNotifier {
   void setTilt(int t) {
     if (t == _tilt) return;
     _tilt = t;
-    _futureFrame = null;
     _notifyAll();
     unawaited(loadFrames());
   }
@@ -418,7 +404,6 @@ class PaneController extends ChangeNotifier {
   void selectSite(NexradSite s, {bool moveMap = false}) {
     if (s.icao == _site.icao) return;
     _site = s;
-    _futureFrame = null;
     // Locked panes move too. Picking a radar is an explicit command, the
     // same class as "my location" and zoom-to-alert, which already override
     // the lock. Holding a locked pane's framing across a site change left it
@@ -441,7 +426,6 @@ class PaneController extends ChangeNotifier {
   void rebindSite(NexradSite s) {
     if (identical(s, _site) || s.icao != _site.icao) return;
     _site = s;
-    _futureFrame = null;
     _notifyAll();
     unawaited(loadFrames());
   }
@@ -479,7 +463,6 @@ class PaneController extends ChangeNotifier {
     if (newSite == null && newTilt == null) return;
     if (newSite != null) _site = newSite;
     if (newTilt != null) _tilt = newTilt;
-    _futureFrame = null;
     _notifyAll();
     unawaited(loadFrames());
   }
@@ -517,21 +500,6 @@ class PaneController extends ChangeNotifier {
     _measurePts.add(p);
     _notify();
   }
-
-  void toggleFuture() {
-    _future = !_future;
-    if (!_future) _futureFrame = null;
-    _notifyAll();
-    if (_future) unawaited(renderFuture());
-  }
-
-  void setFutureMinutes(double minutes) {
-    if (_futureMinutes == minutes) return;
-    _futureMinutes = minutes;
-    _notify();
-  }
-
-  void commitFutureMinutes() => unawaited(renderFuture());
 
   // --------------------------------------------------------------- data ----
 
@@ -576,7 +544,6 @@ class PaneController extends ChangeNotifier {
       // should not blank a picture that is still right.
       if (_framesSite != _site.icao) {
         _frames = [];
-        _futureFrame = null;
       }
       if (!_isolated) shared.reportFrames(paneId, 0);
       _notifyAll();
@@ -1131,63 +1098,6 @@ class PaneController extends ChangeNotifier {
     return (n: north, s: south, e: east, w: west, width: width, height: height);
   }
 
-  /// Extrapolate the two most recent frames forward on-device.
-  Future<void> renderFuture() async {
-    if (!_future || _futureBusy) return;
-    if (_isOpen) {
-      // The nowcaster reads NEXRAD and MRMS encodings, not the open format.
-      _error = 'Future radar is not available for addon open-format data';
-      _notifyAll();
-      return;
-    }
-    if (_product.isLevel2) {
-      _error = 'Future radar needs a Level 3 or mosaic product';
-      _notifyAll();
-      return;
-    }
-    if (_frames.length < 2) {
-      // Need a previous scan to measure motion against.
-      if (frameCount < 4) {
-        if (_isolated) {
-          setFrameCount(4);
-        } else {
-          shared.setFrameCount(4);
-        }
-        await loadFrames();
-      }
-      if (_frames.length < 2 || !_future) return;
-    }
-    final box = _viewBox();
-    if (box == null) return;
-    _futureBusy = true;
-    try {
-      final r = await nowcastView(
-        prev: _frames[_frames.length - 2].raw,
-        latest: _frames.last.raw,
-        source: _product.isMrms ? 'MRMS' : 'L3',
-        minutes: _futureMinutes,
-        north: box.n,
-        south: box.s,
-        east: box.e,
-        west: box.w,
-        width: box.width,
-        height: box.height,
-      );
-      if (_disposed || !_future) return;
-      final img = MemoryImage(r.png);
-      await _warmImage(img);
-      if (_disposed || !_future) return;
-      _futureFrame = DisplayFrame(r, img, Uint8List(0));
-      _notify();
-    } catch (e) {
-      if (_disposed) return;
-      _error = e.toString();
-      _notify();
-    } finally {
-      _futureBusy = false;
-    }
-  }
-
   /// Zoomed out past a single radar's useful range, hand over to the
   /// national mosaic; zoom back in and the site radar returns.
   ///
@@ -1392,7 +1302,5 @@ class PaneController extends ChangeNotifier {
       }
       _notify();
     }
-
-    if (_future) unawaited(renderFuture());
   }
 }
