@@ -64,17 +64,15 @@ final pane = PaneController(
 Reads (all getters): `site`, `product`, `tilt`, `frames`, `displayFrame`,
 `frameTime`, `dataAge`, `isStale`, `elevationDeg`, `loading`, `error`,
 `keyScale`, `cursorOn`/`cursorPos`/`cursorSample`/`cursorPinned`,
-`tracksOn`/`stormTracks`/`mesos`, `futureOn`/`futureMinutes`/`futureFrame`,
-`measuringOn`/`measurePts`, `isolated`, `playing`, `frameIndex`,
-`loopLength`, `sampleText`/`samplePos`.
+`tracksOn`/`stormTracks`/`mesos`, `measuringOn`/`measurePts`, `isolated`,
+`playing`, `frameIndex`, `loopLength`, `sampleText`/`samplePos`.
 
 Commands: `setProduct()`, `setTilt()`, `selectSite()`, `syncTo()`,
-`toggleCursor()`, `toggleTracks()`, `toggleFuture()`, `setFutureMinutes()`,
-`toggleMeasure()`, `addMeasurePoint()`, `toggleIsolate()`, `togglePlay()`,
-`step()`, `setFrameCount()`.
+`toggleCursor()`, `toggleTracks()`, `toggleMeasure()`, `addMeasurePoint()`,
+`toggleIsolate()`, `togglePlay()`, `step()`, `setFrameCount()`.
 
 Async work: `loadFrames()`, `renderViewport()`, `updateTracks()`,
-`renderFuture()`, `openCursorSession()`, `aimCursor()`, `inspect()`,
+`openCursorSession()`, `aimCursor()`, `inspect()`,
 `prepareVolume()`, `volumeKeys()`, `saveFrameSnapshot()`,
 `maybeSwitchMosaic()`.
 

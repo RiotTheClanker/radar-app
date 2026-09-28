@@ -34,7 +34,7 @@ Getting this wrong is the main way to break a multi-pane layout.
 | alerts, SPC outlook and reports | site, product, tilt |
 | lightning strikes and source | loaded frames, colour key |
 | basemap, `showKey` | cursor, storm tracks, mesocyclones |
-| replay time (`historyTime`) | measuring tool, nowcast |
+| replay time (`historyTime`) | measuring tool |
 | the animation clock | that pane's *isolated* clock |
 | palette generation | |
 | request caches (`listing`, `volume`) | |

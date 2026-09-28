@@ -192,7 +192,6 @@ site can serve only the products it has.
 
 ## What does not work on open data
 
-- **Future radar** (the nowcast) reads NEXRAD and MRMS encodings only.
 - **3D** needs a full Level 2 volume.
 - **Storm tracks** are NOAA's own product and need Level 3 from NOAA.
 

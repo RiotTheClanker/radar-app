@@ -12,8 +12,7 @@ and **yuku**, the rain. Used with the blessing of a Yaqui speaker.
 
 **No subscription. No accounts. No servers.** Radar data comes straight from
 free NOAA/NWS open-data sources, and every calculation — Level 2 decoding,
-derived products, future-radar nowcasting, 3D volume rendering — happens on
-your device.
+derived products, 3D volume rendering — happens on your device.
 
 ## Features
 
@@ -28,8 +27,6 @@ your device.
 **Derived on-device**
 - Composite reflectivity, VIL, echo tops
 - Storm-relative velocity and rotation (azimuthal shear)
-- **Future radar**: motion is tracked between scans and extrapolated up to
-  60 minutes ahead — computed locally, not fetched from a server
 
 **3D**
 - GPU-raymarched storm volumes you can **fly through** (WASD + mouse, or an
@@ -59,8 +56,8 @@ your device.
 - Lightning from Blitzortung, GOES GLM satellite, or both
 - **Aiming cursor**: hover (or tap to pin) for the exact value, range,
   compass heading, and beam height, with a range ring drawn from the radar
-- **Historical replay** back to 1991 — the whole app, including 3D and the
-  nowcast, runs on the moment you pick
+- **Historical replay** back to 1991 — the whole app, including 3D, runs on
+  the moment you pick
 - Distance/bearing measuring, PNG snapshots (2D and 3D)
 - `.pal` color table import
 - Four basemaps: dark, OpenStreetMap, satellite, topographic

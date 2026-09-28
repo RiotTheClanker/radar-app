@@ -5,7 +5,7 @@
 /// `State`. Now the pane's logic can be driven directly.
 ///
 /// Kept off the network — anything that reaches `loadFrames` (setProduct,
-/// setTilt, setFrameCount, syncTo, toggleTracks, toggleFuture) talks to NOAA,
+/// setTilt, setFrameCount, syncTo, toggleTracks) talks to NOAA,
 /// so what is covered here is the surrounding state machine.
 library;
 
@@ -105,7 +105,6 @@ void main() {
   test('nothing is on by default', () {
     expect(c.cursorOn, isFalse);
     expect(c.tracksOn, isFalse);
-    expect(c.futureOn, isFalse);
     expect(c.measuringOn, isFalse);
     expect(c.isolated, isFalse);
   });
@@ -337,16 +336,6 @@ void main() {
     test('an isolated loop is only as long as the frames it holds', () {
       c.toggleIsolate();
       expect(c.loopLength, 0);
-    });
-  });
-
-  group('future radar', () {
-    test('the lead time slider does not notify on the same value', () {
-      c.setFutureMinutes(45);
-      expect(c.futureMinutes, 45);
-      final before = notifications;
-      c.setFutureMinutes(45);
-      expect(notifications, before);
     });
   });
 

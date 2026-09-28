@@ -297,7 +297,6 @@ class RadarPaneState extends State<RadarPane> {
   bool get isolated => _c.isolated;
   bool get cursorOn => _c.cursorOn;
   bool get tracksOn => _c.tracksOn;
-  bool get futureOn => _c.futureOn;
   bool get measuringOn => _c.measuringOn;
   int get frameCountLoaded => _c.frameCountLoaded;
   int get loopLength => _c.loopLength;
@@ -323,7 +322,6 @@ class RadarPaneState extends State<RadarPane> {
       _c.syncTo(site: site, tilt: tilt);
   void toggleIsolate() => _c.toggleIsolate();
   void toggleMeasure() => _c.toggleMeasure();
-  void toggleFuture() => _c.toggleFuture();
   Future<void> loadFrames() => _c.loadFrames();
   Future<void> refreshForNewData() => _c.refreshForNewData();
   String? saveFrameSnapshot() => _c.saveFrameSnapshot();
@@ -1386,36 +1384,6 @@ class RadarPaneState extends State<RadarPane> {
   /// its tool is on, so an idle pane is all map.
   Widget _readouts() {
     final rows = <Widget>[];
-
-    if (_c.futureOn) {
-      rows.add(
-        Container(
-          height: 30,
-          padding: const EdgeInsets.only(left: 8, right: 4),
-          color: Wx.bg1.withValues(alpha: 0.92),
-          child: Row(
-            children: [
-              Icon(Icons.fast_forward, size: 13, color: Wx.good),
-              const SizedBox(width: 6),
-              Text(
-                _c.futureMinutes == 0 ? 'now' : '+${_c.futureMinutes.round()} min',
-                style: Wx.mono.copyWith(color: Wx.good),
-              ),
-              Expanded(
-                child: Slider(
-                  value: _c.futureMinutes,
-                  max: 60,
-                  divisions: 12,
-                  onChanged: _c.setFutureMinutes,
-                  onChangeEnd: (_) => _c.commitFutureMinutes(),
-                ),
-              ),
-              Text('forecast', style: Wx.labelDim),
-            ],
-          ),
-        ),
-      );
-    }
 
     if (_c.cursorOn && _c.cursorPos != null && _c.cursorSample != null) {
       final c = _c.cursorSample!;
