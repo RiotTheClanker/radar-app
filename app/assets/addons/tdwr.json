@@ -1,0 +1,821 @@
+{
+  "id": "builtin.tdwr",
+  "name": "TDWR airport radars",
+  "version": "1",
+  "author": "Taa'a Yuku Radar",
+  "description": "The FAA's Terminal Doppler Weather Radars at 45 US airports. Short range (about 90 km) but a narrow beam, fine gates and a fast update \u2014 sharper than NEXRAD close to the metro areas they sit in. Reflectivity and velocity, three tilts; no dual-pol, no Level 2.",
+  "format": 1,
+  "enabled": false,
+  "sites": [
+    {
+      "id": "TADW",
+      "lat": 38.695,
+      "lon": -76.845,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TATL",
+      "lat": 33.646944,
+      "lon": -84.261944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TBNA",
+      "lat": 35.98,
+      "lon": -86.661944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TBOS",
+      "lat": 42.158056,
+      "lon": -70.933056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TBWI",
+      "lat": 39.09,
+      "lon": -76.63,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TCLT",
+      "lat": 35.336944,
+      "lon": -80.885,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TCMH",
+      "lat": 40.006111,
+      "lon": -82.715,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TCVG",
+      "lat": 38.898056,
+      "lon": -84.58,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TDAL",
+      "lat": 32.926111,
+      "lon": -96.968056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TDAY",
+      "lat": 40.021944,
+      "lon": -84.123056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TDCA",
+      "lat": 38.758889,
+      "lon": -76.961944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TDEN",
+      "lat": 39.728056,
+      "lon": -104.52611,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TDFW",
+      "lat": 33.065,
+      "lon": -96.918056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TDTW",
+      "lat": 42.111111,
+      "lon": -83.515,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TEWR",
+      "lat": 40.593056,
+      "lon": -74.27,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TFLL",
+      "lat": 26.143056,
+      "lon": -80.343889,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "THOU",
+      "lat": 29.516111,
+      "lon": -95.241944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TIAD",
+      "lat": 39.083889,
+      "lon": -77.528889,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TIAH",
+      "lat": 30.065,
+      "lon": -95.566944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TICH",
+      "lat": 37.506944,
+      "lon": -97.436944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TIDS",
+      "lat": 39.636944,
+      "lon": -86.436111,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TJFK",
+      "lat": 40.588889,
+      "lon": -73.881111,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TLAS",
+      "lat": 36.143889,
+      "lon": -115.00694,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TLVE",
+      "lat": 41.29,
+      "lon": -82.008056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMCI",
+      "lat": 39.498056,
+      "lon": -94.741944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMCO",
+      "lat": 28.343889,
+      "lon": -81.326111,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMDW",
+      "lat": 41.651111,
+      "lon": -87.73,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMEM",
+      "lat": 34.896111,
+      "lon": -89.993056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMIA",
+      "lat": 25.758056,
+      "lon": -80.491111,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMKE",
+      "lat": 42.818889,
+      "lon": -88.046111,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMSP",
+      "lat": 44.871111,
+      "lon": -92.933056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TMSY",
+      "lat": 30.021944,
+      "lon": -90.403056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TOKC",
+      "lat": 35.276111,
+      "lon": -97.51,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TORD",
+      "lat": 41.796944,
+      "lon": -87.858056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TPBI",
+      "lat": 26.688056,
+      "lon": -80.273056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TPHL",
+      "lat": 39.948889,
+      "lon": -75.068889,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TPHX",
+      "lat": 33.421111,
+      "lon": -112.16305,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TPIT",
+      "lat": 40.501111,
+      "lon": -80.486111,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TRDU",
+      "lat": 36.001944,
+      "lon": -78.696944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TSDF",
+      "lat": 38.046111,
+      "lon": -85.61,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TSJU",
+      "lat": 18.473889,
+      "lon": -66.178889,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TSLC",
+      "lat": 40.966944,
+      "lon": -111.93,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TSTL",
+      "lat": 38.805,
+      "lon": -90.488889,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TTPA",
+      "lat": 27.86,
+      "lon": -82.518056,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    },
+    {
+      "id": "TTUL",
+      "lat": 36.071111,
+      "lon": -95.826944,
+      "products": {
+        "N0B": "TZ0",
+        "N1B": "TZ1",
+        "N2B": "TZ2",
+        "N0G": "TV0",
+        "N1G": "TV1",
+        "N2G": "TV2"
+      },
+      "level3": {
+        "type": "s3",
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com",
+        "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"
+      }
+    }
+  ]
+}

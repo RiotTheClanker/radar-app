@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:radar_app/data/addons.dart';
+import 'package:radar_app/data/nexrad_sites.g.dart';
 import 'package:radar_app/data/radar_source.dart';
 import 'package:radar_app/ui/wx_theme.dart';
 
@@ -183,7 +184,7 @@ void main() {
         '"url": "https://e.org/x.kml"}]',
       );
       expect(a.overlays, isEmpty);
-      expect(a.warnings.single, contains('"tiles" or "geojson"'));
+      expect(a.warnings.single, contains('"tiles", "wms" or "geojson"'));
     });
 
     test('a tile layer with no {z}', () {
@@ -471,10 +472,17 @@ void main() {
       expect(tlx.single, isA<AddonSite>());
     });
 
-    test('a new site is added; TDWR stays out', () {
+    test('a new site is added; built-in TDWR stays out', () {
       final merged = mergeSites(withSite('m', 'XNEW').sites);
       expect(merged.any((s) => s.icao == 'XNEW'), isTrue);
       expect(merged.any((s) => s.isTdwr), isFalse);
+    });
+
+    test('a TDWR an addon defines is in', () {
+      final merged = mergeSites(withSite('m', 'TOKC').sites);
+      final t = merged.singleWhere((s) => s.icao == 'TOKC');
+      expect(t, isA<AddonSite>());
+      expect(t.isTdwr, isTrue);
     });
 
     test('two addons claiming one id: the first keeps it, and it is said', () {
@@ -506,6 +514,199 @@ void main() {
     }
     final pack = r.addons.firstWhere((a) => a.id == 'example-spotters');
     expect(pack.places.first.places, hasLength(2), reason: 'from the CSV');
+  });
+
+  group('radars that name their products differently', () {
+    const tdwr = '''
+{"id": "td", "name": "TD", "sites": [{"id": "TOKC", "lat": 35.27,
+ "lon": -97.51, "products": {"n0b": "tz0", "N0G": "TV0"},
+ "level3": {"type": "s3", "url": "https://bucket.example.org",
+            "prefix": "{site3}_{product}_{yyyy}_{MM}_{dd}"}}]}
+''';
+    late AddonSite s;
+    setUp(() => s = parseAddon(tdwr, path: 'td').sites.single);
+
+    test('a TDWR id stays a TDWR, and does not fall back to NOAA Level 2', () {
+      expect(s.isTdwr, isTrue);
+      expect(s.name, 'Norman Wfo', reason: 'borrowed from the built-in');
+      expect(s.overridesBuiltIn, isFalse);
+      expect(isSelectableSite(s), isTrue);
+      expect(
+        isSelectableSite(nexradSites.firstWhere((x) => x.icao == 'TOKC')),
+        isFalse,
+        reason: 'the built-in TDWR entry has no source to read',
+      );
+    });
+
+    test('codes are mapped, and an unmapped one is not a product', () {
+      expect(s.level3Code('N0B'), 'TZ0');
+      expect(s.level3Code('N0G'), 'TV0');
+      expect(s.level3Code('N0C'), isNull);
+    });
+
+    test('the listing asks for the radar\'s own code', () async {
+      final asked = <Uri>[];
+      final client = MockClient((req) async {
+        asked.add(req.url);
+        return http.Response(
+          '<ListBucketResult><Key>OKC_TZ0_2026_09_28_12_00_03</Key>'
+          '</ListBucketResult>',
+          200,
+        );
+      });
+      final keys = await listSiteLevel3(s, 'N0B', count: 1, client: client);
+      expect(keys.single, endsWith('/OKC_TZ0_2026_09_28_12_00_03'));
+      expect(asked.first.queryParameters['prefix'], startsWith('OKC_TZ0_'));
+    });
+
+    test('an unmapped product and Level 2 fail with a reason', () async {
+      await expectLater(
+        listSiteLevel3(s, 'N0C'),
+        throwsA(isA<NoProductException>()),
+      );
+      await expectLater(
+        listSiteLevel2(s),
+        throwsA(
+          isA<NoSourceException>().having(
+            (e) => '$e',
+            'message',
+            contains('TDWR'),
+          ),
+        ),
+      );
+    });
+
+    test('a site with no map passes codes through', () {
+      final a = parseAddon(_full, path: 'x');
+      expect(a.sites.first.level3Code('N0B'), 'N0B');
+    });
+  });
+
+  group('wms overlays and bounds', () {
+    Addon ov(String body) => parseAddon(
+      '{"id": "t", "name": "T", "overlays": [{"id": "o", $body}]}',
+      path: 't',
+    );
+
+    test('reads a WMS layer', () {
+      final a = ov(
+        '"type": "wms", "url": "https://geo.example.org/wms?dataset=R", '
+        '"layers": "A, B", "styles": ["s"], "params": {"TIME": "now", "n": 2}, '
+        '"bounds": [40, -145, 72, -50], "refreshMinutes": 5',
+      );
+      expect(a.warnings, isEmpty, reason: a.warnings.join());
+      final o = a.overlays.single;
+      expect(o.kind, OverlayKind.wms);
+      expect(o.wms!.layers, ['A', 'B']);
+      expect(o.wms!.styles, ['s']);
+      expect(o.wms!.version, '1.3.0');
+      expect(o.wms!.transparent, isTrue);
+      expect(o.wms!.params, {'TIME': 'now', 'n': '2'});
+      expect(o.bounds, (south: 40.0, west: -145.0, north: 72.0, east: -50.0));
+    });
+
+    test('a WMS layer needs its layer names', () {
+      final a = ov('"type": "wms", "url": "https://geo.example.org/wms"');
+      expect(a.overlays, isEmpty);
+      expect(a.warnings.single, contains('"layers"'));
+    });
+
+    test('bad bounds are dropped, the layer kept', () {
+      final a = ov(
+        '"type": "tiles", "url": "https://t.example.org/{z}/{x}/{y}.png", '
+        '"bounds": [72, 0, 40, 10]',
+      );
+      expect(a.overlays.single.bounds, isNull);
+      expect(a.warnings.single, contains('bounds'));
+    });
+
+    test('a refreshing tile URL changes once per interval', () {
+      final o = ov(
+        '"type": "tiles", "url": "https://t.example.org/{z}/{x}/{y}.png", '
+        '"refreshMinutes": 5',
+      ).overlays.single;
+      final t0 = DateTime.utc(2026, 9, 28, 12, 0, 30);
+      expect(o.tileUrlAt(t0), o.tileUrlAt(t0.add(const Duration(minutes: 4))));
+      expect(
+        o.tileUrlAt(t0),
+        isNot(o.tileUrlAt(t0.add(const Duration(minutes: 5)))),
+      );
+      expect(o.tileUrlAt(t0), startsWith('https://t.example.org/{z}/{x}/{y}.png?_='));
+      final still = ov(
+        '"type": "tiles", "url": "https://t.example.org/{z}/{x}/{y}.png"',
+      ).overlays.single;
+      expect(still.tileUrlAt(t0), 'https://t.example.org/{z}/{x}/{y}.png');
+    });
+  });
+
+  group('addons that ship off, and ones built in', () {
+    const optIn = '{"id": "o", "name": "Opt in", "enabled": false}';
+    const plain = '{"id": "p", "name": "Plain"}';
+
+    test('"enabled": false starts off until switched on', () {
+      final o = parseAddon(optIn, path: 'o');
+      final p = parseAddon(plain, path: 'p');
+      expect(o.warnings, isEmpty);
+      final s = AddonSettings();
+      expect(s.isEnabled(o), isFalse);
+      expect(s.isEnabled(p), isTrue);
+      s.setEnabled(o, true);
+      s.setEnabled(p, false);
+      expect(s.isEnabled(o), isTrue);
+      expect(s.isEnabled(p), isFalse);
+      s.setEnabled(o, false);
+      expect(s.isEnabled(o), isFalse);
+    });
+
+    test('the opt-in choice survives a round trip', () {
+      final dir = Directory.systemTemp.createTempSync('addon_settings');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final f = File('${dir.path}/s.json');
+      (AddonSettings()..setEnabled(parseAddon(optIn, path: 'o'), true)).save(f);
+      expect(AddonSettings.load(f).enabled, {'o'});
+    });
+
+    test('built-ins join the installed ones, and an installed copy wins', () {
+      final installed = AddonLoadResult(
+        [parseAddon('{"id": "b", "name": "Mine"}', path: '/x/b.json')],
+        const {},
+      );
+      final r = withBuiltInAddons(installed, {
+        'b.json': '{"id": "b", "name": "Shipped B"}',
+        'c.json': '{"id": "c", "name": "Shipped C"}',
+        'bad.json': '{',
+      });
+      expect(r.addons.map((a) => a.name), ['Mine', 'Shipped C']);
+      expect(r.addons.last.builtIn, isTrue);
+      expect(r.addons.first.builtIn, isFalse);
+      expect(r.errors.keys, ['built-in bad.json']);
+      expect(() => removeAddon(r.addons.last), throwsStateError);
+    });
+  });
+
+  test('every built-in addon loads cleanly and ships switched off', () {
+    // assets/addons is inside the app. A warning there is a broken layer
+    // every user who switches it on would see.
+    final files = Directory('assets/addons')
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.json'))
+        .toList();
+    expect(files, isNotEmpty);
+    final r = withBuiltInAddons(AddonLoadResult.empty, {
+      for (final f in files) f.uri.pathSegments.last: f.readAsStringSync(),
+    });
+    expect(r.errors, isEmpty);
+    expect(r.addons, hasLength(files.length));
+    for (final a in r.addons) {
+      expect(a.warnings, isEmpty, reason: '${a.id}: ${a.warnings}');
+      expect(a.enabledByDefault, isFalse, reason: a.id);
+      expect(a.id, startsWith('builtin.'));
+    }
+    expect(siteCollisions(r.addons), isEmpty);
+    final tdwr = r.addons.firstWhere((a) => a.id == 'builtin.tdwr');
+    expect(tdwr.sites, hasLength(45));
+    expect(tdwr.sites.every((s) => s.isTdwr && s.level3 != null), isTrue);
   });
 
   test('theme keys match what the UI palette can set', () {

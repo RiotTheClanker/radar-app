@@ -35,7 +35,7 @@ const _reservedNames = {'README.txt'};
 
 // ------------------------------------------------------------- models ----
 
-enum OverlayKind { tiles, geojson }
+enum OverlayKind { tiles, wms, geojson }
 
 /// A map layer an addon adds.
 class AddonOverlay {
@@ -58,6 +58,8 @@ class AddonOverlay {
     this.visibleByDefault = true,
     this.minZoom,
     this.maxZoom,
+    this.bounds,
+    this.wms,
   });
 
   /// `addonId/overlayId`, unique across every loaded addon.
@@ -96,6 +98,56 @@ class AddonOverlay {
   final bool visibleByDefault;
   final double? minZoom;
   final double? maxZoom;
+
+  /// Where a tile or WMS layer has anything to draw: south, west, north,
+  /// east. Tiles outside it are never requested — a Canadian mosaic has
+  /// nothing to say about Kansas, and asking for it on every pan is a
+  /// stranger's server answering with blank images.
+  final ({double south, double west, double north, double east})? bounds;
+
+  /// How to ask a WMS server for tiles, for [OverlayKind.wms].
+  final WmsSpec? wms;
+
+  /// The URL a tile or WMS layer is fetched with right now.
+  ///
+  /// A layer with a refresh interval gets a stamp that changes once per
+  /// interval. Tiles are cached by URL, so without it a radar mosaic drawn
+  /// at noon would still be noon's at six.
+  String? tileUrlAt(DateTime now) {
+    final u = url;
+    final stamp = refreshStamp(now);
+    if (u == null || stamp == null) return u;
+    return '$u${u.contains('?') ? '&' : '?'}_=$stamp';
+  }
+
+  /// A number that changes once per [refreshMinutes], or null for a layer
+  /// that is fetched once.
+  int? refreshStamp(DateTime now) {
+    if (refreshMinutes <= 0) return null;
+    final period = refreshMinutes.clamp(1, 1440) * 60000;
+    return now.millisecondsSinceEpoch ~/ period;
+  }
+}
+
+/// The request parameters of a WMS layer.
+class WmsSpec {
+  const WmsSpec({
+    required this.layers,
+    this.styles = const [],
+    this.format = 'image/png',
+    this.version = '1.3.0',
+    this.transparent = true,
+    this.params = const {},
+  });
+
+  final List<String> layers;
+  final List<String> styles;
+  final String format;
+  final String version;
+  final bool transparent;
+
+  /// Anything else the server wants on the query string (`TIME`, a key).
+  final Map<String, String> params;
 }
 
 /// One ground location: a shelter, a spotter post, a school, home.
@@ -181,6 +233,8 @@ class Addon {
     this.themes = const [],
     this.palettes = const [],
     this.warnings = const [],
+    this.builtIn = false,
+    this.enabledByDefault = true,
   });
 
   final String id;
@@ -206,6 +260,16 @@ class Addon {
   /// What was skipped or looked wrong. Shown in the addon manager, because a
   /// layer that silently fails to appear is indistinguishable from a bug.
   final List<String> warnings;
+
+  /// Shipped inside the app rather than installed. Can be switched off but
+  /// not removed, and is replaced by the next version of the app rather than
+  /// by reinstalling.
+  final bool builtIn;
+
+  /// Whether it is on before anyone has touched its switch. Built-in addons
+  /// are extras most people will not want — a second radar network, a
+  /// theme — so they ship off and wait to be asked for.
+  final bool enabledByDefault;
 
   String get summary {
     final parts = <String>[
@@ -236,7 +300,12 @@ final _idRe = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$');
 /// JSON object, or no usable `id`/`name`. Everything else — a site missing
 /// its latitude, an overlay of an unknown type — is skipped with a warning,
 /// so one mistake does not take the rest of someone's work down with it.
-Addon parseAddon(String text, {required String path, String? baseDir}) {
+Addon parseAddon(
+  String text, {
+  required String path,
+  String? baseDir,
+  bool builtIn = false,
+}) {
   final Object? doc;
   try {
     doc = jsonDecode(text);
@@ -259,7 +328,7 @@ Addon parseAddon(String text, {required String path, String? baseDir}) {
   final warnings = <String>[];
   const known = {
     'id', 'name', 'version', 'author', 'description', 'homepage', //
-    'format', 'sites', 'overlays', 'places', 'themes', 'palettes',
+    'format', 'sites', 'overlays', 'places', 'themes', 'palettes', 'enabled',
   };
   for (final k in doc.keys) {
     if (!known.contains(k)) warnings.add('unknown field "$k" ignored');
@@ -285,6 +354,8 @@ Addon parseAddon(String text, {required String path, String? baseDir}) {
     themes: _list(doc['themes'], 'themes', ctx, _theme),
     palettes: _list(doc['palettes'], 'palettes', ctx, _palette),
     warnings: warnings,
+    builtIn: builtIn,
+    enabledByDefault: doc['enabled'] != false,
   );
 }
 
@@ -409,6 +480,26 @@ AddonSite? _site(Object? v, int i, _Ctx ctx) {
         'source — it has nowhere to get data from');
   }
   final shortId = _str(v['shortId']);
+  final codes = <String, String>{};
+  final rawCodes = v['products'];
+  if (rawCodes is Map) {
+    rawCodes.forEach((k, val) {
+      final c = _str(val);
+      if (k is String && k.trim().isNotEmpty && c != null) {
+        codes[k.trim().toUpperCase()] = c.toUpperCase();
+      } else {
+        ctx.warnings.add('$what: products "$k" should map to a product code');
+      }
+    });
+  } else if (rawCodes != null) {
+    ctx.warnings.add('$what: "products" should be an object like '
+        '{"N0B": "TZ0"}');
+  }
+  if (codes.isNotEmpty && open != null) {
+    ctx.warnings.add('$what: "products" renames Level 3 codes, and an open '
+        'source has none — it is ignored');
+  }
+  final isTdwr = builtIn?.isTdwr ?? v['tdwr'] == true;
   return AddonSite(
     id,
     _str(v['name']) ?? builtIn?.name ?? id,
@@ -416,14 +507,18 @@ AddonSite? _site(Object? v, int i, _Ctx ctx) {
     lat,
     lon,
     (v['elevFt'] as num?)?.round() ?? builtIn?.elevFt ?? 0,
-    false,
+    isTdwr,
     addonId: ctx.addonId,
     level2: l2,
     level3: l3,
     open: open,
     attribution: _str(v['attribution']),
-    overridesBuiltIn: builtIn != null,
+    // A TDWR id is in the built-in table but has nothing in NOAA's Level 2
+    // bucket to fall back to, so a missing level is an error that says so
+    // rather than an empty listing that looks like a quiet radar.
+    overridesBuiltIn: builtIn != null && !builtIn.isTdwr,
     shortIdOverride: shortId,
+    productCodes: open != null ? const {} : codes,
   );
 }
 
@@ -503,11 +598,12 @@ AddonOverlay? _overlay(Object? v, int i, _Ctx ctx) {
   final name = _str(v['name']) ?? id;
   final kind = switch (v['type']) {
     'tiles' => OverlayKind.tiles,
+    'wms' => OverlayKind.wms,
     'geojson' => OverlayKind.geojson,
     _ => null,
   };
   if (kind == null) {
-    ctx.warnings.add('$what: "type" must be "tiles" or "geojson"');
+    ctx.warnings.add('$what: "type" must be "tiles", "wms" or "geojson"');
     return null;
   }
   final url = _str(v['url']);
@@ -516,9 +612,16 @@ AddonOverlay? _overlay(Object? v, int i, _Ctx ctx) {
   String? inline;
   if (v['data'] is Map) inline = jsonEncode(v['data']);
 
+  WmsSpec? wms;
   if (kind == OverlayKind.tiles) {
     if (url == null || !url.contains('{z}')) {
       ctx.warnings.add('$what: tiles need a "url" with {z}, {x} and {y}');
+      return null;
+    }
+  } else if (kind == OverlayKind.wms) {
+    wms = _wms(v, what, ctx);
+    if (url == null || wms == null) {
+      if (url == null) ctx.warnings.add('$what: wms needs the server\'s "url"');
       return null;
     }
   } else if (url == null && file == null && inline == null) {
@@ -556,7 +659,64 @@ AddonOverlay? _overlay(Object? v, int i, _Ctx ctx) {
     visibleByDefault: v['visible'] != false,
     minZoom: _dbl(v['minZoom']),
     maxZoom: _dbl(v['maxZoom']),
+    bounds: _bounds(v['bounds'], what, ctx),
+    wms: wms,
   );
+}
+
+WmsSpec? _wms(Map v, String what, _Ctx ctx) {
+  List<String> names(Object? x) => switch (x) {
+        String s => [
+            for (final p in s.split(','))
+              if (p.trim().isNotEmpty) p.trim(),
+          ],
+        List l => [for (final p in l) if (_str(p) != null) _str(p)!],
+        _ => const [],
+      };
+  final layers = names(v['layers']);
+  if (layers.isEmpty) {
+    ctx.warnings.add('$what: wms needs "layers" — the layer name(s) the '
+        'server\'s GetCapabilities lists');
+    return null;
+  }
+  final params = <String, String>{};
+  final p = v['params'];
+  if (p is Map) {
+    p.forEach((k, val) {
+      if (k is String && (val is String || val is num || val is bool)) {
+        params[k] = '$val';
+      }
+    });
+  }
+  return WmsSpec(
+    layers: layers,
+    styles: names(v['styles']),
+    format: _str(v['format']) ?? 'image/png',
+    version: _str(v['version']) ?? '1.3.0',
+    transparent: v['transparent'] != false,
+    params: params,
+  );
+}
+
+({double south, double west, double north, double east})? _bounds(
+  Object? v,
+  String what,
+  _Ctx ctx,
+) {
+  if (v == null) return null;
+  final n = v is List ? [for (final x in v) _dbl(x)] : const <double?>[];
+  if (n.length != 4 ||
+      n.contains(null) ||
+      n[0]! >= n[2]! ||
+      n[0]!.abs() > 90 ||
+      n[2]!.abs() > 90 ||
+      n[1]!.abs() > 180 ||
+      n[3]!.abs() > 180) {
+    ctx.warnings.add('$what: "bounds" should be [south, west, north, east] '
+        'in degrees');
+    return null;
+  }
+  return (south: n[0]!, west: n[1]!, north: n[2]!, east: n[3]!);
 }
 
 PlaceGroup? _placeGroup(Object? v, int i, _Ctx ctx) {
@@ -831,6 +991,37 @@ AddonLoadResult loadAddons(Directory dir) {
   return AddonLoadResult(addons, errors);
 }
 
+/// [installed] with the addons that ship inside the app added to it.
+///
+/// [builtIns] is manifest text by name, as the UI layer read it from the
+/// app's assets — this layer has no asset bundle to read. Built-ins are
+/// single files with nothing beside them, the same as an addon installed
+/// from a link, so everything they use is reached by URL or written inline.
+///
+/// An installed addon with a built-in's id wins: that is someone who copied
+/// one out to change it, and the copy is the one they mean.
+AddonLoadResult withBuiltInAddons(
+  AddonLoadResult installed,
+  Map<String, String> builtIns,
+) {
+  final addons = [...installed.addons];
+  final errors = {...installed.errors};
+  final names = builtIns.keys.toList()..sort();
+  for (final name in names) {
+    try {
+      final a = parseAddon(builtIns[name]!, path: name, builtIn: true);
+      if (addons.any((x) => x.id == a.id)) continue;
+      addons.add(a);
+    } catch (e) {
+      // Only reachable by shipping a broken manifest, which a test guards
+      // against; still said rather than hidden if it ever happens.
+      errors['built-in $name'] = e is FormatException ? e.message : '$e';
+    }
+  }
+  addons.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  return AddonLoadResult(addons, errors);
+}
+
 /// Where each shared site id is defined more than once across [addons], as
 /// warnings to show. The first addon (by name) keeps the id.
 List<String> siteCollisions(List<Addon> addons) {
@@ -910,6 +1101,9 @@ String _peekId(String text) {
 
 /// Delete an addon's file, or its folder for a folder addon.
 void removeAddon(Addon a) {
+  if (a.builtIn) {
+    throw StateError('"${a.name}" comes with the app — switch it off instead');
+  }
   final t = FileSystemEntity.typeSync(a.path);
   if (t == FileSystemEntityType.directory) {
     Directory(a.path).deleteSync(recursive: true);
@@ -926,12 +1120,34 @@ void removeAddon(Addon a) {
 class AddonSettings {
   AddonSettings({
     Set<String>? disabled,
+    Set<String>? enabled,
     this.theme,
     Map<String, bool>? layers,
   })  : disabled = disabled ?? {},
+        enabled = enabled ?? {},
         layers = layers ?? {};
 
+  /// Addons switched off that would otherwise be on.
   final Set<String> disabled;
+
+  /// Addons switched on that start off (`"enabled": false`, which is every
+  /// built-in). Kept apart from [disabled] so that a later version shipping
+  /// an addon on or off by default does not flip anyone's own choice.
+  final Set<String> enabled;
+
+  bool isEnabled(Addon a) => a.enabledByDefault
+      ? !disabled.contains(a.id)
+      : enabled.contains(a.id);
+
+  void setEnabled(Addon a, bool on) {
+    if (on) {
+      disabled.remove(a.id);
+      enabled.add(a.id);
+    } else {
+      enabled.remove(a.id);
+      disabled.add(a.id);
+    }
+  }
 
   /// The active theme's key, or null for the built-in look.
   String? theme;
@@ -945,6 +1161,7 @@ class AddonSettings {
       final m = jsonDecode(text) as Map<String, dynamic>;
       return AddonSettings(
         disabled: {...(m['disabled'] as List? ?? const []).whereType<String>()},
+        enabled: {...(m['enabled'] as List? ?? const []).whereType<String>()},
         theme: m['theme'] as String?,
         layers: {
           for (final e in (m['layers'] as Map? ?? const {}).entries)
@@ -960,6 +1177,7 @@ class AddonSettings {
 
   String toJson() => const JsonEncoder.withIndent('  ').convert({
         'disabled': disabled.toList()..sort(),
+        'enabled': enabled.toList()..sort(),
         'theme': theme,
         'layers': layers,
       });

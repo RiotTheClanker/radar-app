@@ -145,4 +145,24 @@ void main() {
           reason: 're-applying the same palette is free');
     });
   });
+
+  test('built-ins load with no addons folder, off until switched on', () {
+    final w = WorkspaceState();
+    addTearDown(w.dispose);
+    w.reloadAddons(builtIns: {
+      'td.json': '''
+{"id": "builtin.td", "name": "TD", "enabled": false,
+ "sites": [{"id": "TOKC", "lat": 35.27, "lon": -97.51,
+            "products": {"N0B": "TZ0"},
+            "level3": {"type": "s3", "url": "https://b.e.org",
+                       "prefix": "{site3}_{product}"}}]}
+''',
+    });
+    final td = w.addons.single;
+    expect(td.builtIn, isTrue);
+    expect(w.isAddonEnabled(td), isFalse);
+    expect(w.siteById('TOKC'), isNull);
+    w.setAddonEnabled(td, true);
+    expect(w.siteById('TOKC'), isA<AddonSite>());
+  });
 }

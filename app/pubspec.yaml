@@ -25,3 +25,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # The built-in addons (lib/ui/builtin_addons.dart). The folder, not the
+    # files, so a new one is picked up by dropping it in.
+    - assets/addons/

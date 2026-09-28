@@ -53,6 +53,13 @@ pub static PRODUCTS: &[ProductInfo] = &[
     product!(165, "N_H", "Hydrometeor Classification", ProductKind::HydroClass, 250.0, 300.0, ""),
     product!(170, "DAA", "Digital Accumulation Array", ProductKind::Precipitation, 250.0, 230.0, "in"),
     product!(172, "DTA", "Storm Total Accumulation", ProductKind::Precipitation, 250.0, 230.0, "in"),
+    // TDWR, the FAA's airport radars. C-band with a narrow beam and 150 m
+    // gates out to 48 nm, which is why they see the gust front a NEXRAD
+    // 60 km away is overshooting. Same packet 16 and threshold layout as the
+    // legacy digital products above.
+    product!(180, "TZ_", "TDWR Base Reflectivity", ProductKind::Reflectivity, 150.0, 90.0, "dBZ"),
+    product!(182, "TV_", "TDWR Base Velocity", ProductKind::Velocity, 150.0, 90.0, "kt"),
+    product!(186, "TZL", "TDWR Long Range Reflectivity", ProductKind::Reflectivity, 300.0, 460.0, "dBZ"),
 ];
 
 pub fn product_info(code: i16) -> Option<&'static ProductInfo> {

@@ -22,6 +22,19 @@ for prod in N0B N0G; do
   fi
 done
 
+# TDWR from Oklahoma City (TOKC), which files under OKC in the same bucket:
+# reflectivity, velocity and the long-range scan, for the TDWR decoder tests.
+for prod in TZ0 TV0 TZL; do
+  key=$(curl -s "$BUCKET/?list-type=2&prefix=OKC_${prod}_$DAY&max-keys=1000" \
+    | grep -o '<Key>[^<]*</Key>' | tail -1 | sed 's/<[^>]*>//g')
+  if [ -n "$key" ]; then
+    echo "fetching $key"
+    curl -s -o "testdata/latest_TDWR_$prod" "$BUCKET/$key"
+  else
+    echo "no TDWR $prod data found for today (UTC)" >&2
+  fi
+done
+
 # One Level 2 volume, from KICX Cedar City: the highest radar in the network,
 # and so the site where the antenna altitude matters most and where getting it
 # wrong is most visible. tests/level2_test.rs reads its site block.

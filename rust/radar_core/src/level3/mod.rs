@@ -398,7 +398,7 @@ fn build_decoder(product_code: i16, thresholds: &[u8]) -> ValueDecoder {
     match product_code {
         // Linear digital (incl. super-res): threshold halfwords are
         // min*10, inc*10, n_levels
-        94 | 99 | 153 | 154 | 155 => {
+        94 | 99 | 153 | 154 | 155 | 180 | 182 | 186 => {
             let min = i16::from_be_bytes([thresholds[0], thresholds[1]]) as f32 / 10.0;
             let inc = i16::from_be_bytes([thresholds[2], thresholds[3]]) as f32 / 10.0;
             ValueDecoder::LegacyLinear { min, inc }

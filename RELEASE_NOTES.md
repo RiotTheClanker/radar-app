@@ -57,6 +57,38 @@ you are on it, the same as the basemap's. The format is documented in
 [docs/addons.md](https://github.com/RiotTheClanker/radar-app/blob/main/docs/addons.md), with examples in
 [docs/addons/examples](https://github.com/RiotTheClanker/radar-app/tree/main/docs/addons/examples).
 
+### Built-in addons
+
+Five addons now come with the app, all **off until you switch them on** in
+**Tools → Addons**, under *Comes with the app*. They are ordinary addon
+files, so they double as worked examples of the format.
+
+- **TDWR airport radars.** The FAA's Terminal Doppler Weather Radars at 45 US
+  airports, from NOAA's Level 3 feed. Short range (about 90 km), but a
+  narrow beam, 150 m gates and a fast update — much sharper than NEXRAD
+  close to the metro areas they sit in. Reflectivity and velocity on three
+  tilts; the engine now decodes the TDWR products (TZ0–2, TV0–2, and the
+  long-range TZL). They appear as diamonds and in the radar picker, and are
+  never chosen as the startup radar.
+- **Radar beyond the US.** The national radar mosaics of Canada (rain, and
+  snow off by default), Germany, the Netherlands and Finland, refreshed every
+  five minutes, plus a marker for each of the 186 operational radars in
+  Europe's OPERA network. These are the services' own images: the cursor and
+  colour key read the US radars only.
+- **Map reference layers.** US county and state lines, place names and roads
+  drawn *over* the radar, and hillshade under it — each its own switch in
+  Layers.
+- **Hurricanes, wildfires and earthquakes.** NHC forecast cones, tracks and
+  coastal watches for every active storm; perimeters of large US wildfires;
+  earthquakes of magnitude 2.5+ in the past day.
+- **Extra themes.** Night (red), High contrast, and OLED black.
+
+The addon format gained what these needed, available to anyone's addon:
+`wms` overlays, `bounds` to keep a layer from being fetched where it has
+nothing, `refreshMinutes` for tile layers, a site `products` map for radars
+that name their products differently, and `"enabled": false` for an addon
+that should wait to be switched on.
+
 ### Fixes
 
 - **A radar that failed to load no longer shows the previous radar's
