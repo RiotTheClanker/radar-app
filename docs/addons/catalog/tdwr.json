@@ -1,11 +1,10 @@
 {
-  "id": "builtin.tdwr",
+  "id": "tdwr",
   "name": "TDWR airport radars",
   "version": "1",
   "author": "Taa'a Yuku Radar",
   "description": "The FAA's Terminal Doppler Weather Radars at 45 US airports. Short range (about 90 km) but a narrow beam, fine gates and a fast update \u2014 sharper than NEXRAD close to the metro areas they sit in. Reflectivity and velocity, three tilts; no dual-pol, no Level 2.",
   "format": 1,
-  "enabled": false,
   "sites": [
     {
       "id": "TADW",

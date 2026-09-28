@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write the built-in map-reference and hazards addons.
+"""Write the map-reference and hazards addons.
 
     python3 tools/gen_extras_addons.py
 
@@ -10,7 +10,7 @@ storm slot). So they are looked up here by title from each server's
 GetCapabilities, and a run fails loudly if a title has gone, rather than the
 app quietly drawing the wrong layer.
 
-Writes app/assets/addons/map-layers.json and app/assets/addons/hazards.json.
+Writes docs/addons/catalog/map-layers.json and docs/addons/catalog/hazards.json.
 """
 
 import json
@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSETS = ROOT / "app/assets/addons"
+ASSETS = ROOT / "docs/addons/catalog"
 AUTHOR = "Taa'a Yuku Radar"
 
 TIGER = (
@@ -63,7 +63,7 @@ def need(table, title, where):
 def map_layers():
     tiger = layers_by_title(TIGER)
     return {
-        "id": "builtin.map-layers",
+        "id": "map-layers",
         "name": "Map reference layers",
         "version": "1",
         "author": AUTHOR,
@@ -74,7 +74,6 @@ def map_layers():
             "its own switch in Layers."
         ),
         "format": 1,
-        "enabled": False,
         "overlays": [
             {
                 "id": "counties",
@@ -145,7 +144,7 @@ def hazards():
     if len(names) < 15:
         sys.exit(f"only {len(names)} NHC storm layers — has the service changed?")
     return {
-        "id": "builtin.hazards",
+        "id": "hazards",
         "name": "Hurricanes, wildfires and earthquakes",
         "version": "1",
         "author": AUTHOR,
@@ -156,7 +155,6 @@ def hazards():
             "refreshes on its own and is its own switch in Layers."
         ),
         "format": 1,
-        "enabled": False,
         "overlays": [
             {
                 "id": "tropical",

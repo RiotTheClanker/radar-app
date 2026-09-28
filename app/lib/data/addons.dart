@@ -238,7 +238,6 @@ class Addon {
     this.themes = const [],
     this.palettes = const [],
     this.warnings = const [],
-    this.builtIn = false,
     this.enabledByDefault = true,
   });
 
@@ -266,14 +265,8 @@ class Addon {
   /// layer that silently fails to appear is indistinguishable from a bug.
   final List<String> warnings;
 
-  /// Shipped inside the app rather than installed. Can be switched off but
-  /// not removed, and is replaced by the next version of the app rather than
-  /// by reinstalling.
-  final bool builtIn;
-
-  /// Whether it is on before anyone has touched its switch. Built-in addons
-  /// are extras most people will not want — a second radar network, a
-  /// theme — so they ship off and wait to be asked for.
+  /// Whether it is on before anyone has touched its switch (`"enabled":
+  /// false` in the manifest), for an addon that bundles optional extras.
   final bool enabledByDefault;
 
   String get summary {
@@ -305,12 +298,7 @@ final _idRe = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$');
 /// JSON object, or no usable `id`/`name`. Everything else — a site missing
 /// its latitude, an overlay of an unknown type — is skipped with a warning,
 /// so one mistake does not take the rest of someone's work down with it.
-Addon parseAddon(
-  String text, {
-  required String path,
-  String? baseDir,
-  bool builtIn = false,
-}) {
+Addon parseAddon(String text, {required String path, String? baseDir}) {
   final Object? doc;
   try {
     doc = jsonDecode(text);
@@ -359,7 +347,6 @@ Addon parseAddon(
     themes: _list(doc['themes'], 'themes', ctx, _theme),
     palettes: _list(doc['palettes'], 'palettes', ctx, _palette),
     warnings: warnings,
-    builtIn: builtIn,
     enabledByDefault: doc['enabled'] != false,
   );
 }
@@ -997,37 +984,6 @@ AddonLoadResult loadAddons(Directory dir) {
   return AddonLoadResult(addons, errors);
 }
 
-/// [installed] with the addons that ship inside the app added to it.
-///
-/// [builtIns] is manifest text by name, as the UI layer read it from the
-/// app's assets — this layer has no asset bundle to read. Built-ins are
-/// single files with nothing beside them, the same as an addon installed
-/// from a link, so everything they use is reached by URL or written inline.
-///
-/// An installed addon with a built-in's id wins: that is someone who copied
-/// one out to change it, and the copy is the one they mean.
-AddonLoadResult withBuiltInAddons(
-  AddonLoadResult installed,
-  Map<String, String> builtIns,
-) {
-  final addons = [...installed.addons];
-  final errors = {...installed.errors};
-  final names = builtIns.keys.toList()..sort();
-  for (final name in names) {
-    try {
-      final a = parseAddon(builtIns[name]!, path: name, builtIn: true);
-      if (addons.any((x) => x.id == a.id)) continue;
-      addons.add(a);
-    } catch (e) {
-      // Only reachable by shipping a broken manifest, which a test guards
-      // against; still said rather than hidden if it ever happens.
-      errors['built-in $name'] = e is FormatException ? e.message : '$e';
-    }
-  }
-  addons.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-  return AddonLoadResult(addons, errors);
-}
-
 /// Where each shared site id is defined more than once across [addons], as
 /// warnings to show. The first addon (by name) keeps the id.
 List<String> siteCollisions(List<Addon> addons) {
@@ -1107,9 +1063,6 @@ String _peekId(String text) {
 
 /// Delete an addon's file, or its folder for a folder addon.
 void removeAddon(Addon a) {
-  if (a.builtIn) {
-    throw StateError('"${a.name}" comes with the app — switch it off instead');
-  }
   final t = FileSystemEntity.typeSync(a.path);
   if (t == FileSystemEntityType.directory) {
     Directory(a.path).deleteSync(recursive: true);
@@ -1136,8 +1089,7 @@ class AddonSettings {
   /// Addons switched off that would otherwise be on.
   final Set<String> disabled;
 
-  /// Addons switched on that start off (`"enabled": false`, which is every
-  /// built-in). Kept apart from [disabled] so that a later version shipping
+  /// Addons switched on that start off (`"enabled": false`). Kept apart from [disabled] so that a later version shipping
   /// an addon on or off by default does not flip anyone's own choice.
   final Set<String> enabled;
 

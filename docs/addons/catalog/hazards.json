@@ -1,11 +1,10 @@
 {
-  "id": "builtin.hazards",
+  "id": "hazards",
   "name": "Hurricanes, wildfires and earthquakes",
   "version": "1",
   "author": "Taa'a Yuku Radar",
   "description": "The NHC's forecast cones, tracks and coastal watches for every active tropical storm; the perimeters of large US wildfires; and earthquakes of magnitude 2.5 and up in the last day. Each refreshes on its own and is its own switch in Layers.",
   "format": 1,
-  "enabled": false,
   "overlays": [
     {
       "id": "tropical",

@@ -1,11 +1,10 @@
 {
-  "id": "builtin.map-layers",
+  "id": "map-layers",
   "name": "Map reference layers",
   "version": "1",
   "author": "Taa'a Yuku Radar",
   "description": "County and state lines, town names and roads drawn over the radar, so you can tell which county a storm is in without switching basemaps. Hillshade under it, for terrain. Each is its own switch in Layers.",
   "format": 1,
-  "enabled": false,
   "overlays": [
     {
       "id": "counties",

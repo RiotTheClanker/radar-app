@@ -654,7 +654,7 @@ void main() {
     });
   });
 
-  group('addons that ship off, and ones built in', () {
+  group('addons that ship off', () {
     const optIn = '{"id": "o", "name": "Opt in", "enabled": false}';
     const plain = '{"id": "p", "name": "Plain"}';
 
@@ -680,46 +680,28 @@ void main() {
       (AddonSettings()..setEnabled(parseAddon(optIn, path: 'o'), true)).save(f);
       expect(AddonSettings.load(f).enabled, {'o'});
     });
-
-    test('built-ins join the installed ones, and an installed copy wins', () {
-      final installed = AddonLoadResult(
-        [parseAddon('{"id": "b", "name": "Mine"}', path: '/x/b.json')],
-        const {},
-      );
-      final r = withBuiltInAddons(installed, {
-        'b.json': '{"id": "b", "name": "Shipped B"}',
-        'c.json': '{"id": "c", "name": "Shipped C"}',
-        'bad.json': '{',
-      });
-      expect(r.addons.map((a) => a.name), ['Mine', 'Shipped C']);
-      expect(r.addons.last.builtIn, isTrue);
-      expect(r.addons.first.builtIn, isFalse);
-      expect(r.errors.keys, ['built-in bad.json']);
-      expect(() => removeAddon(r.addons.last), throwsStateError);
-    });
   });
 
-  test('every built-in addon loads cleanly and ships switched off', () {
-    // assets/addons is inside the app. A warning there is a broken layer
-    // every user who switches it on would see.
-    final files = Directory('assets/addons')
+  test('every catalog addon loads cleanly as a single file', () {
+    // docs/addons/catalog is what the website hosts for people to install
+    // from a link. A warning there is a broken layer for everyone who does;
+    // loaded with no folder, the way a link install is.
+    final files = Directory('../docs/addons/catalog')
         .listSync()
         .whereType<File>()
         .where((f) => f.path.endsWith('.json'))
         .toList();
     expect(files, isNotEmpty);
-    final r = withBuiltInAddons(AddonLoadResult.empty, {
-      for (final f in files) f.uri.pathSegments.last: f.readAsStringSync(),
-    });
-    expect(r.errors, isEmpty);
-    expect(r.addons, hasLength(files.length));
-    for (final a in r.addons) {
+    final addons = [
+      for (final f in files) parseAddon(f.readAsStringSync(), path: f.path),
+    ];
+    for (final a in addons) {
       expect(a.warnings, isEmpty, reason: '${a.id}: ${a.warnings}');
-      expect(a.enabledByDefault, isFalse, reason: a.id);
-      expect(a.id, startsWith('builtin.'));
+      expect(a.enabledByDefault, isTrue, reason: a.id);
     }
-    expect(siteCollisions(r.addons), isEmpty);
-    final tdwr = r.addons.firstWhere((a) => a.id == 'builtin.tdwr');
+    expect({for (final a in addons) a.id}, hasLength(addons.length));
+    expect(siteCollisions(addons), isEmpty);
+    final tdwr = addons.firstWhere((a) => a.id == 'tdwr');
     expect(tdwr.sites, hasLength(45));
     expect(tdwr.sites.every((s) => s.isTdwr && s.level3 != null), isTrue);
   });

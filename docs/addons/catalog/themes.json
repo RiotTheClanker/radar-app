@@ -1,11 +1,10 @@
 {
-  "id": "builtin.themes",
+  "id": "extra-themes",
   "name": "Extra themes",
   "version": "1",
   "author": "Taa'a Yuku Radar",
-  "description": "Night (red) keeps your night vision on a dark road. High contrast is for bright sun on a phone and for weaker eyes. OLED black switches off every pixel it can. Pick one in Tools → THEME once this is on.",
+  "description": "Night (red) keeps your night vision on a dark road. High contrast is for bright sun on a phone and for weaker eyes. OLED black switches off every pixel it can. Pick one in Tools → THEME.",
   "format": 1,
-  "enabled": false,
   "themes": [
     {
       "id": "night-red",

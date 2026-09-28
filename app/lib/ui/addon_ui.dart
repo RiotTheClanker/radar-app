@@ -296,30 +296,18 @@ class _AddonManagerState extends State<AddonManager> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 children: [
-                  if (!addons.any((a) => !a.builtIn) && errors.isEmpty)
+                  if (addons.isEmpty && errors.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: Text(
-                        'Nothing installed yet. An addon is a JSON file that '
-                        'adds radar sites, map overlays, places or themes — '
+                        'No addons yet. An addon is a JSON file that adds '
+                        'radar sites, map overlays, places or themes — '
                         'install one from a link below, or drop files in '
-                        'the folder. The ones that come with the app are '
-                        'below; switch on any you want.',
+                        'the folder.',
                         style: Wx.labelDim.copyWith(height: 1.4),
                       ),
                     ),
-                  // Installed first: they are what someone chose to add, and
-                  // the built-ins, all off until asked for, are a catalogue.
-                  for (final a in addons)
-                    if (!a.builtIn) _addonTile(a),
-                  if (addons.any((a) => a.builtIn)) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
-                      child: Text('COMES WITH THE APP', style: Wx.labelDim),
-                    ),
-                    for (final a in addons)
-                      if (a.builtIn) _addonTile(a),
-                  ],
+                  for (final a in addons) _addonTile(a),
                   for (final c in _shared.addonConflicts)
                     _problem(c, Wx.warn),
                   for (final e in errors.entries)
@@ -457,15 +445,12 @@ class _AddonManagerState extends State<AddonManager> {
             value: on,
             onChanged: (v) => _shared.setAddonEnabled(a, v),
           ),
-          // A built-in has nothing on disk to delete; its switch is the
-          // whole of what can be done with it.
-          if (!a.builtIn)
-            WxButton(
-              icon: Icons.delete_outline,
-              tooltip: 'Remove this addon',
-              dense: true,
-              onTap: () => unawaited(_remove(a)),
-            ),
+          WxButton(
+            icon: Icons.delete_outline,
+            tooltip: 'Remove this addon',
+            dense: true,
+            onTap: () => unawaited(_remove(a)),
+          ),
         ],
       ),
     );

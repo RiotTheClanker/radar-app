@@ -35,7 +35,6 @@ import '../data/user_files.dart';
 import '../src/rust/api/radar.dart';
 import 'addon_ui.dart';
 import 'alert_sheets.dart';
-import 'builtin_addons.dart';
 import 'pane_models.dart';
 import 'radar_pane.dart';
 import 'sounding_screen.dart';
@@ -87,16 +86,6 @@ class _RadarWorkspaceState extends State<RadarWorkspace> {
       // No writable config folder (a locked-down machine): run without
       // addons rather than not at all.
     }
-    // The bundled extras are read from assets, which is asynchronous. They
-    // are all off until someone switches them on, so the panes need not
-    // wait: the only thing that arrives late is a built-in theme already
-    // chosen, a frame after the first.
-    unawaited(loadBuiltInAddons().then((m) {
-      if (!mounted || m.isEmpty) return;
-      try {
-        _shared.reloadAddons(builtIns: m);
-      } catch (_) {}
-    }));
     _applyTheme();
     final start = _shared.siteById('KTLX') ??
         nexradSites.firstWhere((s) => s.icao == 'KTLX');

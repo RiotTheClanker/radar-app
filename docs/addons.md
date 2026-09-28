@@ -13,13 +13,10 @@ do is point at a URL that does not answer.
 
 Working examples are in [addons/examples/](addons/examples/).
 
-## Built-in addons
+## Ready-made addons
 
-A few addons ship inside the app, in `app/assets/addons/`. They are listed in
-the Addons dialog under *Comes with the app* and start switched off. They
-can be switched on and off but not removed. An installed addon with the same
-`id` replaces a built-in one, which is how to change one: copy it into the
-addons folder and edit the copy.
+[addons/catalog/](addons/catalog/) holds addons we maintain, for the website
+to host so people can install them from a link:
 
 | File | What it adds |
 |---|---|
@@ -29,15 +26,11 @@ addons folder and edit the copy.
 | `themes.json` | Night (red), High contrast, OLED black |
 
 All but `themes.json` are written by scripts in `tools/` (`gen_tdwr_addon.py`,
-`gen_extras_addons.py`) from the sources they
-name — edit the script, not the JSON, and re-run it. The ArcGIS WMS servers
-(Census TIGERweb, the NHC) name layers by number and renumber them, so those
-are looked up by title each run. A test loads every built-in and fails on any
-warning.
-
-To add one, drop a `.json` in `app/assets/addons/` — the pubspec lists the
-folder, not the files. Give it an `id` starting `builtin.` and
-`"enabled": false`; the test enforces both.
+`gen_extras_addons.py`) from the sources they name — edit the script, not
+the JSON, and re-run it. The ArcGIS WMS servers (Census TIGERweb, the NHC)
+name layers by number and renumber them, so those are looked up by title
+each run. A test loads each one as a single file, the way a link install
+does, and fails on any warning.
 
 ## Installing
 
@@ -370,7 +363,6 @@ TABLES**, the same as ones dropped in the palettes folder.
 | `lib/data/geojson.dart` | GeoJSON → shapes |
 | `lib/ui/workspace_state.dart` | enabled addons, the merged site list, layer toggles, overlay fetches, the theme |
 | `lib/ui/addon_ui.dart` | the Addons dialog and the place/feature sheets |
-| `lib/ui/builtin_addons.dart` | reads the built-in manifests from `assets/addons/` |
 | `lib/ui/wx_theme.dart` | `WxPalette` — what a theme can change |
 
 Adding a field: parse it in `addons.dart` with a warning for a bad value,

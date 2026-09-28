@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Write the built-in TDWR addon from the site table.
+"""Write the TDWR addon from the site table.
 
     python3 tools/gen_tdwr_addon.py
 
 Reads app/lib/data/nexrad_sites.g.dart (itself generated from NCEI's list by
-gen_sites.py) and writes app/assets/addons/tdwr.json. Run it after
+gen_sites.py) and writes docs/addons/catalog/tdwr.json. Run it after
 regenerating the site table.
 
 The addon only has to say where TDWR data lives and what its products are
@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SITES = ROOT / "app/lib/data/nexrad_sites.g.dart"
-OUT = ROOT / "app/assets/addons/tdwr.json"
+OUT = ROOT / "docs/addons/catalog/tdwr.json"
 
 # In NCEI's list but never seen in NOAA's Level 3 bucket: the two Puerto
 # Rico airport radars. TSJU covers San Juan.
@@ -48,7 +48,7 @@ def main():
         sys.exit(f"no TDWR rows found in {SITES}")
 
     addon = {
-        "id": "builtin.tdwr",
+        "id": "tdwr",
         "name": "TDWR airport radars",
         "version": "1",
         "author": "Taa'a Yuku Radar",
@@ -60,7 +60,6 @@ def main():
             "Level 2."
         ),
         "format": 1,
-        "enabled": False,
         "sites": [
             {
                 **s,

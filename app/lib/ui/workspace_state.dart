@@ -442,28 +442,16 @@ class WorkspaceState extends ChangeNotifier {
 
   Directory? get addonFolder => _addonDir;
 
-  /// The manifests that ship with the app, by asset name. Read once by the
-  /// workspace at startup; empty in tests unless one hands some in.
-  Map<String, String> _builtInAddons = const {};
-
   /// (Re)read the addons folder. Called at startup and from the addon
   /// manager; safe to call again at any time.
-  void reloadAddons({
-    Directory? dir,
-    File? settings,
-    Map<String, String>? builtIns,
-  }) {
+  void reloadAddons({Directory? dir, File? settings}) {
     if (dir != null) _addonDir = dir;
     if (settings != null) _addonSettingsFile = settings;
-    if (builtIns != null) _builtInAddons = builtIns;
     final d = _addonDir;
-    if (d == null && _builtInAddons.isEmpty) return;
+    if (d == null) return;
     final f = _addonSettingsFile;
     if (f != null) _addonSettings = AddonSettings.load(f);
-    // With no folder (no writable config) the built-ins still load; their
-    // switches then last for the session.
-    final installed = d == null ? AddonLoadResult.empty : loadAddons(d);
-    final result = withBuiltInAddons(installed, _builtInAddons);
+    final result = loadAddons(d);
     addons = result.addons;
     addonErrors = result.errors;
     // A reload is how edited files are picked up, so nothing fetched from the
