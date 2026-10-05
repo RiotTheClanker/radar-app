@@ -28,7 +28,6 @@ cargo run --bin l2dump -- <archive2-file>     # decode a Level 2 volume
 cargo run --bin l3dump -- <level3-file>       # decode a Level 3 product
 cargo run --example viewtest                  # viewport render
 cargo run --example vol3dtest                 # 3D volume
-cargo run --example nowcasttest               # future radar
 cargo run --example mrmstest                  # national mosaic
 cargo run --example paltest                   # .pal colour table import
 cargo run --example hcagrade                  # HCA vs. the NWS product
@@ -92,7 +91,6 @@ map, not a substitute for reading them.
 **Derived and decoded**
 | Function | Notes |
 |---|---|
-| `nowcast_view` | Motion between two frames, extrapolated. `source` is `"L3"` or `"MRMS"` |
 | `storm_tracks` | NWS SCIT cells out of a Level 3 STI product |
 | `mesocyclones` | NWS mesocyclone/TVS detections. An empty list means none detected, not an error |
 | `parse_glm` | GOES GLM lightning, via a hand-written HDF5 subset reader |

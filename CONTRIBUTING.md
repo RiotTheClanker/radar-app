@@ -110,7 +110,7 @@ cd rust/radar_core
 cargo run --bin l2dump -- <archive2-file>
 cargo run --bin l3dump -- tools/testdata/latest_N0B
 cargo run --example viewtest                  # and flytest, vol3dtest,
-                                              # nowcasttest, mrmstest, paltest,
+                                              # mrmstest, paltest,
                                               # terraintest, hcagrade, glmtest
 ```
 

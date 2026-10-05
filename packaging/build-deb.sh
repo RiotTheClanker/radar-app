@@ -47,7 +47,7 @@ Installed-Size: $INSTALLED_KB
 Maintainer: Taa'a Yuku Radar contributors
 Description: Free weather radar with on-device NEXRAD processing
  Level 2 and Level 3 NEXRAD decoding, derived products, 3D storm volumes,
- lightning, warnings and on-device future radar. No subscription, no
+ lightning and warnings. No subscription, no
  account, no server: every calculation runs locally.
 CONTROL
 

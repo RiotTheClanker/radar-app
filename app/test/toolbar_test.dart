@@ -8,7 +8,6 @@ import 'package:radar_app/ui/toolbar.dart';
 const _actionKeys = [
   'lightning',
   'volume3d',
-  'future',
   'severe',
   'basemap',
   'location',

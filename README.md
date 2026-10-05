@@ -80,8 +80,8 @@ The format is in [docs/addons.md](docs/addons.md), with
 ## Controls
 
 **Map** — drag to pan, pinch or scroll to zoom. Long-press for a one-shot
-value readout. Toolbar, left to right: lightning source, 3D volume, future
-radar, alert layers (warnings / watches / advisories, and the full list),
+value readout. Toolbar, left to right: lightning source, 3D volume, alert
+layers (warnings / watches / advisories, and the full list),
 basemap, my location, aiming cursor, more
 (replay / measure / color key / sounding / snapshot / color tables), reload.
 
@@ -204,7 +204,7 @@ Level 2/3, MRMS GRIB2, and GOES GLM are all parsed with hand-written readers,
 so there is no libhdf5/libgrib/libeccodes dependency to fight on mobile.
 
 Debug tools live in `rust/radar_core/src/bin` and `examples/` — `l2dump`,
-`l3dump`, and small harnesses for the 3D, nowcast, MRMS, and palette paths.
+`l3dump`, and small harnesses for the 3D, MRMS, and palette paths.
 They run without Flutter, which makes them the fastest way to work on a
 decoder.
 

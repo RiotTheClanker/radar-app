@@ -12,8 +12,8 @@
 //! ```
 //!
 //! Parsed tables are stored globally and consulted by
-//! [`crate::render::ColorTable::default_for`], so every render path — 2D,
-//! 3D, and nowcast — picks them up.
+//! [`crate::render::ColorTable::default_for`], so every render path — 2D
+//! and 3D — picks them up.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
