@@ -243,32 +243,6 @@ Future<void> volume3DSetGround({
 Future<Float64List> volume3DGroundBounds() =>
     RustLib.instance.api.crateApiRadarVolume3DGroundBounds();
 
-/// On-device future radar: estimate motion between two consecutive frames
-/// and extrapolate. `source` is "L3" or "MRMS".
-Future<RadarFrame> nowcastView({
-  required List<int> prev,
-  required List<int> latest,
-  required String source,
-  required double minutes,
-  required double north,
-  required double south,
-  required double east,
-  required double west,
-  required int width,
-  required int height,
-}) => RustLib.instance.api.crateApiRadarNowcastView(
-  prev: prev,
-  latest: latest,
-  source: source,
-  minutes: minutes,
-  north: north,
-  south: south,
-  east: east,
-  west: west,
-  width: width,
-  height: height,
-);
-
 /// Read storm tracks out of a Level 3 STI product (code 58, key `xxx_NST_`).
 Future<List<StormTrack>> stormTracks({required List<int> data}) =>
     RustLib.instance.api.crateApiRadarStormTracks(data: data);

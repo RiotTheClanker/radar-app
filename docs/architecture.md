@@ -15,7 +15,7 @@ docs go deeper on one layer each.
 There is no server. The app fetches raw bytes from public NOAA/NWS buckets,
 hands them to a Rust engine on the device, and gets back georeferenced images
 and decoded values to draw. Everything expensive — Level 2 decoding, the
-3D raymarcher, the nowcast, hydrometeor classification — is Rust.
+3D raymarcher, hydrometeor classification — is Rust.
 
 ```
      NOAA / NWS / SPC / Blitzortung          (public HTTP + one websocket)
@@ -55,7 +55,7 @@ rust/radar_core/          the engine crate — pure Rust, no Flutter
   src/open_format.rs      the open radar format: other people's parsers' output
   src/grib2.rs            model GRIB2: Lambert Conformal, complex packing
   src/glm.rs              GOES GLM, via a hand-written HDF5 subset reader
-  src/process/            derived products, HCA, nowcast, storm tracks, 3D grid
+  src/process/            derived products, HCA, storm tracks, 3D grid
   src/render/             rasterizer, colour tables, wgpu raymarcher
   src/api.rs              the engine's public API
   src/bin/ examples/      headless debug tools — run these without Flutter
