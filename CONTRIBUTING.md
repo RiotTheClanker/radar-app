@@ -225,10 +225,16 @@ saying 0.1.3.
 
 Tagging `v*` builds all three platforms and attaches them to the release.
 
-Known gap: nothing is code-signed yet. Windows shows an "unknown publisher"
-warning, and Android release builds are signed with a debug key that CI
-regenerates every run — so in-place upgrades fail and users must uninstall
-first. One stable signing key would fix the Android half.
+Android release APKs are signed with one permanent key, kept in the repo
+secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` (CI writes them out as
+`app/android/key.properties`). Builds without those secrets, such as PRs from
+forks, use the debug key and cannot be installed over a release; a `v*` tag
+build fails instead of shipping one. Never commit the keystore, and keep a
+backup of it: losing it means every user has to uninstall to update.
+
+Known gap: Windows is not code-signed yet, so the installer shows an
+"unknown publisher" warning.
 
 ## Where to ask
 
